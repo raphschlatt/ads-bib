@@ -273,7 +273,7 @@ def create_topic_map(
     subtitle: str = "",
     dark_mode: bool = True,
     font_family: str = "Cinzel",
-    year_range: tuple[str, str] = ("1911-01-01", "2001-01-01"),
+    year_range: tuple[str, str] | None = None,
     word_cloud: bool = True,
     polygon_alpha: float | None = None,
     output_path: Path | str | None = None,
@@ -288,6 +288,9 @@ def create_topic_map(
         ``Abstract_en``, ``Citation Count``, ``tokens``.
     label_column : str
         Column with topic labels (e.g. ``"Name"`` or ``"MMR"``).
+    year_range : tuple[str, str] or None, optional
+        Histogram range as ``(start, end)`` timestamps. If ``None``, the range
+        is derived from the data (``min_year-01-01`` to ``(max_year+1)-01-01``).
     output_path : Path or str, optional
         If given, save HTML to this path.
 
@@ -301,7 +304,9 @@ def create_topic_map(
 
     # Tokens → string for word cloud
     df = df.copy()
-    df["tokens_str"] = df["tokens"].apply(lambda x: " ".join(x) if isinstance(x, list) else str(x))
+    df["tokens_str"] = df["tokens"].apply(
+        lambda x: " ".join(map(str, x)) if isinstance(x, (list, tuple, np.ndarray, pd.Series)) else str(x)
+    )
 
     extra_data = df[["Bibcode", "Title_en", "Author", "Year", "Journal",
                       "Abstract_en", "Citation Count", "DOI", "tokens_str",
@@ -314,7 +319,23 @@ def create_topic_map(
     )
     extra_data["citation_count"] = pd.to_numeric(extra_data["citation_count"], errors="coerce").fillna(0).astype(int)
 
-    df["publication_date"] = pd.to_datetime(df["Year"].astype(str) + "-12-31")
+    df["publication_date"] = pd.to_datetime(df["Year"].astype(str) + "-12-31", errors="coerce")
+    valid_pub_dates = df["publication_date"].dropna()
+    if valid_pub_dates.empty:
+        auto_hist_start = pd.Timestamp("1900-01-01")
+        auto_hist_end = pd.Timestamp("1901-01-01")
+    else:
+        min_year = int(valid_pub_dates.dt.year.min())
+        max_year = int(valid_pub_dates.dt.year.max())
+        auto_hist_start = pd.Timestamp(f"{min_year}-01-01")
+        auto_hist_end = pd.Timestamp(f"{max_year + 1}-01-01")
+
+    if year_range is None:
+        hist_start, hist_end = auto_hist_start, auto_hist_end
+    else:
+        hist_start, hist_end = (pd.to_datetime(year_range[0]), pd.to_datetime(year_range[1]))
+        if hist_end <= hist_start:
+            raise ValueError("year_range end must be greater than start.")
 
     # Color mapping
     categories = extra_data["primary_field"].unique()
@@ -362,7 +383,7 @@ def create_topic_map(
         max_fontsize=32,
         histogram_data=df["publication_date"],
         histogram_group_datetime_by="year",
-        histogram_range=(pd.to_datetime(year_range[0]), pd.to_datetime(year_range[1])),
+        histogram_range=(hist_start, hist_end),
         histogram_settings={
             "histogram_log_scale": True,
             "histogram_title": "Publications per Year",
