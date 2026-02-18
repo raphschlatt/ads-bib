@@ -114,6 +114,8 @@ function lassoSelectionCallback(selectedPoints) {{
     }} else {{ selectedText = ["Meta data still loading ..."]; }}
     generateWordCloud(wordCounter(selectedText));
 }}
+
+await datamap.addSelectionHandler(lassoSelectionCallback);
 """
 
     @property
@@ -204,11 +206,15 @@ legendContent.addEventListener('click', function(event) {{
             selectedPrimaryFields.add(selectedField); box.innerHTML = "\\u2713";
         }}
     }}
-    const selectedIndices = [];
-    datamap.metaData.primary_field.forEach((field, i) => {{
-        if (selectedPrimaryFields.has(field)) selectedIndices.push(i);
-    }});
-    datamap.addSelection(selectedIndices, "legend");
+    if (selectedPrimaryFields.size === 0) {{
+        datamap.removeSelection("legend");
+    }} else {{
+        const selectedIndices = [];
+        datamap.metaData.primary_field.forEach((field, i) => {{
+            if (selectedPrimaryFields.has(field)) selectedIndices.push(i);
+        }});
+        datamap.addSelection(selectedIndices, "legend");
+    }}
 }});
 
 setTimeout(() => {{

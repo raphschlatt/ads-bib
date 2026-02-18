@@ -6,7 +6,7 @@ Supports four network types:
 * Bibliographic coupling
 * Author co-citation
 
-Export formats: SQLite (Gephi-compatible), CSV, Web of Science.
+Export formats: GEXF (Gephi), Graphology JSON (Sigma.js), CSV, Web of Science.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from __future__ import annotations
 import gc
 import itertools
 import os
-import sqlite3
 from pathlib import Path
 
 import numpy as np
@@ -231,23 +230,75 @@ def create_author_co_citations(
 # Export helpers
 # ---------------------------------------------------------------------------
 
-def export_to_sqlite(
+def export_to_gexf(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
-    db_path: Path | str,
+    path: Path | str,
 ) -> None:
-    """Write edges and nodes to a SQLite database (Gephi-compatible)."""
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    """Write edges and nodes to a GEXF file (native Gephi format)."""
+    import networkx as nx
 
-    # Drop columns that don't belong in the node table
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
     nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
 
-    conn = sqlite3.connect(str(db_path))
-    edges.to_sql("edges", conn, if_exists="replace", index=False)
-    nodes_out.to_sql("nodes", conn, if_exists="replace", index=False)
-    conn.close()
-    print(f"  SQLite: {db_path.name}")
+    G = nx.DiGraph()
+    for _, row in nodes_out.iterrows():
+        attrs = {k: str(v) for k, v in row.items() if k != "id" and pd.notna(v)}
+        G.add_node(str(row["id"]), **attrs)
+
+    for _, row in edges.iterrows():
+        attrs = {k: str(v) for k, v in row.items() if k not in ("source", "target") and pd.notna(v)}
+        G.add_edge(str(row["source"]), str(row["target"]), **attrs)
+
+    nx.write_gexf(G, str(path))
+    print(f"  GEXF: {path.name}")
+
+
+def export_to_graphology_json(
+    edges: pd.DataFrame,
+    nodes: pd.DataFrame,
+    path: Path | str,
+) -> None:
+    """Write edges and nodes to Graphology JSON format (Sigma.js compatible)."""
+    import json
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
+
+    graph = {
+        "attributes": {"type": "directed"},
+        "nodes": [],
+        "edges": [],
+    }
+
+    for _, row in nodes_out.iterrows():
+        attrs = {k: v for k, v in row.items() if k != "id" and pd.notna(v)}
+        # Convert non-serializable types
+        for k, v in attrs.items():
+            if isinstance(v, (list, dict)):
+                attrs[k] = str(v)
+            elif hasattr(v, "item"):  # numpy scalar
+                attrs[k] = v.item()
+        graph["nodes"].append({"key": str(row["id"]), "attributes": attrs})
+
+    for i, row in edges.iterrows():
+        attrs = {k: v for k, v in row.items() if k not in ("source", "target") and pd.notna(v)}
+        for k, v in attrs.items():
+            if hasattr(v, "item"):
+                attrs[k] = v.item()
+        graph["edges"].append({
+            "source": str(row["source"]),
+            "target": str(row["target"]),
+            "attributes": attrs,
+        })
+
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(graph, fh, ensure_ascii=False, default=str)
+    print(f"  Graphology JSON: {path.name}")
 
 
 def export_to_csv(
@@ -364,7 +415,7 @@ def process_all_citations(
     metrics: list[str] = ("direct", "co_citation", "bibliographic_coupling", "author_co_citation"),
     min_counts: dict[str, int] | None = None,
     authors_filter: list[str] | None = None,
-    output_format: str = "sqlite",
+    output_format: str = "gexf",
     output_dir: Path | str = "data/output",
 ) -> dict[str, pd.DataFrame]:
     """Compute selected citation metrics and export.
@@ -372,7 +423,7 @@ def process_all_citations(
     Parameters
     ----------
     output_format : str
-        ``"sqlite"``, ``"csv"``, or ``"both"``.
+        ``"gexf"``, ``"graphology"``, ``"csv"``, or ``"all"``.
 
     Returns
     -------
@@ -418,9 +469,11 @@ def process_all_citations(
         results[metric] = edges
         filtered_nodes = filter_nodes(all_nodes, edges, _edge_cols[metric])
 
-        if output_format in ("sqlite", "both"):
-            export_to_sqlite(edges, filtered_nodes, output_dir / f"{metric}{suffix}.db")
-        if output_format in ("csv", "both"):
+        if output_format in ("gexf", "all"):
+            export_to_gexf(edges, filtered_nodes, output_dir / f"{metric}{suffix}.gexf")
+        if output_format in ("graphology", "all"):
+            export_to_graphology_json(edges, filtered_nodes, output_dir / f"{metric}{suffix}.json")
+        if output_format in ("csv", "all"):
             export_to_csv(edges, filtered_nodes, output_dir / f"{metric}{suffix}_csv")
 
         del edges, filtered_nodes

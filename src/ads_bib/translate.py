@@ -144,6 +144,7 @@ def translate_dataframe(
     api_key: str | None = None,
     api_base: str = "https://openrouter.ai/api/v1",
     max_workers: int = 5,
+    cost_tracker: "CostTracker | None" = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Translate non-English entries in *columns* and add ``{col}_en`` columns.
 
@@ -246,4 +247,12 @@ def translate_dataframe(
         "provider": provider,
         "model": model,
     }
+    if cost_tracker is not None and total_pt + total_ct > 0:
+        cost_tracker.add(
+            step="translation",
+            provider=provider,
+            model=model,
+            prompt_tokens=total_pt,
+            completion_tokens=total_ct,
+        )
     return df, cost_info

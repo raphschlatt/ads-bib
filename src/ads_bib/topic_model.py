@@ -27,6 +27,7 @@ def compute_embeddings(
     max_workers: int = 5,
     dtype=np.float32,
     api_key: str | None = None,
+    cost_tracker: "CostTracker | None" = None,
 ) -> np.ndarray:
     """Compute or load cached document embeddings.
 
@@ -61,7 +62,13 @@ def compute_embeddings(
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(documents, model, batch_size, dtype)
     elif provider == "openrouter":
-        emb = _embed_openrouter(documents, model, batch_size, dtype, api_key)
+        emb, usage = _embed_openrouter(documents, model, batch_size, dtype, api_key)
+        if cost_tracker is not None and usage["total_tokens"] > 0:
+            cost_tracker.add(
+                step="embeddings", provider="openrouter", model=model,
+                prompt_tokens=usage["prompt_tokens"],
+                total_tokens=usage["total_tokens"],
+            )
     else:
         raise ValueError(f"Unknown embedding provider: {provider}")
 
@@ -108,6 +115,7 @@ def _embed_openrouter(documents, model, batch_size, dtype, api_key):
         model = f"openrouter/{model}"
 
     all_emb = []
+    total_pt, total_tokens = 0, 0
     batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
     for batch in tqdm(batches, desc="Embedding (OpenRouter)"):
         for attempt in range(3):
@@ -117,12 +125,16 @@ def _embed_openrouter(documents, model, batch_size, dtype, api_key):
                     api_key=api_key,
                 )
                 all_emb.extend(d["embedding"] for d in resp["data"])
+                if hasattr(resp, "usage") and resp.usage:
+                    total_pt += getattr(resp.usage, "prompt_tokens", 0)
+                    total_tokens += getattr(resp.usage, "total_tokens", 0)
                 break
             except Exception:
                 if attempt == 2:
                     raise
                 import time; time.sleep(1 * (attempt + 1))
-    return np.array(all_emb, dtype=dtype)
+    usage = {"prompt_tokens": total_pt, "total_tokens": total_tokens}
+    return np.array(all_emb, dtype=dtype), usage
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +282,7 @@ def fit_bertopic(
     keybert_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     min_df: int = 2,
     api_key: str | None = None,
+    cost_tracker: "CostTracker | None" = None,
 ) -> "BERTopic":
     """Fit a BERTopic model with pre-computed embeddings and clusters.
 
@@ -341,7 +354,33 @@ def fit_bertopic(
     )
 
     print(f"Fitting BERTopic (LLM: {llm_provider}/{llm_model}) ...")
+
+    # Track LLM costs via litellm callback if using API providers
+    _cost_cb = None
+    if cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api"):
+        import litellm
+        _usage = {"prompt_tokens": 0, "completion_tokens": 0}
+
+        def _cost_cb_fn(kwargs, response, start_time, end_time):
+            if hasattr(response, "usage") and response.usage:
+                _usage["prompt_tokens"] += getattr(response.usage, "prompt_tokens", 0)
+                _usage["completion_tokens"] += getattr(response.usage, "completion_tokens", 0)
+
+        _cost_cb = _cost_cb_fn
+        litellm.success_callback.append(_cost_cb)
+
     topics, probs = topic_model.fit_transform(documents, reduced_5d)
+
+    if _cost_cb is not None:
+        import litellm
+        litellm.success_callback.remove(_cost_cb)
+        if _usage["prompt_tokens"] + _usage["completion_tokens"] > 0:
+            cost_tracker.add(
+                step="llm_labeling", provider=llm_provider, model=llm_model,
+                prompt_tokens=_usage["prompt_tokens"],
+                completion_tokens=_usage["completion_tokens"],
+            )
+
     return topic_model
 
 
