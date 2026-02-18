@@ -4,9 +4,19 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import threading
 
 import pandas as pd
 from tqdm import tqdm
+
+from ads_bib._utils.openrouter_costs import (
+    DEFAULT_OPENROUTER_API_BASE,
+    extract_response_cost,
+    fetch_generation_cost,
+    normalize_openrouter_api_base,
+    normalize_openrouter_cost_mode,
+    summarize_openrouter_costs,
+)
 
 # ---------------------------------------------------------------------------
 # Language detection  (fasttext – fast & free)
@@ -78,32 +88,34 @@ SYSTEM_PROMPT = (
 def _fetch_generation_cost(
     generation_id: str,
     api_key: str,
-    api_base: str = "https://openrouter.ai/api/v1",
+    api_base: str = DEFAULT_OPENROUTER_API_BASE,
     retries: int = 3,
     delay: float = 1.0,
 ) -> float | None:
-    """Query OpenRouter ``/api/v1/generation`` for actual USD cost."""
-    import time
-    import requests
+    """Backward-compatible wrapper around OpenRouter generation cost lookup."""
+    return fetch_generation_cost(
+        generation_id,
+        api_key,
+        api_base=api_base,
+        retries=retries,
+        delay=delay,
+    )
 
-    base = api_base.rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3]
-    url = f"{base}/api/v1/generation?id={generation_id}"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    for attempt in range(retries):
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.ok:
-                data = resp.json().get("data", {})
-                cost = data.get("total_cost")
-                if cost is not None:
-                    return float(cost)
-        except Exception:
-            pass
-        if attempt < retries - 1:
-            time.sleep(delay)
-    return None
+
+_thread_local = threading.local()
+
+
+def _get_openai_client(api_key: str, api_base: str):
+    """Get one OpenAI client per worker thread."""
+    from openai import OpenAI
+
+    normalized_base = normalize_openrouter_api_base(api_base)
+    cache_key = (api_key, normalized_base)
+    existing_key = getattr(_thread_local, "openai_client_key", None)
+    if existing_key != cache_key:
+        _thread_local.openai_client = OpenAI(api_key=api_key, base_url=normalized_base)
+        _thread_local.openai_client_key = cache_key
+    return _thread_local.openai_client
 
 
 def _translate_openrouter(
@@ -111,12 +123,10 @@ def _translate_openrouter(
     target_lang: str,
     model: str,
     api_key: str,
-    api_base: str = "https://openrouter.ai/api/v1",
-) -> tuple[str, int, int, str | None]:
-    """Translate *text* via OpenRouter. Returns ``(translated, prompt_tokens, completion_tokens, generation_id)``."""
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key, base_url=api_base)
+    api_base: str = DEFAULT_OPENROUTER_API_BASE,
+) -> tuple[str, int, int, str | None, float | None]:
+    """Translate *text* via OpenRouter."""
+    client = _get_openai_client(api_key, api_base)
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -127,10 +137,12 @@ def _translate_openrouter(
         temperature=0,
     )
     translated = resp.choices[0].message.content.strip()
-    pt = resp.usage.prompt_tokens if resp.usage else 0
-    ct = resp.usage.completion_tokens if resp.usage else 0
+    usage = getattr(resp, "usage", None)
+    pt = getattr(usage, "prompt_tokens", 0) if usage else 0
+    ct = getattr(usage, "completion_tokens", 0) if usage else 0
     gen_id = getattr(resp, "id", None)
-    return translated, pt, ct, gen_id
+    direct_cost = extract_response_cost(response=resp)
+    return translated, pt, ct, gen_id, direct_cost
 
 
 def _translate_huggingface(
@@ -174,8 +186,9 @@ def translate_dataframe(
     model: str,
     target_lang: str = "en",
     api_key: str | None = None,
-    api_base: str = "https://openrouter.ai/api/v1",
+    api_base: str = DEFAULT_OPENROUTER_API_BASE,
     max_workers: int = 5,
+    openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Translate non-English entries in *columns* and add ``{col}_en`` columns.
@@ -198,6 +211,8 @@ def translate_dataframe(
         OpenRouter API base URL.
     max_workers : int
         Concurrent workers for API-based translation.
+    openrouter_cost_mode : str
+        ``"hybrid"`` (default), ``"strict"``, or ``"fast"``.
 
     Returns
     -------
@@ -207,7 +222,8 @@ def translate_dataframe(
     """
     df = df.copy()
     total_pt, total_ct = 0, 0
-    gen_ids = []  # OpenRouter generation IDs for cost lookup
+    openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
+    call_records: list[dict] = []
 
     # Pre-load HF pipeline once (not per-row)
     hf_pipe = None
@@ -240,26 +256,30 @@ def translate_dataframe(
             def _do_translate(idx_text):
                 idx, text = idx_text
                 try:
-                    translated, pt, ct, gen_id = _translate_openrouter(
+                    translated, pt, ct, gen_id, direct_cost = _translate_openrouter(
                         text, target_lang, model, api_key, api_base
                     )
-                    return idx, translated, pt, ct, gen_id
-                except Exception as exc:
-                    return idx, None, 0, 0, None
+                    return idx, translated, pt, ct, gen_id, direct_cost
+                except Exception:
+                    return idx, None, 0, 0, None, None
 
             items = list(zip(to_translate.index, to_translate[col]))
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = [pool.submit(_do_translate, item) for item in items]
                 for future in tqdm(as_completed(futures), total=n, desc=f"  {col}"):
-                    idx, translated, pt, ct, gen_id = future.result()
+                    idx, translated, pt, ct, gen_id, direct_cost = future.result()
                     if translated is not None:
                         df.at[idx, en_col] = translated
+                        call_records.append(
+                            {
+                                "generation_id": gen_id,
+                                "direct_cost": direct_cost,
+                            }
+                        )
                     else:
                         failed.append(idx)
                     total_pt += pt
                     total_ct += ct
-                    if gen_id:
-                        gen_ids.append(gen_id)
 
         elif provider == "huggingface":
             for idx, text in tqdm(to_translate[col].items(), total=n, desc=f"  {col}"):
@@ -276,25 +296,34 @@ def translate_dataframe(
         if failed:
             print(f"  {col}: {len(failed)} translations failed")
 
-    # Batch-fetch USD costs from OpenRouter generation API
     total_cost_usd = None
-    if provider == "openrouter" and gen_ids and api_key:
-        import time
-        print(f"  Fetching USD costs for {len(gen_ids)} generations ...")
-        time.sleep(2)  # brief delay for OpenRouter to finalize cost data
-        costs = []
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futs = {
-                pool.submit(_fetch_generation_cost, gid, api_key, api_base, retries=2, delay=0.5): gid
-                for gid in gen_ids
-            }
-            for fut in as_completed(futs):
-                c = fut.result()
-                if c is not None:
-                    costs.append(c)
-        if costs:
-            total_cost_usd = sum(costs)
-            print(f"  Total translation cost: ${total_cost_usd:.4f} ({len(costs)}/{len(gen_ids)} priced)")
+    cost_summary = None
+    if provider == "openrouter" and call_records:
+        cost_summary = summarize_openrouter_costs(
+            call_records,
+            mode=openrouter_cost_mode,
+            api_key=api_key,
+            api_base=api_base,
+            max_workers=max_workers,
+            retries=2,
+            delay=0.5,
+            wait_before_fetch=2.0,
+        )
+        total_cost_usd = cost_summary["total_cost_usd"]
+
+        if cost_summary["fetch_attempted_calls"] > 0 and not cost_summary["fetch_skipped_no_api_key"]:
+            print(
+                f"  Resolved USD costs via /generation for {cost_summary['fetch_attempted_calls']} calls "
+                f"(mode={openrouter_cost_mode}) ..."
+            )
+        if total_cost_usd is not None:
+            print(
+                f"  Total translation cost: ${total_cost_usd:.4f} "
+                f"({cost_summary['priced_calls']}/{cost_summary['total_calls']} priced; "
+                f"direct={cost_summary['direct_priced_calls']}, "
+                f"fetched={cost_summary['fetched_priced_calls']}, "
+                f"mode={openrouter_cost_mode})"
+            )
 
     cost_info = {
         "prompt_tokens": total_pt,
@@ -302,6 +331,8 @@ def translate_dataframe(
         "provider": provider,
         "model": model,
         "cost_usd": total_cost_usd,
+        "cost_mode": openrouter_cost_mode if provider == "openrouter" else None,
+        "cost_summary": cost_summary,
     }
     if cost_tracker is not None and total_pt + total_ct > 0:
         cost_tracker.add(

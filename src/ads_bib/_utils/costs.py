@@ -52,7 +52,7 @@ class CostTracker:
                 prompt_tokens=("prompt_tokens", "sum"),
                 completion_tokens=("completion_tokens", "sum"),
                 total_tokens=("total_tokens", "sum"),
-                cost_usd=("cost_usd", "sum"),
+                cost_usd=("cost_usd", lambda s: s.sum(min_count=1)),
                 calls=("step", "count"),
             )
             .reset_index()
@@ -61,9 +61,11 @@ class CostTracker:
     def __repr__(self) -> str:
         if not self.entries:
             return "CostTracker: no entries"
+        import pandas as pd
+
         lines = ["CostTracker Summary", "=" * 60]
         for _, row in self.summary().iterrows():
-            cost_str = f"${row['cost_usd']:.4f}" if row["cost_usd"] else "n/a"
+            cost_str = f"${row['cost_usd']:.4f}" if pd.notna(row["cost_usd"]) else "n/a"
             lines.append(
                 f"  {row['step']:20s} | {row['model']:30s} | "
                 f"{row['total_tokens']:>8,} tokens | {cost_str}"
