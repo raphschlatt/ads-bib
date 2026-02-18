@@ -14,6 +14,36 @@ import pandas as pd
 from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
+# OpenRouter cost lookup
+# ---------------------------------------------------------------------------
+
+def _fetch_openrouter_costs(gen_ids: list[str], api_key: str | None) -> float | None:
+    """Batch-fetch USD costs from the OpenRouter generation API."""
+    if not gen_ids or not api_key:
+        return None
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from ads_bib.translate import _fetch_generation_cost
+    import time
+
+    time.sleep(2)  # brief delay for OpenRouter to finalize cost data
+    costs = []
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futs = {
+            pool.submit(_fetch_generation_cost, gid, api_key): gid
+            for gid in gen_ids
+        }
+        for fut in as_completed(futs):
+            c = fut.result()
+            if c is not None:
+                costs.append(c)
+    if costs:
+        total = sum(costs)
+        print(f"  OpenRouter cost: ${total:.4f} ({len(costs)}/{len(gen_ids)} priced)")
+        return total
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Embeddings (3 providers)
 # ---------------------------------------------------------------------------
 
@@ -64,10 +94,12 @@ def compute_embeddings(
     elif provider == "openrouter":
         emb, usage = _embed_openrouter(documents, model, batch_size, dtype, api_key)
         if cost_tracker is not None and usage["total_tokens"] > 0:
+            cost_usd = _fetch_openrouter_costs(usage.get("gen_ids", []), api_key)
             cost_tracker.add(
                 step="embeddings", provider="openrouter", model=model,
                 prompt_tokens=usage["prompt_tokens"],
                 total_tokens=usage["total_tokens"],
+                cost_usd=cost_usd,
             )
     else:
         raise ValueError(f"Unknown embedding provider: {provider}")
@@ -116,6 +148,7 @@ def _embed_openrouter(documents, model, batch_size, dtype, api_key):
 
     all_emb = []
     total_pt, total_tokens = 0, 0
+    gen_ids = []
     batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
     for batch in tqdm(batches, desc="Embedding (OpenRouter)"):
         for attempt in range(3):
@@ -128,12 +161,16 @@ def _embed_openrouter(documents, model, batch_size, dtype, api_key):
                 if hasattr(resp, "usage") and resp.usage:
                     total_pt += getattr(resp.usage, "prompt_tokens", 0)
                     total_tokens += getattr(resp.usage, "total_tokens", 0)
+                # Collect generation ID for cost lookup
+                resp_id = getattr(resp, "id", None)
+                if resp_id:
+                    gen_ids.append(resp_id)
                 break
             except Exception:
                 if attempt == 2:
                     raise
                 import time; time.sleep(1 * (attempt + 1))
-    usage = {"prompt_tokens": total_pt, "total_tokens": total_tokens}
+    usage = {"prompt_tokens": total_pt, "total_tokens": total_tokens, "gen_ids": gen_ids}
     return np.array(all_emb, dtype=dtype), usage
 
 
@@ -359,12 +396,15 @@ def fit_bertopic(
     _cost_cb = None
     if cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api"):
         import litellm
-        _usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        _usage = {"prompt_tokens": 0, "completion_tokens": 0, "gen_ids": []}
 
         def _cost_cb_fn(kwargs, response, start_time, end_time):
             if hasattr(response, "usage") and response.usage:
                 _usage["prompt_tokens"] += getattr(response.usage, "prompt_tokens", 0)
                 _usage["completion_tokens"] += getattr(response.usage, "completion_tokens", 0)
+            resp_id = getattr(response, "id", None)
+            if resp_id:
+                _usage["gen_ids"].append(resp_id)
 
         _cost_cb = _cost_cb_fn
         litellm.success_callback.append(_cost_cb)
@@ -375,10 +415,14 @@ def fit_bertopic(
         import litellm
         litellm.success_callback.remove(_cost_cb)
         if _usage["prompt_tokens"] + _usage["completion_tokens"] > 0:
+            cost_usd = None
+            if llm_provider == "openrouter" and _usage["gen_ids"]:
+                cost_usd = _fetch_openrouter_costs(_usage["gen_ids"], api_key)
             cost_tracker.add(
                 step="llm_labeling", provider=llm_provider, model=llm_model,
                 prompt_tokens=_usage["prompt_tokens"],
                 completion_tokens=_usage["completion_tokens"],
+                cost_usd=cost_usd,
             )
 
     return topic_model

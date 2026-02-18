@@ -20,7 +20,11 @@ from datamapplot.selection_handlers import SelectionHandlerBase
 # ---------------------------------------------------------------------------
 
 class WordCloud(SelectionHandlerBase):
-    """D3-based dynamic word cloud triggered by lasso selection."""
+    """D3-based dynamic word cloud triggered by lasso selection.
+
+    Dynamically loads d3-cloud after the template's d3@latest to avoid
+    version conflicts (datamapplot deduplicates dependency URLs via set()).
+    """
 
     def __init__(
         self,
@@ -31,15 +35,15 @@ class WordCloud(SelectionHandlerBase):
         stop_words: list[str] | None = None,
         n_rotations: int = 0,
         color_scale: str = "turbo",
-        location: tuple[str, str] = ("bottom", "right"),
+        location: str = "bottom-right",
         text_field: str = "tokens_str",
         **kwargs,
     ):
+        # Only jQuery as a dependency; d3 is provided by the template,
+        # d3-cloud is loaded dynamically in JS to guarantee correct order.
         super().__init__(
             dependencies=[
-                "https://d3js.org/d3.v6.min.js",
-                "https://unpkg.com/d3-cloud@1.2.7/build/d3.layout.cloud.js",
-                "https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js",
+                "https://unpkg.com/jquery@3.7.1/dist/jquery.min.js",
             ],
             **kwargs,
         )
@@ -61,12 +65,28 @@ class WordCloud(SelectionHandlerBase):
     @property
     def javascript(self):
         return f"""
+// --- Dynamically load d3-cloud AFTER d3@latest is available ---
+await new Promise((resolve, reject) => {{
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/d3-cloud@1.2.7/build/d3.layout.cloud.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+}});
+
 const _STOPWORDS = new Set({self.stop_words});
 const _ROTATIONS = [0, -90, 90, -45, 45, -30, 30, -60, 60, -15, 15, -75, 75, -7.5, 7.5, -22.5, 22.5, -52.5, 52.5, -37.5, 37.5, -67.5, 67.5];
+
+// --- Create word cloud container dynamically in the stack layout ---
+let wordCloudStackContainer = document.getElementsByClassName("stack {self.location}")[0];
+const wordCloudItem = document.createElement("div");
+wordCloudItem.id = "word-cloud";
+wordCloudItem.className = "container-box more-opaque stack-box";
+wordCloudStackContainer.appendChild(wordCloudItem);
+
 const wordCloudSvg = d3.select("#word-cloud").append("svg")
     .attr("width", {self.width}).attr("height", {self.height})
     .append("g").attr("transform", "translate(" + {self.width}/2 + "," + {self.height}/2 + ")");
-const wordCloudItem = document.getElementById("word-cloud");
 
 function wordCounter(textItems) {{
     const words = textItems.join(' ').toLowerCase().split(/\\s+/);
@@ -91,7 +111,7 @@ function generateWordCloud(words) {{
   layout.start();
 
   function draw(words) {{
-    const t = d3.transition().duration(500);
+    const t = d3.transition().duration(300);
     const text = wordCloudSvg.selectAll("text").data(words, d => d.text);
     text.exit().transition(t).attr("fill-opacity", 0).attr("font-size", 1).remove();
     text.enter().append("text").attr("text-anchor", "middle")
@@ -115,18 +135,18 @@ function lassoSelectionCallback(selectedPoints) {{
     generateWordCloud(wordCounter(selectedText));
 }}
 
-await datamap.addSelectionHandler(lassoSelectionCallback);
+await datamap.addSelectionHandler(debounce(lassoSelectionCallback, 100));
 """
 
     @property
     def html(self):
-        return '<div id="word-cloud" class="container-box more-opaque"></div>'
+        return ""
 
     @property
     def css(self):
         return f"""
 #word-cloud {{
-    position: absolute; {self.location[1]}: 0; {self.location[0]}: 0;
+    position: relative;
     display: none; width: {self.width}px; height: {self.height}px; z-index: 10;
 }}
 """
