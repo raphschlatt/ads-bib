@@ -1,0 +1,65 @@
+# ADS Pipeline
+
+NASA ADS bibliometric analysis pipeline for citation network construction, topic modeling, and dataset curation.
+
+## Architecture
+
+- `src/ads_bib/` — Installable Python package (`pip install -e ".[all]"`)
+- `pipeline.ipynb` — Single entry-point notebook, structured in 6 sequential phases
+- `data/` — Runtime data directory (created automatically, not tracked in git)
+
+## Pipeline Phases
+
+1. **Search & Export** — ADS API queries + resolve bibcodes to metadata
+2. **Translation** — fasttext language detection + OpenRouter or HuggingFace TranslateGemma
+3. **Tokenization** — spaCy lemmatization of Title + Abstract
+4. **AND** — Author Name Disambiguation (placeholder for external package)
+5. **Topic Modeling & Curation** — BERTopic + datamapplot visualization + cluster removal
+6. **Citation Networks** — Direct, Co-Citation, Bibliographic Coupling, Author Co-Citation
+
+## Key Design Decisions
+
+- ONE notebook, not multiple — downstream params depend on upstream results
+- No CLI — interactive exploration requires notebook context
+- AND is an external package, just imported when ready
+- Translation backends: OpenRouter (any LLM) + HuggingFace local (TranslateGemma 4B)
+- All paths relative to notebook location via `config.init_paths()`
+- Static config in `.env` (API keys), dynamic config in notebook cells
+
+## Module Map
+
+| Module | Purpose |
+|--------|---------|
+| `search.py` | ADS API cursor-based deep paging |
+| `export.py` | Concurrent chunked bibcode export + parsing |
+| `translate.py` | Language detection + 2 translation backends |
+| `tokenize.py` | spaCy tokenization (replaced semanticlayertools) |
+| `topic_model.py` | BERTopic: embeddings, dim reduction, clustering, LLM labeling |
+| `visualize.py` | datamapplot with custom legend, tooltips, word cloud |
+| `curate.py` | Cluster removal, dataset filtering |
+| `citations.py` | 4 citation network types + SQLite/CSV/WOS export |
+| `_utils/ads_api.py` | Shared ADS session, retry logic, rate limiting |
+| `_utils/cleaning.py` | HTML cleanup, range normalization |
+| `_utils/io.py` | JSON lines, Parquet, Pickle wrappers |
+
+## Setup
+
+```bash
+pip install -e ".[all]"
+python -m spacy download en_core_web_lg
+```
+
+Copy `.env.example` to `.env` and fill in API keys. Place `lid.176.bin` in `data/models/`.
+
+## Dependencies
+
+Required: pandas, numpy, requests, python-dotenv, fasttext-wheel, spacy, tqdm, plotly
+
+Optional groups: `[topic]`, `[translate-local]`, `[translate-api]`, `[all]`
+
+## Conventions
+
+- All functions accept and return DataFrames (pandas)
+- Intermediate results saved as JSON lines or Parquet
+- Caching for embeddings (.npz) and dim reduction (.npy)
+- No global state — all config passed as function parameters

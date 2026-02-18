@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ads-bib"
+version = "0.1.0"
+description = "NASA ADS bibliometric analysis pipeline for citation networks, topic modeling, and dataset curation."
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "requests",
+    "python-dotenv",
+    "fasttext-wheel",
+    "spacy>=3.7",
+    "tqdm",
+    "plotly",
+]
+
+[project.optional-dependencies]
+topic = [
+    "bertopic",
+    "sentence-transformers",
+    "scikit-learn",
+    "datamapplot",
+    "pacmap",
+    "fast-hdbscan",
+    "litellm",
+    "seaborn",
+    "matplotlib",
+]
+umap = ["umap-learn"]
+hdbscan = ["hdbscan"]
+translate-local = ["transformers", "torch", "accelerate"]
+translate-api = ["openai"]
+all = ["ads-bib[topic,translate-local,translate-api]"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ads_bib"]

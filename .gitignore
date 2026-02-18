@@ -1,0 +1,45 @@
+# Data (too large for git)
+data/
+2_data/
+3_models/
+4_utils/
+
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Models & caches
+*.bin
+*.pkl
+*.npz
+*.npy
+*.safetensors
+
+# Large outputs
+*.html
+*.db
+*.xlsx
+filtered_publications.xlsx
