@@ -25,3 +25,26 @@ def test_cost_tracker_summary_preserves_missing_costs():
     tracker.add(step="translation", provider="openrouter", model="m", total_tokens=10, cost_usd=None)
     summary = tracker.summary()
     assert pd.isna(summary.loc[0, "cost_usd"])
+
+
+def test_cost_tracker_compact_summary_includes_required_fields():
+    tracker = CostTracker()
+    tracker.add(
+        step="llm_labeling",
+        provider="openrouter",
+        model="openrouter/google/gemini-3-flash-preview",
+        prompt_tokens=100,
+        completion_tokens=25,
+        cost_usd=0.1234,
+    )
+    text = tracker.compact_summary()
+    assert "llm_labeling | openrouter/google/gemini-3-flash-preview" in text
+    assert "tokens(total=125, prompt=100, completion=25)" in text
+    assert "calls=1" in text
+    assert "cost=$0.1234" in text
+
+
+def test_cost_tracker_repr_uses_compact_summary():
+    tracker = CostTracker()
+    tracker.add(step="translation", provider="openrouter", model="m", total_tokens=10, cost_usd=0.0)
+    assert repr(tracker) == tracker.compact_summary()

@@ -11,26 +11,26 @@ def get_cluster_summary(df: pd.DataFrame, label_column: str = "Name") -> pd.Data
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain ``Cluster`` and *label_column*.
+        Must contain ``topic_id`` and *label_column*.
 
     Returns
     -------
     pd.DataFrame
-        One row per cluster with columns: ``Cluster``, ``Count``,
+        One row per cluster with columns: ``topic_id``, ``Count``,
         ``Percentage``, ``Label``.
     """
     total = len(df)
     summary = (
-        df.groupby("Cluster")
+        df.groupby("topic_id")
         .agg(
-            Count=("Cluster", "size"),
+            Count=("topic_id", "size"),
             Label=(label_column, "first"),
         )
         .reset_index()
         .sort_values("Count", ascending=False)
     )
     summary["Percentage"] = (summary["Count"] / total * 100).round(1)
-    return summary[["Cluster", "Count", "Percentage", "Label"]]
+    return summary[["topic_id", "Count", "Percentage", "Label"]]
 
 
 def remove_clusters(
@@ -42,7 +42,7 @@ def remove_clusters(
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain a ``Cluster`` column.
+        Must contain a ``topic_id`` column.
     cluster_ids : list[int]
         Cluster IDs to remove (e.g. ``[3, 7, -1]``).
 
@@ -52,7 +52,7 @@ def remove_clusters(
         Filtered copy of *df*.
     """
     before = len(df)
-    df_out = df[~df["Cluster"].isin(cluster_ids)].copy()
+    df_out = df[~df["topic_id"].isin(cluster_ids)].copy()
     removed = before - len(df_out)
     print(f"Removed {removed:,} documents from clusters {cluster_ids}")
     print(f"Remaining: {len(df_out):,} documents")

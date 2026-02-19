@@ -7,6 +7,8 @@ and LLM labeling.
 
 from __future__ import annotations
 
+import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -280,6 +282,40 @@ def _reduce(embeddings, n_components, method, params, cache_dir, name):
 # Clustering
 # ---------------------------------------------------------------------------
 
+def _create_cluster_model(method: str, params: dict | None = None):
+    """Build the configured clustering model once for all topic workflows."""
+    params = params or {}
+
+    if method == "fast_hdbscan":
+        import fast_hdbscan
+
+        defaults = dict(
+            min_cluster_size=180,
+            min_samples=3,
+            cluster_selection_method="eom",
+            cluster_selection_epsilon=0.02,
+            allow_single_cluster=False,
+        )
+        defaults.update(params)
+        return fast_hdbscan.HDBSCAN(**defaults)
+    if method == "hdbscan":
+        from hdbscan import HDBSCAN
+
+        defaults = dict(
+            min_cluster_size=180,
+            min_samples=3,
+            metric="euclidean",
+            cluster_selection_method="eom",
+            cluster_selection_epsilon=0.02,
+            prediction_data=True,
+            gen_min_span_tree=True,
+        )
+        defaults.update(params)
+        return HDBSCAN(**defaults)
+
+    raise ValueError(f"Unknown clustering method: {method}")
+
+
 def cluster_documents(
     reduced_5d: np.ndarray,
     *,
@@ -300,25 +336,7 @@ def cluster_documents(
     np.ndarray
         Cluster labels (``-1`` = outlier).
     """
-    params = params or {}
-
-    if method == "fast_hdbscan":
-        import fast_hdbscan
-        defaults = dict(min_cluster_size=180, min_samples=3,
-                        cluster_selection_method="eom", cluster_selection_epsilon=0.02,
-                        allow_single_cluster=False)
-        defaults.update(params)
-        model = fast_hdbscan.HDBSCAN(**defaults)
-    elif method == "hdbscan":
-        from hdbscan import HDBSCAN
-        defaults = dict(min_cluster_size=180, min_samples=3, metric="euclidean",
-                        cluster_selection_method="eom", cluster_selection_epsilon=0.02,
-                        prediction_data=True, gen_min_span_tree=True)
-        defaults.update(params)
-        model = HDBSCAN(**defaults)
-    else:
-        raise ValueError(f"Unknown clustering method: {method}")
-
+    model = _create_cluster_model(method, params)
     clusters = model.fit_predict(reduced_5d)
     n_topics = len(set(clusters)) - (1 if -1 in clusters else 0)
     n_outliers = (clusters == -1).sum()
@@ -333,7 +351,6 @@ def cluster_documents(
 def fit_bertopic(
     documents: list[str],
     reduced_5d: np.ndarray,
-    clusters: np.ndarray,
     *,
     llm_provider: str = "local",
     llm_model: str = "google/gemma-3-1b-it",
@@ -347,11 +364,13 @@ def fit_bertopic(
     embedding_model_name: str | None = None,
     keybert_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     min_df: int = 2,
+    clustering_method: str = "fast_hdbscan",
+    clustering_params: dict | None = None,
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> "BERTopic":
-    """Fit a BERTopic model with pre-computed embeddings and clusters.
+    """Fit a BERTopic model with pre-computed reduced embeddings.
 
     Parameters
     ----------
@@ -405,15 +424,12 @@ def fit_bertopic(
         from sentence_transformers import SentenceTransformer
         emb_model = SentenceTransformer(embedding_model_name)
 
-    # Need a dummy clustering model that has been fit
-    import fast_hdbscan
-    _dummy_cluster = fast_hdbscan.HDBSCAN(min_cluster_size=10)
-    _dummy_cluster.fit(reduced_5d)
+    cluster_model = _create_cluster_model(clustering_method, clustering_params)
 
     topic_model = BERTopic(
         embedding_model=emb_model,
         umap_model=BaseDimensionalityReduction(),
-        hdbscan_model=_dummy_cluster,
+        hdbscan_model=cluster_model,
         vectorizer_model=vectorizer,
         ctfidf_model=ctfidf,
         representation_model=rep_model,
@@ -423,51 +439,109 @@ def fit_bertopic(
 
     print(f"Fitting BERTopic (LLM: {llm_provider}/{llm_model}) ...")
 
-    # Track LLM costs via litellm callback if using API providers
-    _cost_cb = None
-    _usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
-    if cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api"):
-        import litellm
+    track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
+    with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
+        topic_model.fit_transform(documents, reduced_5d)
 
-        def _cost_cb_fn(kwargs, response, start_time, end_time):
-            usage = extract_usage_stats(response)
-            _usage["prompt_tokens"] += usage["prompt_tokens"]
-            _usage["completion_tokens"] += usage["completion_tokens"]
-            _usage["call_records"].append(
-                {
-                    "generation_id": extract_generation_id(response),
-                    "direct_cost": extract_response_cost(kwargs=kwargs, response=response),
-                }
-            )
-
-        _cost_cb = _cost_cb_fn
-        litellm.success_callback.append(_cost_cb)
-
-    try:
-        topics, probs = topic_model.fit_transform(documents, reduced_5d)
-    finally:
-        if _cost_cb is not None:
-            import litellm
-            if _cost_cb in litellm.success_callback:
-                litellm.success_callback.remove(_cost_cb)
-
-    if _cost_cb is not None:
-        if _usage["prompt_tokens"] + _usage["completion_tokens"] > 0:
-            cost_usd = None
-            if llm_provider == "openrouter":
-                cost_usd = _fetch_openrouter_costs(
-                    _usage["call_records"],
-                    api_key,
-                    openrouter_cost_mode=openrouter_cost_mode,
-                )
-            cost_tracker.add(
-                step="llm_labeling", provider=llm_provider, model=llm_model,
-                prompt_tokens=_usage["prompt_tokens"],
-                completion_tokens=_usage["completion_tokens"],
-                cost_usd=cost_usd,
-            )
+    _record_llm_usage(
+        llm_usage,
+        step="llm_labeling",
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        api_key=api_key,
+        openrouter_cost_mode=openrouter_cost_mode,
+        cost_tracker=cost_tracker,
+    )
 
     return topic_model
+
+
+@contextmanager
+def _track_litellm_usage(*, enabled: bool):
+    """Capture LiteLLM usage for one operation via callback registration."""
+    if not enabled:
+        yield None
+        return
+
+    import litellm
+
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    def _cost_cb(kwargs, response, start_time, end_time):
+        del start_time, end_time
+        stats = extract_usage_stats(response)
+        usage["prompt_tokens"] += stats["prompt_tokens"]
+        usage["completion_tokens"] += stats["completion_tokens"]
+        usage["call_records"].append(
+            {
+                "generation_id": extract_generation_id(response),
+                "direct_cost": extract_response_cost(kwargs=kwargs, response=response),
+            }
+        )
+
+    litellm.success_callback.append(_cost_cb)
+    try:
+        yield usage
+    finally:
+        if _cost_cb in litellm.success_callback:
+            litellm.success_callback.remove(_cost_cb)
+
+
+def _record_llm_usage(
+    usage: dict | None,
+    *,
+    step: str,
+    llm_provider: str,
+    llm_model: str,
+    api_key: str | None,
+    openrouter_cost_mode: str,
+    cost_tracker: "CostTracker | None",
+) -> None:
+    if usage is None or cost_tracker is None:
+        return
+
+    prompt_tokens = int(usage["prompt_tokens"])
+    completion_tokens = int(usage["completion_tokens"])
+    if prompt_tokens + completion_tokens == 0:
+        return
+
+    cost_usd = None
+    if llm_provider == "openrouter":
+        cost_usd = _fetch_openrouter_costs(
+            usage["call_records"],
+            api_key,
+            openrouter_cost_mode=openrouter_cost_mode,
+        )
+
+    cost_tracker.add(
+        step=step,
+        provider=llm_provider,
+        model=llm_model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=cost_usd,
+    )
+
+
+@contextmanager
+def _suppress_manual_topics_warning():
+    """Silence BERTopic's generic warning and replace with explicit pipeline logs."""
+    target = (
+        "Using a custom list of topic assignments may lead to errors if "
+        "topic reduction techniques are used afterwards."
+    )
+    logger = logging.getLogger("BERTopic")
+
+    class _MessageFilter(logging.Filter):
+        def filter(self, record):
+            return target not in record.getMessage()
+
+    warning_filter = _MessageFilter()
+    logger.addFilter(warning_filter)
+    try:
+        yield
+    finally:
+        logger.removeFilter(warning_filter)
 
 
 def _build_representation_model(*, llm_provider, llm_model, llm_prompt,
@@ -558,14 +632,18 @@ def reduce_outliers(
     reduced_5d: np.ndarray,
     *,
     threshold: float = 0.8,
+    llm_provider: str = "local",
+    llm_model: str = "google/gemma-3-1b-it",
+    api_key: str | None = None,
+    openrouter_cost_mode: str = "hybrid",
+    cost_tracker: "CostTracker | None" = None,
 ) -> np.ndarray:
     """Reduce outliers by re-assigning them to the nearest cluster.
 
-    Returns the updated topic array.
+    Recomputes topic representations afterwards, which is required for
+    consistent labels after topic re-assignment.
     """
-    from sklearn.feature_extraction.text import CountVectorizer
-    from bertopic.vectorizers import ClassTfidfTransformer
-
+    openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     before = (topics == -1).sum()
     new_topics = topic_model.reduce_outliers(
         documents, topics, strategy="embeddings",
@@ -573,12 +651,27 @@ def reduce_outliers(
     )
     after = (np.array(new_topics) == -1).sum()
     print(f"  Outliers: {before:,} → {after:,}")
+    print("  Refreshing topic representations after outlier reassignment (not a full BERTopic refit).")
+    print("  Topic reduction must happen before this step when using manual topic assignments.")
 
-    topic_model.update_topics(
-        documents, topics=new_topics,
-        vectorizer_model=topic_model.vectorizer_model,
-        ctfidf_model=topic_model.ctfidf_model,
-        representation_model=topic_model.representation_model,
+    track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
+    with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
+        with _suppress_manual_topics_warning():
+            topic_model.update_topics(
+                documents, topics=new_topics,
+                vectorizer_model=topic_model.vectorizer_model,
+                ctfidf_model=topic_model.ctfidf_model,
+                representation_model=topic_model.representation_model,
+            )
+
+    _record_llm_usage(
+        llm_usage,
+        step="llm_labeling_post_outliers",
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        api_key=api_key,
+        openrouter_cost_mode=openrouter_cost_mode,
+        cost_tracker=cost_tracker,
     )
     return np.array(new_topics)
 
@@ -596,13 +689,14 @@ def build_topic_dataframe(
 ) -> pd.DataFrame:
     """Augment *df* with topic modeling results.
 
-    Adds columns: ``UMAP-1``, ``UMAP-2``, ``Cluster``, representation
-    columns from ``topic_aspects_``, and optionally ``full_embeddings``.
+    Adds columns: ``embedding_2d_x``, ``embedding_2d_y``, ``topic_id``,
+    representation columns from ``topic_aspects_``, and optionally
+    ``full_embeddings``.
     """
     df = df.copy()
-    df["UMAP-1"] = reduced_2d[:, 0]
-    df["UMAP-2"] = reduced_2d[:, 1]
-    df["Cluster"] = topics
+    df["embedding_2d_x"] = reduced_2d[:, 0]
+    df["embedding_2d_y"] = reduced_2d[:, 1]
+    df["topic_id"] = topics
 
     info = topic_model.get_topic_info()
     base_cols = ["Name"]
@@ -614,7 +708,7 @@ def build_topic_dataframe(
                 row["Topic"]: (", ".join(row[col]) if isinstance(row[col], list) else row[col])
                 for _, row in info.iterrows()
             }
-            df[col] = df["Cluster"].map(mapping)
+            df[col] = df["topic_id"].map(mapping)
 
     if embeddings is not None:
         df["full_embeddings"] = list(embeddings)

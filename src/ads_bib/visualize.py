@@ -283,7 +283,8 @@ def create_topic_map(
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain ``UMAP-1``, ``UMAP-2``, ``Cluster``, *label_column*,
+        Must contain ``embedding_2d_x``, ``embedding_2d_y``, ``topic_id``,
+        *label_column*,
         ``Bibcode``, ``Title_en``, ``Author``, ``Year``, ``Journal``,
         ``Abstract_en``, ``Citation Count``, ``tokens``.
     label_column : str
@@ -298,7 +299,7 @@ def create_topic_map(
     -------
     datamapplot.InteractivePlot
     """
-    data_map = df[["UMAP-1", "UMAP-2"]].to_numpy(np.float32)
+    data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
     label_layers = [df[label_column].to_numpy(object)]
     hover_text = df["Year"].astype(str).tolist()
 
@@ -310,7 +311,7 @@ def create_topic_map(
 
     extra_data = df[["Bibcode", "Title_en", "Author", "Year", "Journal",
                       "Abstract_en", "Citation Count", "DOI", "tokens_str",
-                      "Cluster", label_column]].copy()
+                      "topic_id", label_column]].copy()
     extra_data.columns = ["bibcode", "title", "author", "year", "journal",
                           "abstract", "citation_count", "doi", "tokens_str",
                           "cluster", "primary_field"]
@@ -340,7 +341,7 @@ def create_topic_map(
     # Color mapping
     categories = extra_data["primary_field"].unique()
     cmap = dict(zip(categories, map(rgb2hex, sns.color_palette("turbo", len(categories)))))
-    noise_labels = extra_data.loc[df["Cluster"] == -1, "primary_field"].unique()
+    noise_labels = extra_data.loc[df["topic_id"] == -1, "primary_field"].unique()
     for lbl in noise_labels:
         cmap[lbl] = "#aaaaaa44"
     extra_data["color"] = extra_data["primary_field"].map(cmap)

@@ -58,20 +58,32 @@ class CostTracker:
             .reset_index()
         )
 
-    def __repr__(self) -> str:
+    def compact_summary(self) -> str:
+        """Return a compact one-line-per-step text summary."""
         if not self.entries:
             return "CostTracker: no entries"
+
         import pandas as pd
 
-        lines = ["CostTracker Summary", "=" * 60]
+        lines = ["CostTracker Summary (compact)"]
         for _, row in self.summary().iterrows():
             cost_str = f"${row['cost_usd']:.4f}" if pd.notna(row["cost_usd"]) else "n/a"
             lines.append(
-                f"  {row['step']:20s} | {row['model']:30s} | "
-                f"{row['total_tokens']:>8,} tokens | {cost_str}"
+                "  "
+                f"{row['step']} | {row['model']} | "
+                f"tokens(total={row['total_tokens']:,}, prompt={row['prompt_tokens']:,}, completion={row['completion_tokens']:,}) | "
+                f"calls={int(row['calls'])} | cost={cost_str}"
             )
+
         total_cost = self.total_cost
         cost_line = f"${total_cost:.4f}" if total_cost is not None else "n/a"
-        lines.append("-" * 60)
-        lines.append(f"  {'TOTAL':20s} | {'':30s} | {self.total_tokens:>8,} tokens | {cost_line}")
+        lines.append(
+            "  "
+            f"TOTAL | all models | "
+            f"tokens(total={self.total_tokens:,}, prompt=-, completion=-) | "
+            f"calls={len(self.entries)} | cost={cost_line}"
+        )
         return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return self.compact_summary()

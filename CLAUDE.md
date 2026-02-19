@@ -8,6 +8,10 @@ NASA ADS bibliometric analysis pipeline for citation network construction, topic
 - `pipeline.ipynb` — Single entry-point notebook, structured in 6 sequential phases
 - `data/` — Runtime data directory (created automatically, not tracked in git)
 
+## Engineering Rules
+
+Repository-wide implementation and review rules are defined in `AGENTS.md`.
+
 ## Pipeline Phases
 
 1. **Search & Export** — ADS API queries + resolve bibcodes to metadata
