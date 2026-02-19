@@ -21,7 +21,7 @@ ADS_EXPORT_URL = "https://api.adsabs.harvard.edu/v1/export/custom"
 MAX_BIBCODES_PER_REQUEST = 2000
 
 DEFAULT_CUSTOM_FORMAT = (
-    "%RxOx%ExOx%TxOx%YxOx%JxOx%qxOx%SxOx%VxOx%p xOx%P xOx%BxOx%KxOx%dxOx%FxOx%WxOx%cxOx"
+    "%RxOx%AxOx%TxOx%YxOx%JxOx%qxOx%SxOx%VxOx%p xOx%P xOx%BxOx%KxOx%dxOx%FxOx%WxOx%cxOx"
 )
 
 DEFAULT_COLUMNS = [
