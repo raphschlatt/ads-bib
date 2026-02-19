@@ -396,6 +396,10 @@ def fit_bertopic(
 
     pipeline_models = pipeline_models or ["POS", "KeyBERT", "MMR"]
     parallel_models = parallel_models or ["MMR", "POS", "KeyBERT"]
+    print(
+        "Preparing BERTopic components "
+        f"(pipeline={pipeline_models}, parallel={parallel_models}) ..."
+    )
 
     # Build representation model
     rep_model = _build_representation_model(
@@ -558,6 +562,9 @@ def _build_representation_model(*, llm_provider, llm_model, llm_prompt,
         "Do NOT write anything else."
     )
     prompt = llm_prompt or DEFAULT_PROMPT
+
+    if "POS" in pipeline_models or "POS" in parallel_models:
+        print("  Initializing POS keyword extraction model: en_core_web_sm")
 
     # Pipeline (sequential before LLM)
     pipe = []
