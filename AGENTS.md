@@ -11,7 +11,7 @@ Engineering rules and operating conventions for this repository.
   - `export.py`: metadata export/parsing
   - `translate.py`: language detection + translation
   - `tokenize.py`: text normalization/tokenization
-  - `topic_model.py`: embeddings, dimensionality reduction, clustering, BERTopic labeling
+  - `topic_model.py`: embeddings, dimensionality reduction, clustering, BERTopic + Toponymy labeling
   - `visualize.py`: interactive topic map rendering
   - `curate.py`: topic-level dataset filtering
   - `citations.py`: network construction/export
@@ -39,9 +39,18 @@ Engineering rules and operating conventions for this repository.
 - Single source of truth for clustering configuration:
   - Define clustering method/params once and pass directly into BERTopic construction.
   - Do not compute preview clusters with one config and fit BERTopic with another.
+- Backend matrix:
+  - `bertopic`: BERTopic + optional outlier reassignment refresh.
+  - `toponymy`: Toponymy + `ToponymyClusterer` (sync LLM path).
+  - `toponymy_evoc`: Toponymy + `EVoCClusterer` (sync LLM path).
+- Cost tracker step names:
+  - BERTopic: `llm_labeling`, `llm_labeling_post_outliers`
+  - Toponymy: `llm_labeling_toponymy`
+  - Toponymy + EVoC: `llm_labeling_toponymy_evoc`
 - After `reduce_outliers`, always refresh topic representations via `update_topics`.
   - Reason: topic assignments changed, so keywords/labels/representative docs must be recomputed.
 - If manual topic assignments are used, topic reduction must occur before the final reassignment step.
+- Toponymy in this repository is intentionally sync-only for now.
 
 ## 5) Logging and Console Output
 

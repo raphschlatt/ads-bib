@@ -38,7 +38,7 @@ Repository-wide implementation and review rules are defined in `AGENTS.md`.
 | `export.py` | Concurrent chunked bibcode export + parsing |
 | `translate.py` | Language detection + 2 translation backends |
 | `tokenize.py` | spaCy tokenization (replaced semanticlayertools) |
-| `topic_model.py` | BERTopic: embeddings, dim reduction, clustering, LLM labeling |
+| `topic_model.py` | BERTopic + Toponymy backends: embeddings, dim reduction, clustering, LLM labeling |
 | `visualize.py` | datamapplot with custom legend, tooltips, word cloud |
 | `curate.py` | Cluster removal, dataset filtering |
 | `citations.py` | 4 citation network types + SQLite/CSV/WOS export |
@@ -49,6 +49,8 @@ Repository-wide implementation and review rules are defined in `AGENTS.md`.
 ## Setup
 
 ```bash
+conda activate ADS_env
+pip install -e ".[topic]"
 pip install -e ".[all]"
 python -m spacy download en_core_web_lg
 ```
@@ -67,3 +69,10 @@ Optional groups: `[topic]`, `[translate-local]`, `[translate-api]`, `[all]`
 - Intermediate results saved as JSON lines or Parquet
 - Caching for embeddings (.npz) and dim reduction (.npy)
 - No global state — all config passed as function parameters
+
+## Topic Backend Matrix
+
+- `bertopic`: BERTopic workflow (`llm_labeling`, `llm_labeling_post_outliers`)
+- `toponymy`: Toponymy + `ToponymyClusterer` (`llm_labeling_toponymy`)
+- `toponymy_evoc`: Toponymy + `EVoCClusterer` (`llm_labeling_toponymy_evoc`)
+- Toponymy path is sync-only by design for now (no async wrapper in pipeline).

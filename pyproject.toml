@@ -27,6 +27,9 @@ topic = [
     "pacmap",
     "fast-hdbscan",
     "litellm",
+    "openai",
+    "toponymy",
+    "evoc",
     "seaborn",
     "matplotlib",
 ]

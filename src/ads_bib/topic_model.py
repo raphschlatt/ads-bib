@@ -1,4 +1,4 @@
-"""Step 5 – Topic modeling with BERTopic.
+"""Step 5 – Topic modeling backends (BERTopic and Toponymy).
 
 Covers embedding, dimensionality reduction, clustering, and LLM-based
 topic labeling with three interchangeable providers each for embeddings
@@ -8,8 +8,10 @@ and LLM labeling.
 from __future__ import annotations
 
 import logging
+import inspect
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,6 +21,7 @@ from ads_bib._utils.openrouter_costs import (
     extract_generation_id,
     extract_response_cost,
     extract_usage_stats,
+    normalize_openrouter_api_base,
     normalize_openrouter_cost_mode,
     summarize_openrouter_costs,
 )
@@ -527,6 +530,240 @@ def _record_llm_usage(
     )
 
 
+def _create_tracked_toponymy_namer(
+    *,
+    model: str,
+    api_key: str,
+    base_url: str,
+) -> tuple[Any, dict]:
+    """Create a Toponymy-compatible OpenAI wrapper and capture usage/cost metadata."""
+    from openai import OpenAI
+    from toponymy.llm_wrappers import LLMWrapper
+
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    class TrackedOpenAINamer(LLMWrapper):
+        def __init__(self):
+            self.client = OpenAI(api_key=api_key, base_url=base_url)
+            self.model = model
+
+        def _record_usage(self, response: Any) -> None:
+            stats = extract_usage_stats(response)
+            usage["prompt_tokens"] += stats["prompt_tokens"]
+            usage["completion_tokens"] += stats["completion_tokens"]
+            usage["call_records"].append(
+                {
+                    "generation_id": extract_generation_id(response),
+                    "direct_cost": extract_response_cost(response=response),
+                    "response": response,
+                }
+            )
+
+        def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            self._record_usage(response)
+            return response.choices[0].message.content or ""
+
+        def _call_llm_with_system_prompt(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            max_tokens: int,
+        ) -> str:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            self._record_usage(response)
+            return response.choices[0].message.content or ""
+
+    return TrackedOpenAINamer(), usage
+
+
+def _build_toponymy_topic_info(topics: np.ndarray, topic_names: list[str] | None) -> pd.DataFrame:
+    """Build BERTopic-like topic info rows for Toponymy outputs."""
+    topic_names = topic_names or []
+    rows: list[dict[str, Any]] = []
+    for topic_id in sorted(int(t) for t in np.unique(topics)):
+        if topic_id == -1:
+            name = "Outlier Topic"
+        elif 0 <= topic_id < len(topic_names):
+            name = topic_names[topic_id]
+        else:
+            name = f"Topic {topic_id}"
+        rows.append({"Topic": topic_id, "Name": name, "Main": name})
+    return pd.DataFrame(rows)
+
+
+def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
+    """Make strict clusterer methods tolerant to extra kwargs from Toponymy.fit.
+
+    Some Toponymy versions pass layer kwargs (e.g. ``exemplar_delimiters``,
+    ``prompt_format``) into ``clusterer.fit_predict``. Older EVoCClusterer
+    implementations do not accept these keywords and raise ``TypeError``.
+    This shim drops unsupported kwargs while keeping supported ones intact.
+    """
+
+    def _wrap_bound(method: Any) -> Any:
+        try:
+            sig = inspect.signature(method)
+        except (TypeError, ValueError):
+            return method
+
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            return method
+
+        accepted = set(sig.parameters.keys())
+
+        def _wrapped(*args, **kwargs):
+            filtered = {k: v for k, v in kwargs.items() if k in accepted}
+            return method(*args, **filtered)
+
+        return _wrapped
+
+    for attr in ("fit_predict", "fit"):
+        bound = getattr(clusterer, attr, None)
+        if bound is None:
+            continue
+        wrapped = _wrap_bound(bound)
+        if wrapped is not bound:
+            setattr(clusterer, attr, wrapped)
+
+
+def fit_toponymy(
+    documents: list[str],
+    embeddings: np.ndarray,
+    clusterable_vectors: np.ndarray,
+    *,
+    backend: str = "toponymy",
+    layer_index: int = 0,
+    llm_provider: str = "openrouter",
+    llm_model: str = "google/gemini-3-flash-preview",
+    embedding_model: str = "google/gemini-embedding-001",
+    api_key: str | None = None,
+    openrouter_api_base: str = "https://openrouter.ai/api/v1",
+    openrouter_cost_mode: str = "hybrid",
+    clusterer_params: dict | None = None,
+    object_description: str = "research papers",
+    corpus_description: str = "collection of research papers",
+    verbose: bool = True,
+    cost_tracker: "CostTracker | None" = None,
+) -> tuple[Any, np.ndarray, pd.DataFrame]:
+    """Fit a Toponymy topic model with configurable cluster backend.
+
+    Parameters
+    ----------
+    backend : str
+        ``"toponymy"`` (ToponymyClusterer) or ``"toponymy_evoc"`` (EVoCClusterer).
+    llm_provider : str
+        Currently only ``"openrouter"`` is supported.
+
+    Returns
+    -------
+    tuple
+        ``(toponymy_model, topics, topic_info)`` where ``topic_info`` has
+        BERTopic-compatible columns ``Topic`` and ``Name``.
+    """
+    if llm_provider != "openrouter":
+        raise ValueError(
+            "fit_toponymy currently supports llm_provider='openrouter' only."
+        )
+    if not api_key:
+        raise ValueError("api_key is required for Toponymy with OpenRouter.")
+
+    backend_norm = backend.strip().lower()
+    if backend_norm not in {"toponymy", "toponymy_evoc"}:
+        raise ValueError(
+            f"Invalid backend '{backend}'. Expected 'toponymy' or 'toponymy_evoc'."
+        )
+
+    from toponymy import Toponymy, ToponymyClusterer
+    from toponymy.embedding_wrappers import OpenAIEmbedder
+
+    openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
+    openrouter_api_base = normalize_openrouter_api_base(openrouter_api_base)
+    clusterer_params = dict(clusterer_params or {})
+
+    if backend_norm == "toponymy":
+        clusterer = ToponymyClusterer(**clusterer_params)
+    else:
+        try:
+            from toponymy.clustering import EVoCClusterer
+        except Exception as exc:
+            raise ImportError(
+                "backend='toponymy_evoc' requires optional dependency 'evoc' and "
+                "a Toponymy version that exposes EVoCClusterer."
+            ) from exc
+        clusterer = EVoCClusterer(**clusterer_params)
+        _patch_clusterer_for_toponymy_kwargs(clusterer)
+
+    llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
+        model=llm_model,
+        api_key=api_key,
+        base_url=openrouter_api_base,
+    )
+    text_embedding_model = OpenAIEmbedder(
+        api_key=api_key,
+        model=embedding_model,
+        base_url=openrouter_api_base,
+    )
+
+    print(f"Fitting Toponymy backend='{backend_norm}' (LLM: {llm_provider}/{llm_model}) ...")
+    topic_model = Toponymy(
+        llm_wrapper=llm_wrapper,
+        text_embedding_model=text_embedding_model,
+        clusterer=clusterer,
+        object_description=object_description,
+        corpus_description=corpus_description,
+        verbose=verbose,
+    )
+    topic_model.fit(
+        documents,
+        embedding_vectors=embeddings,
+        clusterable_vectors=clusterable_vectors,
+    )
+
+    n_layers = len(topic_model.cluster_layers_)
+    if layer_index < 0 or layer_index >= n_layers:
+        raise ValueError(
+            f"layer_index {layer_index} is out of range for {n_layers} available layers."
+        )
+    topics = np.asarray(topic_model.cluster_layers_[layer_index].cluster_labels, dtype=int)
+    n_topics = len(set(topics)) - (1 if -1 in topics else 0)
+    n_outliers = int((topics == -1).sum())
+    print(
+        f"  Selected Toponymy layer {layer_index}/{n_layers - 1}: "
+        f"{n_topics} topics, {n_outliers:,} outliers."
+    )
+
+    topic_names = topic_model.topic_names_[layer_index]
+    topic_info = _build_toponymy_topic_info(topics, topic_names)
+
+    _record_llm_usage(
+        llm_usage,
+        step="llm_labeling_toponymy_evoc" if backend_norm == "toponymy_evoc" else "llm_labeling_toponymy",
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        api_key=api_key,
+        openrouter_cost_mode=openrouter_cost_mode,
+        cost_tracker=cost_tracker,
+    )
+    return topic_model, topics, topic_info
+
+
 @contextmanager
 def _suppress_manual_topics_warning():
     """Silence BERTopic's generic warning and replace with explicit pipeline logs."""
@@ -689,10 +926,11 @@ def reduce_outliers(
 
 def build_topic_dataframe(
     df: pd.DataFrame,
-    topic_model: "BERTopic",
+    topic_model: Any,
     topics: np.ndarray,
     reduced_2d: np.ndarray,
     embeddings: np.ndarray | None = None,
+    topic_info: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Augment *df* with topic modeling results.
 
@@ -705,7 +943,7 @@ def build_topic_dataframe(
     df["embedding_2d_y"] = reduced_2d[:, 1]
     df["topic_id"] = topics
 
-    info = topic_model.get_topic_info()
+    info = topic_info if topic_info is not None else topic_model.get_topic_info()
     base_cols = ["Name"]
     aspect_cols = [c for c in ("Main", "MMR", "POS", "KeyBERT") if c in info.columns]
 
@@ -721,7 +959,11 @@ def build_topic_dataframe(
         df["full_embeddings"] = list(embeddings)
 
     # Set custom labels from LLM output
-    if topic_model.topic_representations_:
+    if (
+        hasattr(topic_model, "topic_representations_")
+        and hasattr(topic_model, "set_topic_labels")
+        and topic_model.topic_representations_
+    ):
         labels = {}
         for tid, rep in topic_model.topic_representations_.items():
             if rep:
