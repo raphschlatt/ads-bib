@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,10 +23,16 @@ ADS_EXPORT_URL = "https://api.adsabs.harvard.edu/v1/export/custom"
 MAX_BIBCODES_PER_REQUEST = 2000
 AUTHOR_SEPARATOR = "; "
 _COLLEAGUES_PATTERN = re.compile(r"^(?:and\s+)?\d+\s+colleagues\.?$", re.IGNORECASE)
+_BROKEN_PAGE_FIELDS_PATTERN = re.compile(
+    r'("[^"]*","[^"]*")([^",]*)",([^",]*)"(?=,)'
+)
 
 DEFAULT_CUSTOM_FORMAT = (
-    f"%ZAuthorSep:\"{AUTHOR_SEPARATOR}\""
-    "%RxOx%25.25AxOx%TxOx%YxOx%JxOx%qxOx%SxOx%VxOx%p xOx%P xOx%BxOx%KxOx%dxOx%FxOx%WxOx%cxOx"
+    "%ZEncoding:csv "
+    "%ZMarkup:strip "
+    f"%ZAuthorSep:\"{AUTHOR_SEPARATOR}\" "
+    "%ZHeader:\"Bibcode,Author,Title,Year,Journal,Journal Abbreviation,Issue,Volume,First Page,Last Page,Abstract,Keywords,DOI,Affiliation,Category,Citation Count\" "
+    "%R,%25.25A,%>T,%Y,%J,%q,%S,%V,%p,%P,%>B,%>K,%d,%>F,%W,%c"
 )
 
 DEFAULT_COLUMNS = [
@@ -158,10 +165,31 @@ def parse_export(
     ``Author`` is normalised to ``list[str]`` using ``AUTHOR_SEPARATOR``.
     """
     columns = columns or DEFAULT_COLUMNS
-    rows = [row.split("xOx") for row in raw_data.split("xOx\n")]
-    df = pd.DataFrame(rows)[: -1]  # last split is empty
-    df.columns = columns
-    df = df.replace(r"\n", " ", regex=True)
+    if not raw_data or not raw_data.strip():
+        return pd.DataFrame(columns=columns)
+
+    normalized_raw = _BROKEN_PAGE_FIELDS_PATTERN.sub(
+        r'\1,"\2","\3"',
+        raw_data,
+    )
+
+    df = pd.read_csv(
+        io.StringIO(normalized_raw),
+        keep_default_na=False,
+        engine="python",
+    )
+
+    if all(col in df.columns for col in columns):
+        df = df[columns]
+    elif len(df.columns) == len(columns):
+        df.columns = columns
+
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = (
+            df[col]
+            .str.replace("\\n", " ", regex=False)
+            .str.replace("\n", " ", regex=False)
+        )
 
     def _parse_authors(value: object) -> list[str]:
         if pd.isna(value):
