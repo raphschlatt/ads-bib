@@ -315,6 +315,9 @@ def create_topic_map(
     extra_data.columns = ["bibcode", "title", "author", "year", "journal",
                           "abstract", "citation_count", "doi", "tokens_str",
                           "cluster", "primary_field"]
+    extra_data["author"] = extra_data["author"].apply(
+        lambda x: "; ".join(map(str, x)) if isinstance(x, (list, tuple, np.ndarray, pd.Series)) else str(x)
+    )
     extra_data["abstract"] = extra_data["abstract"].apply(
         lambda x: (x[:200] + "...") if isinstance(x, str) and len(x) > 200 else x
     )

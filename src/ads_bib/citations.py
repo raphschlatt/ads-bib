@@ -56,6 +56,42 @@ def filter_nodes(
     return nodes[nodes["id"].isin(unique)]
 
 
+def _author_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(";") if v.strip()]
+    return []
+
+
+def _author_text(value: object) -> str:
+    return "; ".join(_author_list(value))
+
+
+def _first_author_lastname(value: object) -> str | None:
+    authors = _author_list(value)
+    if not authors:
+        return None
+    first = authors[0]
+    if "," in first:
+        return first.split(",", 1)[0].strip() or None
+    parts = first.split()
+    return parts[-1].strip() if parts else None
+
+
+def _has_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) > 0
+    if isinstance(value, np.ndarray):
+        return value.size > 0
+    try:
+        return bool(pd.notna(value))
+    except Exception:
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Direct citation
 # ---------------------------------------------------------------------------
@@ -93,7 +129,7 @@ def create_direct_citations(
         if year is None:
             continue
         if authors_filter and not any(
-            a.lower() in author_map.get(src, "").lower() for a in authors_filter
+            a.lower() in _author_text(author_map.get(src)).lower() for a in authors_filter
         ):
             continue
         for i, tgt in enumerate(ref_list):
@@ -194,9 +230,7 @@ def create_author_co_citations(
     pubs = _filter_by_authors(publications, authors_filter)
 
     refs = references.copy()
-    refs["FirstAuthor"] = refs["Author"].apply(
-        lambda x: x.split(",")[0].strip() if pd.notnull(x) else None
-    )
+    refs["FirstAuthor"] = refs["Author"].apply(_first_author_lastname)
     ref_to_fa = refs.set_index("Bibcode")["FirstAuthor"].to_dict()
 
     df_exp = pubs.explode("References").dropna(subset=["References"])
@@ -245,11 +279,11 @@ def export_to_gexf(
 
     G = nx.DiGraph()
     for _, row in nodes_out.iterrows():
-        attrs = {k: str(v) for k, v in row.items() if k != "id" and pd.notna(v)}
+        attrs = {k: str(v) for k, v in row.items() if k != "id" and _has_value(v)}
         G.add_node(str(row["id"]), **attrs)
 
     for _, row in edges.iterrows():
-        attrs = {k: str(v) for k, v in row.items() if k not in ("source", "target") and pd.notna(v)}
+        attrs = {k: str(v) for k, v in row.items() if k not in ("source", "target") and _has_value(v)}
         G.add_edge(str(row["source"]), str(row["target"]), **attrs)
 
     nx.write_gexf(G, str(path))
@@ -276,7 +310,7 @@ def export_to_graphology_json(
     }
 
     for _, row in nodes_out.iterrows():
-        attrs = {k: v for k, v in row.items() if k != "id" and pd.notna(v)}
+        attrs = {k: v for k, v in row.items() if k != "id" and _has_value(v)}
         # Convert non-serializable types
         for k, v in attrs.items():
             if isinstance(v, (list, dict)):
@@ -286,7 +320,7 @@ def export_to_graphology_json(
         graph["nodes"].append({"key": str(row["id"]), "attributes": attrs})
 
     for i, row in edges.iterrows():
-        attrs = {k: v for k, v in row.items() if k not in ("source", "target") and pd.notna(v)}
+        attrs = {k: v for k, v in row.items() if k not in ("source", "target") and _has_value(v)}
         for k, v in attrs.items():
             if hasattr(v, "item"):
                 attrs[k] = v.item()
@@ -338,16 +372,11 @@ def export_wos_format(
 
     ref_lookup = references.drop_duplicates(subset="Bibcode").set_index("Bibcode").to_dict(orient="index")
 
-    def _format_author(authors: str) -> str:
-        return "\n   ".join(
-            f"{' '.join(a.split()[:-1])}, {a.split()[-1]}"
-            for a in authors.split(", ")
-            if a.strip()
-        )
+    def _format_author(authors: list[str] | str) -> str:
+        return "\n   ".join(_author_list(authors))
 
-    def _format_ref_author(authors: str) -> str:
-        first = authors.split(", ")[0]
-        return f"{' '.join(first.split()[:-1])} {first.split()[-1]}" if first.strip() else ""
+    def _format_ref_author(authors: list[str] | str) -> str:
+        return _first_author_lastname(authors) or ""
 
     def _format_pub(pub: dict) -> str:
         lines = [f"PT J\nAU {_format_author(pub['Author'])}\nTI {pub.get('Title_en', pub.get('Title', ''))}\nSO {pub['Journal']}\nDT {pub['Category']}"]
@@ -492,4 +521,5 @@ def _filter_by_authors(
     if not authors:
         return df
     pattern = "|".join(authors)
-    return df[df["Author"].str.contains(pattern, case=False, na=False)]
+    author_series = df["Author"].apply(_author_text)
+    return df[author_series.str.contains(pattern, case=False, na=False)]

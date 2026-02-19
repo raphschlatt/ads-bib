@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -19,9 +20,12 @@ from ._utils.cleaning import clean_dataframe
 
 ADS_EXPORT_URL = "https://api.adsabs.harvard.edu/v1/export/custom"
 MAX_BIBCODES_PER_REQUEST = 2000
+AUTHOR_SEPARATOR = "; "
+_COLLEAGUES_PATTERN = re.compile(r"^(?:and\s+)?\d+\s+colleagues\.?$", re.IGNORECASE)
 
 DEFAULT_CUSTOM_FORMAT = (
-    "%RxOx%AxOx%TxOx%YxOx%JxOx%qxOx%SxOx%VxOx%p xOx%P xOx%BxOx%KxOx%dxOx%FxOx%WxOx%cxOx"
+    f"%ZAuthorSep:\"{AUTHOR_SEPARATOR}\""
+    "%RxOx%25.25AxOx%TxOx%YxOx%JxOx%qxOx%SxOx%VxOx%p xOx%P xOx%BxOx%KxOx%dxOx%FxOx%WxOx%cxOx"
 )
 
 DEFAULT_COLUMNS = [
@@ -149,12 +153,35 @@ def parse_export(
     raw_data: str,
     columns: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Parse the raw ADS custom-format export string into a DataFrame."""
+    """Parse the raw ADS custom-format export string into a DataFrame.
+
+    ``Author`` is normalised to ``list[str]`` using ``AUTHOR_SEPARATOR``.
+    """
     columns = columns or DEFAULT_COLUMNS
     rows = [row.split("xOx") for row in raw_data.split("xOx\n")]
     df = pd.DataFrame(rows)[: -1]  # last split is empty
     df.columns = columns
     df = df.replace(r"\n", " ", regex=True)
+
+    def _parse_authors(value: object) -> list[str]:
+        if pd.isna(value):
+            return []
+        authors: list[str] = []
+        raw = str(value)
+        for chunk in raw.split(";"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            for part in re.split(r"\s+(?:and|&)\s+", chunk):
+                part = re.sub(r"^(?:and|&)\s+", "", part, flags=re.IGNORECASE)
+                part = re.sub(r",?\s*et\s*al\.?$", "", part, flags=re.IGNORECASE).strip(" ,;")
+                if not part or _COLLEAGUES_PATTERN.fullmatch(part):
+                    continue
+                authors.append(part)
+        return authors
+
+    if "Author" in df.columns:
+        df["Author"] = df["Author"].apply(_parse_authors)
     return df
 
 

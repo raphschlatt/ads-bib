@@ -36,7 +36,7 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     1. Replace empty ``References`` (``'[]'``) with empty lists.
     2. Drop rows with non-numeric ``Year``; convert ``Year`` to int.
     3. Unescape HTML in ``Title``, ``Abstract``, ``full_text``.
-    4. Remove hyphens from ``Author`` (preserves DOI hyphens).
+    4. Remove hyphens from each ``Author`` entry (preserves DOI hyphens).
     5. Normalise ``Issue``, ``Volume``, ``First Page``, ``Last Page``.
     """
     df = df.copy()
@@ -57,7 +57,11 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].apply(clean_html)
 
     if "Author" in df.columns:
-        df["Author"] = df["Author"].str.replace("-", "", regex=False)
+        df["Author"] = df["Author"].apply(
+            lambda xs: [str(a).replace("-", "") for a in xs if str(a).strip()]
+            if isinstance(xs, list)
+            else ([] if pd.isna(xs) else str(xs).replace("-", ""))
+        )
 
     for col in ("Issue", "Volume", "First Page", "Last Page"):
         if col in df.columns:
