@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import sys
 import time
 import types
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -294,20 +295,25 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch, capsys):
 
     monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
 
-    model, topics, _ = tm.fit_toponymy(
-        documents=["d1", "d2", "d3"],
-        embeddings=np.ones((3, 3), dtype=np.float32),
-        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
-        backend="toponymy_evoc",
-        layer_index=0,
-        llm_provider="openrouter",
-        llm_model="google/gemini-3-flash-preview",
-        api_key="key",
-        clusterer_params={"min_clusters": 4, "cluster_levels": 2},
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        model, topics, _ = tm.fit_toponymy(
+            documents=["d1", "d2", "d3"],
+            embeddings=np.ones((3, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+            backend="toponymy_evoc",
+            layer_index=0,
+            llm_provider="openrouter",
+            llm_model="google/gemini-3-flash-preview",
+            api_key="key",
+            clusterer_params={"min_clusters": 4, "cluster_levels": 2},
+        )
 
-    output = capsys.readouterr().out
-    assert "Dropping unsupported EVoCClusterer parameter(s): cluster_levels" in output
+    capsys.readouterr()
+    assert any(
+        "Dropping unsupported EVoCClusterer parameter(s): cluster_levels" in str(w.message)
+        for w in caught
+    )
     assert isinstance(model.clusterer, _StrictEVoCClusterer)
     assert model.clusterer.kwargs == {"min_clusters": 4, "min_samples": 3}
     assert topics.tolist() == [-1, 0, 1]
@@ -331,24 +337,29 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch, caps
 
     monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
 
-    model, topics, _ = tm.fit_toponymy(
-        documents=["d1", "d2", "d3"],
-        embeddings=np.ones((3, 3), dtype=np.float32),
-        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
-        backend="toponymy",
-        layer_index=0,
-        llm_provider="openrouter",
-        llm_model="google/gemini-3-flash-preview",
-        api_key="key",
-        clusterer_params={
-            "min_clusters": 7,
-            "base_min_cluster_size": 11,
-            "cluster_levels": 3,
-        },
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        model, topics, _ = tm.fit_toponymy(
+            documents=["d1", "d2", "d3"],
+            embeddings=np.ones((3, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+            backend="toponymy",
+            layer_index=0,
+            llm_provider="openrouter",
+            llm_model="google/gemini-3-flash-preview",
+            api_key="key",
+            clusterer_params={
+                "min_clusters": 7,
+                "base_min_cluster_size": 11,
+                "cluster_levels": 3,
+            },
+        )
 
-    output = capsys.readouterr().out
-    assert "Dropping unsupported ToponymyClusterer parameter(s): cluster_levels" in output
+    capsys.readouterr()
+    assert any(
+        "Dropping unsupported ToponymyClusterer parameter(s): cluster_levels" in str(w.message)
+        for w in caught
+    )
     assert isinstance(model.clusterer, _StrictToponymyClusterer)
     assert model.clusterer.kwargs == {"min_clusters": 7, "base_min_cluster_size": 11}
     assert topics.tolist() == [-1, 0, 1]

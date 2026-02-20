@@ -93,22 +93,22 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 - [x] **`search.py:47` — ADS Search-URL als benannte Konstante**
   - `export.py` hat bereits `ADS_EXPORT_URL`; `search.py` hat die URL inline.
 - [x] **`search.py:76` — Link-Gateway-URL als benannte Konstante**
-- [ ] **`topic_model.py:953, 971` — `"en_core_web_sm"` hardcoded**
+- [x] **`topic_model.py:953, 971` — `"en_core_web_sm"` hardcoded**
   - Ist ein anderes spaCy-Modell als `en_core_web_lg` in `tokenize.py`; sollte Parameter sein.
-- [ ] **Magic Numbers dokumentieren oder als benannte Konstanten**
+- [x] **Magic Numbers dokumentieren oder als benannte Konstanten**
   - `topic_model.py:307` — `random_state=42` in `_reduce()` ist nicht uebersteuerbar
   - `topic_model.py:314` — `n_neighbors=80` (UMAP) vs. L307 `n_neighbors=60` (PaCMAP) — undokumentiert
   - `topic_model.py:345, 357` — `min_cluster_size=180` Default
   - `topic_model.py:492` — `top_n_words=20` nicht exponiert
   - `translate.py:136` — `max_tokens=2048` nicht exponiert
-- [ ] **CDN-URLs in `visualize.py` als Konstanten**
+- [x] **CDN-URLs in `visualize.py` als Konstanten**
   - L46 jQuery, L74 d3-cloud — pinned Versionen in Inline-Strings.
 
 ---
 
 ## 7) Naming-Inkonsistenzen
 
-- [ ] **`citations.py:137` — Spalte `"count"` speichert den Referenz-*Index*, nicht einen Count**
+- [x] **`citations.py:137` — Spalte `"count"` speichert den Referenz-*Index*, nicht einen Count**
   - Umbenennen zu `"ref_index"` oder `"ref_position"`.
 - [x] **`run_manager.py` — Emoji in `print()`-Aufrufen entfernen**
   - L46, L47, L93 — inkonsistent mit dem Rest des Codebases.
@@ -117,12 +117,13 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ## 8) Logging-Strategie
 
-- [ ] **Entscheidung treffen: `print()` vs. `logging`**
+- [x] **Entscheidung treffen: `print()` vs. `logging`**
   - Aktuell: 64x `print()` in 10 Dateien, `logging` nur fuer BERTopic-Warning-Suppression.
   - Fuer Notebook-Nutzung ist `print()` akzeptabel, aber:
     - Debug-/Diagnostic-Ausgaben sollten abschaltbar sein.
     - Warnings (z.B. `visualize.py:428`) sollten `warnings.warn()` nutzen.
   - Empfehlung: `print()` fuer User-facing Output beibehalten, `warnings.warn()` fuer Warnungen, optional `logging` fuer Debug.
+  - **Entscheidung umgesetzt:** Notebook-first bleibt `print()` fuer Fortschritt/Status; nicht-fatales Verhalten nutzt `warnings.warn()`; kein globales Logging-Framework fuer normale Pipeline-Ausgabe.
 - [x] **Alle `print("Warning: ...")` Stellen auf `warnings.warn()` umstellen**
 
 ---

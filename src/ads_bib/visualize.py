@@ -17,6 +17,13 @@ from datamapplot.selection_handlers import SelectionHandlerBase
 
 from ads_bib._utils.authors import author_text
 
+# ---------------------------------------------------------------------------
+# External asset URLs
+# ---------------------------------------------------------------------------
+
+JQUERY_CDN_URL = "https://unpkg.com/jquery@3.7.1/dist/jquery.min.js"
+D3_CLOUD_CDN_URL = "https://unpkg.com/d3-cloud@1.2.7/build/d3.layout.cloud.js"
+
 
 # ---------------------------------------------------------------------------
 # WordCloud selection handler
@@ -69,7 +76,7 @@ class WordCloud(SelectionHandlerBase):
         # d3-cloud is loaded dynamically in JS to guarantee correct order.
         super().__init__(
             dependencies=[
-                "https://unpkg.com/jquery@3.7.1/dist/jquery.min.js",
+                JQUERY_CDN_URL,
             ],
             **kwargs,
         )
@@ -99,7 +106,7 @@ class WordCloud(SelectionHandlerBase):
 // --- Dynamically load d3-cloud AFTER d3@latest is available ---
 await new Promise((resolve, reject) => {{
     const s = document.createElement('script');
-    s.src = 'https://unpkg.com/d3-cloud@1.2.7/build/d3.layout.cloud.js';
+    s.src = {D3_CLOUD_CDN_URL!r};
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);

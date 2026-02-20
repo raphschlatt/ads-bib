@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import inspect
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,6 +29,20 @@ from ads_bib._utils.openrouter_costs import (
     normalize_openrouter_cost_mode,
     summarize_openrouter_costs,
 )
+
+# ---------------------------------------------------------------------------
+# Module defaults
+# ---------------------------------------------------------------------------
+
+DEFAULT_DIM_REDUCTION_RANDOM_STATE = 42
+# PaCMAP in this pipeline uses denser neighborhood sampling than many defaults
+# to stabilize cluster geometry on large corpora.
+DEFAULT_PACMAP_N_NEIGHBORS = 60
+# UMAP uses a broader neighborhood for smoother global topic separation.
+DEFAULT_UMAP_N_NEIGHBORS = 80
+DEFAULT_CLUSTER_MIN_SIZE = 180
+DEFAULT_BERTOPIC_TOP_N_WORDS = 20
+DEFAULT_POS_SPACY_MODEL = "en_core_web_sm"
 
 # ---------------------------------------------------------------------------
 # OpenRouter cost lookup
@@ -319,6 +334,7 @@ def reduce_dimensions(
     method: str = "pacmap",
     params_5d: dict | None = None,
     params_2d: dict | None = None,
+    random_state: int = DEFAULT_DIM_REDUCTION_RANDOM_STATE,
     cache_dir: Path | None = None,
     cache_suffix: str = "",
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -330,6 +346,9 @@ def reduce_dimensions(
         ``"pacmap"`` or ``"umap"``.
     params_5d, params_2d : dict, optional
         Override default parameters for each projection.
+    random_state : int
+        Shared RNG seed used by PaCMAP/UMAP unless explicitly overridden in
+        ``params_5d`` or ``params_2d``.
     cache_dir : Path, optional
         Directory for ``.npy`` caches.
     cache_suffix : str
@@ -340,8 +359,24 @@ def reduce_dimensions(
     tuple[np.ndarray, np.ndarray]
         ``(reduced_5d, reduced_2d)``.
     """
-    r5 = _reduce(embeddings, 5, method, params_5d or {}, cache_dir, f"5d_{cache_suffix}")
-    r2 = _reduce(embeddings, 2, method, params_2d or {}, cache_dir, f"2d_{cache_suffix}")
+    r5 = _reduce(
+        embeddings,
+        5,
+        method,
+        params_5d or {},
+        random_state,
+        cache_dir,
+        f"5d_{cache_suffix}",
+    )
+    r2 = _reduce(
+        embeddings,
+        2,
+        method,
+        params_2d or {},
+        random_state,
+        cache_dir,
+        f"2d_{cache_suffix}",
+    )
     print(f"  5D shape: {r5.shape}, 2D shape: {r2.shape}")
     return r5, r2
 
@@ -351,6 +386,7 @@ def _reduce(
     n_components: int,
     method: str,
     params: dict[str, Any],
+    random_state: int,
     cache_dir: Path | None,
     name: str,
 ) -> np.ndarray:
@@ -364,15 +400,27 @@ def _reduce(
     print(f"  Computing {name} with {method.upper()} ...")
     if method == "pacmap":
         import pacmap
-        defaults = dict(n_components=n_components, n_neighbors=60, MN_ratio=0.5,
-                        FP_ratio=1.0, random_state=42, verbose=True)
+        defaults = dict(
+            n_components=n_components,
+            n_neighbors=DEFAULT_PACMAP_N_NEIGHBORS,
+            MN_ratio=0.5,
+            FP_ratio=1.0,
+            random_state=random_state,
+            verbose=True,
+        )
         defaults.update(params)
         defaults["n_components"] = n_components
         model = pacmap.PaCMAP(**defaults)
     elif method == "umap":
         from umap import UMAP
-        defaults = dict(n_components=n_components, n_neighbors=80, min_dist=0.05,
-                        metric="cosine", random_state=42, verbose=True)
+        defaults = dict(
+            n_components=n_components,
+            n_neighbors=DEFAULT_UMAP_N_NEIGHBORS,
+            min_dist=0.05,
+            metric="cosine",
+            random_state=random_state,
+            verbose=True,
+        )
         defaults.update(params)
         defaults["n_components"] = n_components
         model = UMAP(**defaults)
@@ -395,14 +443,20 @@ def _reduce(
 # ---------------------------------------------------------------------------
 
 def _create_cluster_model(method: str, params: dict | None = None):
-    """Build the configured clustering model once for all topic workflows."""
+    """Build the configured clustering model once for all topic workflows.
+
+    Notes
+    -----
+    Default ``min_cluster_size`` is ``DEFAULT_CLUSTER_MIN_SIZE`` (180) and can
+    be overridden via ``params``.
+    """
     params = params or {}
 
     if method == "fast_hdbscan":
         import fast_hdbscan
 
         defaults = dict(
-            min_cluster_size=180,
+            min_cluster_size=DEFAULT_CLUSTER_MIN_SIZE,
             min_samples=3,
             cluster_selection_method="eom",
             cluster_selection_epsilon=0.02,
@@ -414,7 +468,7 @@ def _create_cluster_model(method: str, params: dict | None = None):
         from hdbscan import HDBSCAN
 
         defaults = dict(
-            min_cluster_size=180,
+            min_cluster_size=DEFAULT_CLUSTER_MIN_SIZE,
             min_samples=3,
             metric="euclidean",
             cluster_selection_method="eom",
@@ -478,6 +532,8 @@ def fit_bertopic(
     min_df: int = 2,
     clustering_method: str = "fast_hdbscan",
     clustering_params: dict | None = None,
+    top_n_words: int = DEFAULT_BERTOPIC_TOP_N_WORDS,
+    pos_spacy_model: str = DEFAULT_POS_SPACY_MODEL,
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
@@ -494,6 +550,11 @@ def fit_bertopic(
     parallel_models : list[str], optional
         Models stored separately in ``topic_aspects_`` for comparison
         (e.g. ``["MMR", "POS", "KeyBERT"]``).
+    top_n_words : int
+        Number of top words BERTopic stores per topic.
+    pos_spacy_model : str
+        spaCy model name for ``PartOfSpeech`` representation when ``"POS"``
+        is active in pipeline or parallel models.
 
     Returns
     -------
@@ -526,6 +587,7 @@ def fit_bertopic(
         llm_delay=llm_delay,
         keybert_model=keybert_model,
         api_key=api_key,
+        pos_spacy_model=pos_spacy_model,
     )
 
     vectorizer = CountVectorizer(stop_words="english", min_df=min_df, ngram_range=(1, 3))
@@ -549,7 +611,7 @@ def fit_bertopic(
         vectorizer_model=vectorizer,
         ctfidf_model=ctfidf,
         representation_model=rep_model,
-        top_n_words=20,
+        top_n_words=top_n_words,
         verbose=True,
     )
 
@@ -776,9 +838,11 @@ def _instantiate_with_filtered_kwargs(
     dropped = sorted(k for k in kwargs.keys() if k not in accepted)
 
     if dropped:
-        print(
-            f"  Warning: Dropping unsupported {component_name} parameter(s): "
-            f"{', '.join(dropped)}"
+        warnings.warn(
+            f"Dropping unsupported {component_name} parameter(s): "
+            f"{', '.join(dropped)}",
+            UserWarning,
+            stacklevel=2,
         )
 
     try:
@@ -1111,6 +1175,7 @@ def _build_representation_model(
     llm_delay: float,
     keybert_model: str | None,
     api_key: str | None,
+    pos_spacy_model: str,
 ) -> dict[str, Any]:
     """Build BERTopic representation models for sequential and parallel use."""
     from bertopic.representation import MaximalMarginalRelevance, PartOfSpeech
@@ -1125,13 +1190,13 @@ def _build_representation_model(
     prompt = llm_prompt or DEFAULT_PROMPT
 
     if "POS" in pipeline_models or "POS" in parallel_models:
-        print("  Initializing POS keyword extraction model: en_core_web_sm")
+        print(f"  Initializing POS keyword extraction model: {pos_spacy_model}")
 
     # Pipeline (sequential before LLM)
     pipe = []
     for name in pipeline_models:
         if name == "POS":
-            pipe.append(PartOfSpeech("en_core_web_sm"))
+            pipe.append(PartOfSpeech(pos_spacy_model))
         elif name == "KeyBERT":
             from bertopic.representation import KeyBERTInspired
             pipe.append(KeyBERTInspired())
@@ -1149,7 +1214,7 @@ def _build_representation_model(
         if name == "MMR":
             result["MMR"] = MaximalMarginalRelevance(diversity=mmr_diversity)
         elif name == "POS":
-            result["POS"] = PartOfSpeech("en_core_web_sm")
+            result["POS"] = PartOfSpeech(pos_spacy_model)
         elif name == "KeyBERT":
             from bertopic.representation import KeyBERTInspired
             result["KeyBERT"] = KeyBERTInspired()

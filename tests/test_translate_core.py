@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 import ads_bib.translate as tr
 
@@ -27,8 +28,9 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
     )
     calls: dict = {}
 
-    def _fake_translate_openrouter(text, target_lang, model, api_key, api_base):
+    def _fake_translate_openrouter(text, target_lang, model, api_key, api_base, *, max_tokens=2048):
         del target_lang, model, api_key, api_base
+        calls["max_tokens"] = max_tokens
         return f"{text}-EN", 3, 2, "gid-1", 0.01
 
     def _fake_summarize_openrouter_costs(call_records, **kwargs):
@@ -62,6 +64,7 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
         model="openrouter/test-model",
         api_key="dummy",
         max_workers=1,
+        max_translation_tokens=777,
         cost_tracker=tracker,
     )
 
@@ -70,5 +73,24 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
     assert cost_info["completion_tokens"] == 2
     assert cost_info["cost_usd"] == 0.01
     assert calls["records"][0]["generation_id"] == "gid-1"
+    assert calls["max_tokens"] == 777
     assert tracker.entries[0]["step"] == "translation"
     assert tracker.entries[0]["cost_usd"] == 0.01
+
+
+def test_translate_dataframe_validates_max_translation_tokens():
+    df = pd.DataFrame(
+        {
+            "Title": ["Hallo"],
+            "Title_lang": ["de"],
+        }
+    )
+    with pytest.raises(ValueError, match="max_translation_tokens must be > 0"):
+        tr.translate_dataframe(
+            df,
+            columns=["Title"],
+            provider="openrouter",
+            model="openrouter/test-model",
+            api_key="dummy",
+            max_translation_tokens=0,
+        )

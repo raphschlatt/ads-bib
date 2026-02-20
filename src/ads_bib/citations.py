@@ -117,6 +117,11 @@ def create_direct_citations(
     authors_filter : list[str], optional
         If given, only include publications whose ``Author`` field contains
         one of these strings (case-insensitive).
+
+    Notes
+    -----
+    The output column ``ref_index`` stores the zero-based position of each
+    reference within the source document's reference list.
     """
     year_map = publications.set_index("Bibcode")["Year"].to_dict()
     author_map = publications.set_index("Bibcode")["Author"].to_dict()
@@ -132,7 +137,7 @@ def create_direct_citations(
             continue
         for i, tgt in enumerate(ref_list):
             if tgt:
-                rows.append({"source": src, "target": tgt, "count": i, "year": year})
+                rows.append({"source": src, "target": tgt, "ref_index": i, "year": year})
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -141,7 +146,7 @@ def create_direct_citations(
     counts = df.groupby("target")["target"].transform("size")
     df = df[counts >= min_count]
     df.insert(0, "id", range(len(df)))
-    return df[["id", "source", "target", "count", "year"]]
+    return df[["id", "source", "target", "ref_index", "year"]]
 
 
 # ---------------------------------------------------------------------------

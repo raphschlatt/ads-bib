@@ -10,11 +10,11 @@ import ads_bib.topic_model as tm
 
 
 def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
-    calls: list[tuple[int, str, dict, str]] = []
+    calls: list[tuple[int, str, dict, int, str]] = []
 
-    def _fake_reduce(embeddings, n_components, method, params, cache_dir, name):
+    def _fake_reduce(embeddings, n_components, method, params, random_state, cache_dir, name):
         del cache_dir
-        calls.append((n_components, method, dict(params), name))
+        calls.append((n_components, method, dict(params), random_state, name))
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
     monkeypatch.setattr(tm, "_reduce", _fake_reduce)
@@ -24,14 +24,15 @@ def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
         method="umap",
         params_5d={"a": 1},
         params_2d={"b": 2},
+        random_state=123,
         cache_suffix="unit",
     )
 
     assert r5.shape == (4, 5)
     assert r2.shape == (4, 2)
     assert calls == [
-        (5, "umap", {"a": 1}, "5d_unit"),
-        (2, "umap", {"b": 2}, "2d_unit"),
+        (5, "umap", {"a": 1}, 123, "5d_unit"),
+        (2, "umap", {"b": 2}, 123, "2d_unit"),
     ]
 
 
@@ -104,7 +105,11 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     monkeypatch.setitem(sys.modules, "sklearn.feature_extraction.text", fake_text)
 
     cluster_model = object()
-    monkeypatch.setattr(tm, "_build_representation_model", lambda **kwargs: {"rep": kwargs})
+    def _fake_build_representation_model(**kwargs):
+        calls["rep_kwargs"] = kwargs
+        return {"rep": kwargs}
+
+    monkeypatch.setattr(tm, "_build_representation_model", _fake_build_representation_model)
     monkeypatch.setattr(tm, "_create_cluster_model", lambda method, params: cluster_model)
 
     @contextmanager
@@ -128,6 +133,8 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
         parallel_models=["MMR"],
         clustering_method="hdbscan",
         clustering_params={"min_cluster_size": 10},
+        top_n_words=33,
+        pos_spacy_model="en_core_web_lg",
         min_df=1,
         api_key="key",
         cost_tracker=object(),
@@ -138,7 +145,9 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert calls["fit_shape"] == (2, 5)
     assert calls["track_enabled"] is True
     assert calls["init_kwargs"]["hdbscan_model"] is cluster_model
+    assert calls["init_kwargs"]["top_n_words"] == 33
     assert calls["vectorizer_kwargs"]["min_df"] == 1
+    assert calls["rep_kwargs"]["pos_spacy_model"] == "en_core_web_lg"
     assert calls["record_kwargs"]["step"] == "llm_labeling"
     assert calls["record_kwargs"]["llm_provider"] == "openrouter"
     assert calls["usage"]["prompt_tokens"] == 9

@@ -20,6 +20,28 @@ def test_direct_citations_author_filter_handles_author_lists():
         authors_filter=["Treder"],
     )
     assert edges["source"].tolist() == ["p1"]
+    assert "ref_index" in edges.columns
+    assert "count" not in edges.columns
+    assert edges["ref_index"].tolist() == [0]
+
+
+def test_direct_citations_ref_index_reflects_reference_position():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1"],
+            "Year": [2024],
+            "Author": [["Treder, H. J."]],
+        }
+    )
+
+    edges = create_direct_citations(
+        bibcodes=["p1"],
+        references=[["r1", "r2"]],
+        publications=publications,
+    )
+
+    assert edges["target"].tolist() == ["r1", "r2"]
+    assert edges["ref_index"].tolist() == [0, 1]
 
 
 def test_author_co_citations_extracts_first_author_from_list():

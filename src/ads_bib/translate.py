@@ -83,6 +83,7 @@ SYSTEM_PROMPT = (
     "technical texts. Only translate the text. Do not comment or provide "
     "additional information."
 )
+DEFAULT_TRANSLATION_MAX_TOKENS = 2048
 
 
 def _fetch_generation_cost(
@@ -124,6 +125,8 @@ def _translate_openrouter(
     model: str,
     api_key: str,
     api_base: str = DEFAULT_OPENROUTER_API_BASE,
+    *,
+    max_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
 ) -> tuple[str, int, int, str | None, float | None]:
     """Translate *text* via OpenRouter."""
     client = _get_openai_client(api_key, api_base)
@@ -133,7 +136,7 @@ def _translate_openrouter(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Translate the following scientific text to {target_lang}:\n\n{text}"},
         ],
-        max_tokens=2048,
+        max_tokens=max_tokens,
         temperature=0,
     )
     translated = resp.choices[0].message.content.strip()
@@ -150,10 +153,11 @@ def _translate_huggingface(
     target_lang: str,
     *,
     _pipeline=None,
+    max_new_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
 ) -> str:
     """Translate *text* using a local HuggingFace model (e.g. TranslateGemma)."""
     prompt = f"Translate the following scientific text to {target_lang}:\n\n{text}"
-    result = _pipeline(prompt, max_new_tokens=2048, do_sample=False)
+    result = _pipeline(prompt, max_new_tokens=max_new_tokens, do_sample=False)
     generated = result[0]["generated_text"]
     # TranslateGemma returns the full prompt + translation; strip the prompt
     if generated.startswith(prompt):
@@ -201,6 +205,7 @@ def _translate_rows_openrouter(
     api_key: str | None,
     api_base: str,
     max_workers: int,
+    max_tokens: int,
 ) -> tuple[int, int, list[dict[str, str | float | None]], list[tuple[object, str]]]:
     """Translate selected rows with OpenRouter and return usage/call metadata."""
 
@@ -213,6 +218,7 @@ def _translate_rows_openrouter(
                 model,
                 api_key,
                 api_base,
+                max_tokens=max_tokens,
             )
             return idx, translated, pt, ct, gen_id, direct_cost, None
         except Exception as exc:
@@ -247,6 +253,7 @@ def _translate_rows_huggingface(
     to_translate: pd.DataFrame,
     target_lang: str,
     hf_pipeline: object,
+    max_new_tokens: int,
 ) -> list[tuple[object, str]]:
     """Translate selected rows with local HuggingFace pipeline."""
     failed: list[tuple[object, str]] = []
@@ -256,6 +263,7 @@ def _translate_rows_huggingface(
                 str(text),
                 target_lang,
                 _pipeline=hf_pipeline,
+                max_new_tokens=max_new_tokens,
             )
         except Exception as exc:
             failed.append((idx, f"{type(exc).__name__}: {exc}"))
@@ -326,6 +334,7 @@ def translate_dataframe(
     api_key: str | None = None,
     api_base: str = DEFAULT_OPENROUTER_API_BASE,
     max_workers: int = 5,
+    max_translation_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> tuple[pd.DataFrame, dict]:
@@ -349,6 +358,9 @@ def translate_dataframe(
         OpenRouter API base URL.
     max_workers : int
         Concurrent workers for API-based translation.
+    max_translation_tokens : int
+        Token limit per translation call (`max_tokens` for OpenRouter and
+        `max_new_tokens` for local HuggingFace pipelines).
     openrouter_cost_mode : str
         ``"hybrid"`` (default), ``"strict"``, or ``"fast"``.
 
@@ -359,6 +371,8 @@ def translate_dataframe(
         ``prompt_tokens``, ``completion_tokens``, ``provider``, ``model``.
     """
     df = df.copy()
+    if max_translation_tokens <= 0:
+        raise ValueError("max_translation_tokens must be > 0.")
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     total_pt = 0
     total_ct = 0
@@ -392,6 +406,7 @@ def translate_dataframe(
                 api_key=api_key,
                 api_base=api_base,
                 max_workers=max_workers,
+                max_tokens=max_translation_tokens,
             )
             total_pt += pt
             total_ct += ct
@@ -404,6 +419,7 @@ def translate_dataframe(
                 to_translate=to_translate,
                 target_lang=target_lang,
                 hf_pipeline=hf_pipe,
+                max_new_tokens=max_translation_tokens,
             )
         else:
             raise ValueError(f"Unknown translation provider: {provider}")
