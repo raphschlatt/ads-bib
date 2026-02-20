@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -48,7 +49,6 @@ DEFAULT_COLUMNS = [
 def _export_chunk(session, bibcodes_chunk, chunk_index, custom_format,
                   max_retries=5, backoff_factor=2, timeout=120):
     """Export a single chunk of bibcodes. Thread-safe."""
-    import time
 
     payload = {"bibcode": bibcodes_chunk, "format": custom_format, "sort": "score desc"}
 
@@ -87,8 +87,7 @@ def _export_chunk(session, bibcodes_chunk, chunk_index, custom_format,
         except Exception as exc:
             if attempt >= max_retries:
                 return (chunk_index, None, str(exc))
-            import time as _t
-            _t.sleep(backoff_factor * (2 ** attempt))
+            time.sleep(backoff_factor * (2 ** attempt))
 
     return (chunk_index, None, "Max retries exceeded")
 

@@ -172,7 +172,7 @@ def _embed_huggingface_api(documents, model, batch_size, dtype):
             except Exception:
                 if attempt == 2:
                     raise
-                import time; time.sleep(1 * (attempt + 1))
+                time.sleep(1 * (attempt + 1))
     return np.array(all_emb, dtype=dtype)
 
 

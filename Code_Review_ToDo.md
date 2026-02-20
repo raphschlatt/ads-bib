@@ -53,9 +53,9 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 ## 4) Dead Code und Imports aufraeumen
 
 - [x] **`citations.py:16` — `import os` entfernen** (wird nirgends verwendet, nur `pathlib.Path`)
-- [ ] **`run_manager.py:1` — `import os` entfernen** (wird nirgends verwendet, nur `pathlib.Path`)
-- [ ] **`export.py:90` — doppelter `import time as _t` entfernen** (`time` ist bereits in L51 importiert)
-- [ ] **Inline-Imports auf Modul-Ebene verschieben**
+- [x] **`run_manager.py:1` — `import os` entfernen** (wird nirgends verwendet, nur `pathlib.Path`)
+- [x] **`export.py:90` — doppelter `import time as _t` entfernen** (`time` ist bereits in L51 importiert)
+- [x] **Inline-Imports auf Modul-Ebene verschieben**
   - `export.py:51` — `import time`
   - `topic_model.py:175` — `import time` innerhalb einer Schleife
 
