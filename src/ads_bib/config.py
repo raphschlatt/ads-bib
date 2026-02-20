@@ -1,11 +1,14 @@
-"""Central path configuration. All paths are relative to the project root."""
+"""Central path configuration. All paths are relative to the project root.
+These paths handle global storage (raw data, cached embeddings, models) that persist
+across multiple runs. Run-specific outputs (plots, subsets) are handled by the RunManager.
+"""
 
 from pathlib import Path
 from dotenv import load_dotenv
 
 
 def init_paths(project_root: Path | str | None = None) -> dict[str, Path]:
-    """Initialize and create all data directories.
+    """Initialize and create all global data directories.
 
     Parameters
     ----------
@@ -17,8 +20,8 @@ def init_paths(project_root: Path | str | None = None) -> dict[str, Path]:
     -------
     dict[str, Path]
         Dictionary with keys: ``project_root``, ``data``, ``raw``,
-        ``processed``, ``cache``, ``embeddings_cache``, ``dim_reduction_cache``,
-        ``models``, ``output``.
+        ``cache``, ``embeddings_cache``, ``dim_reduction_cache``,
+        ``models``. (outputs and processed are now handled downstream via RunManager).
     """
     root = Path(project_root) if project_root else Path.cwd()
     data = root / "data"
@@ -27,16 +30,15 @@ def init_paths(project_root: Path | str | None = None) -> dict[str, Path]:
         "project_root": root,
         "data": data,
         "raw": data / "raw",
-        "processed": data / "processed",
         "cache": data / "cache",
         "embeddings_cache": data / "cache" / "embeddings",
         "dim_reduction_cache": data / "cache" / "dim_reduction",
         "models": data / "models",
-        "output": data / "output",
     }
 
-    for p in paths.values():
-        p.mkdir(parents=True, exist_ok=True)
+    for key, p in paths.items():
+        if key != "project_root":
+            p.mkdir(parents=True, exist_ok=True)
 
     return paths
 

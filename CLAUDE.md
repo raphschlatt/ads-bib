@@ -2,6 +2,16 @@
 
 NASA ADS bibliometric analysis pipeline for citation network construction, topic modeling, and dataset curation.
 
+## Runtime Environment (Mandatory)
+
+Before running notebook cells, scripts, or tests, always activate:
+
+```bash
+conda activate ADS_env
+```
+
+All commands and expected behavior in this repository assume the `ADS_env` conda environment.
+
 ## Architecture
 
 - `src/ads_bib/` — Installable Python package (`pip install -e ".[all]"`)

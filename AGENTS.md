@@ -2,6 +2,12 @@
 
 Engineering rules and operating conventions for this repository.
 
+## 0) Runtime Environment (Mandatory)
+
+- Before running notebook cells, scripts, or tests, always activate:
+  - `conda activate ADS_env`
+- All commands and expected behavior in this repository assume the `ADS_env` conda environment.
+
 ## 1) Architecture Map
 
 - Primary orchestrator: `pipeline.ipynb`
