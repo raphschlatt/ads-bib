@@ -131,20 +131,20 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ### Komplett ungetestet (Prioritaet nach Risiko)
 
-- [ ] **`search.py`** — `search_ads()`, `save_search_results()` — API-Interaktion, kritisch
-- [ ] **`translate.py`** — `detect_languages()`, `translate_dataframe()` — komplexe Logik, tiefes Nesting
-- [ ] **`tokenize.py`** — `tokenize_texts()` — 65 Zeilen, spaCy-Abhaengigkeit
-- [ ] **`curate.py`** — `get_cluster_summary()`, `remove_clusters()`, `filter_by_field()` — Datenfilterung
-- [ ] **`_utils/cleaning.py`** — `clean_html()`, `clean_range()`, `clean_dataframe()` — Parser-Logik
-- [ ] **`_utils/io.py`** — alle 6 I/O-Funktionen — Serialisierung ist fehleranfaellig
+- [x] **`search.py`** — `search_ads()`, `save_search_results()` — API-Interaktion, kritisch
+- [x] **`translate.py`** — `detect_languages()`, `translate_dataframe()` — komplexe Logik, tiefes Nesting
+- [x] **`tokenize.py`** — `tokenize_texts()` — 65 Zeilen, spaCy-Abhaengigkeit
+- [x] **`curate.py`** — `get_cluster_summary()`, `remove_clusters()`, `filter_by_field()` — Datenfilterung
+- [x] **`_utils/cleaning.py`** — `clean_html()`, `clean_range()`, `clean_dataframe()` — Parser-Logik
+- [x] **`_utils/io.py`** — alle 6 I/O-Funktionen — Serialisierung ist fehleranfaellig
 - [x] **`config.py`** — `init_paths()`, `load_env()`
 - [x] **`run_manager.py`** — `RunManager`, `save_config()`, `get_path()`
 
 ### Teilweise ungetestet
 
-- [ ] **`citations.py`** — `create_co_citations()`, `create_bibliographic_coupling()`, `export_wos_format()`, `process_all_citations()`
-- [ ] **`topic_model.py`** — `fit_bertopic()`, `reduce_dimensions()`, `cluster_documents()` (nur Toponymy-Pfad ist getestet)
-- [ ] **`visualize.py`** — `create_topic_map()` — keine Tests
+- [x] **`citations.py`** — `create_co_citations()`, `create_bibliographic_coupling()`, `export_wos_format()`, `process_all_citations()`
+- [x] **`topic_model.py`** — `fit_bertopic()`, `reduce_dimensions()`, `cluster_documents()` (nur Toponymy-Pfad ist getestet)
+- [x] **`visualize.py`** — `create_topic_map()` — keine Tests
 
 ### Test-Infrastruktur
 

@@ -90,3 +90,18 @@ def test_create_topic_map_raises_if_new_coordinate_column_missing(monkeypatch):
 
     with pytest.raises(KeyError):
         viz.create_topic_map(df, label_column="Name", word_cloud=False)
+
+
+def test_create_topic_map_saves_plot_when_output_path_provided(monkeypatch, tmp_path):
+    viz, _ = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    output_path = tmp_path / "topic_map.html"
+
+    plot = viz.create_topic_map(
+        df,
+        label_column="Name",
+        word_cloud=False,
+        output_path=output_path,
+    )
+
+    assert plot.saved_path == output_path
