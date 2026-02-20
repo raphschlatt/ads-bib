@@ -11,6 +11,14 @@ from ._utils.ads_api import create_session, retry_request
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+ADS_SEARCH_URL = "https://api.adsabs.harvard.edu/v1/search/query"
+ADS_LINK_GATEWAY_URL_TEMPLATE = "https://ui.adsabs.harvard.edu/link_gateway/{bibcode}/{resource}"
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -44,7 +52,7 @@ def search_ads(
         aligned by index.
     """
     session = create_session(token)
-    url = "https://api.adsabs.harvard.edu/v1/search/query"
+    url = ADS_SEARCH_URL
 
     params: dict = {"q": query, "fl": fields, "rows": rows, "sort": sort}
     cursor = "*"
@@ -73,7 +81,7 @@ def search_ads(
 
             pdf = next(
                 (
-                    f"https://ui.adsabs.harvard.edu/link_gateway/{bc}/{res}"
+                    ADS_LINK_GATEWAY_URL_TEMPLATE.format(bibcode=bc, resource=res)
                     for res in doc.get("esources", [])
                     if any(p in res for p in ("ADS_PDF", "PUB_PDF"))
                 ),

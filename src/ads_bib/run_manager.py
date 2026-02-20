@@ -2,7 +2,7 @@ import json
 import yaml
 import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 class RunManager:
@@ -41,15 +41,15 @@ class RunManager:
         
         self._create_directories()
         
-        print(f"🚀 Run initialized: {self.run_id}")
-        print(f"📁 All run outputs will be saved to: {self.run_dir}")
+        print(f"Run initialized: {self.run_id}")
+        print(f"All run outputs will be saved to: {self.run_dir}")
 
     def _create_directories(self) -> None:
         """Creates the necessary folder structure for the run."""
         for path in self.paths.values():
             path.mkdir(parents=True, exist_ok=True)
 
-    def save_config(self, globals_dict: Dict[str, Any], prefix: str = "") -> None:
+    def save_config(self, globals_dict: dict[str, Any], prefix: str = "") -> None:
         """Snapshots the configuration parameters directly from Notebook globals.
         
         It looks for variables that represent configuration (by convention, 
@@ -57,7 +57,7 @@ class RunManager:
         as YAML to ensure the run is reproducible.
         
         Args:
-            globals_dict (Dict[str, Any]): The globals() dictionary from the notebook.
+            globals_dict (dict[str, Any]): The globals() dictionary from the notebook.
             prefix (str): Optional prefix to filter variables (e.g., if you prefix your params).
                           If empty, it captures standard ALL_CAPS variables holding atomic types.
         """
@@ -88,7 +88,7 @@ class RunManager:
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=True)
             
-        print(f"💾 Snapshot of configuration saved to {config_path.name} ({len(config)} parameters tracked).")
+        print(f"Snapshot of configuration saved to {config_path.name} ({len(config)} parameters tracked).")
 
     def get_path(self, asset_type: str) -> Path:
         """Retrieves the Path object for a specific type of asset in this run.

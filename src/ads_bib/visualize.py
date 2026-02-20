@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import string
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -425,7 +426,11 @@ def create_topic_map(
         plot = datamapplot.create_interactive_plot(data_map, *label_layers, **kwargs)
     except ValueError as e:
         if "polygon_alpha" in str(e):
-            print(f"  Warning: polygon_alpha too low for this dataset, disabling cluster boundaries.")
+            warnings.warn(
+                "polygon_alpha too low for this dataset; disabling cluster boundaries.",
+                UserWarning,
+                stacklevel=2,
+            )
             kwargs["cluster_boundary_polygons"] = False
             kwargs.pop("polygon_alpha", None)
             plot = datamapplot.create_interactive_plot(data_map, *label_layers, **kwargs)

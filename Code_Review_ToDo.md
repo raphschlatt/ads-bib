@@ -16,7 +16,7 @@ Hier stehen die konkreten, zeilenspezifischen Befunde aus einem systematischen C
 - [ ] **`export.py:48` — `_export_chunk()` hat keine Type Hints**
 - [ ] **`visualize.py` — `WordCloud`-Properties `javascript`, `html`, `css` annotieren**
 - [ ] **`_utils/costs.py` — `__init__()` L9, `summary()` L41 annotieren**
-- [ ] **`run_manager.py:6` — `from typing import Any, Dict` auf `dict[str, Any]` umstellen**
+- [x] **`run_manager.py:6` — `from typing import Any, Dict` auf `dict[str, Any]` umstellen**
   - Rest des Codebases nutzt lowercase generics konsistent.
 
 ---
@@ -45,7 +45,7 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
   - `topic_model.py:219` — Retry in `_embed_openrouter._embed_batch()` ebenso.
   - `_utils/openrouter_costs.py:153` — `fetch_generation_cost()` ignoriert Netzwerkfehler still.
 - [ ] **`export.py:87` — Outer except in `_export_chunk()` loggt nicht, *was* fehlgeschlagen ist**
-- [ ] **`visualize.py:428` — Warning als `print()` statt `warnings.warn()`**
+- [x] **`visualize.py:428` — Warning als `print()` statt `warnings.warn()`**
   - Fallback (cluster boundaries deaktiviert) ist signifikant, sollte klarer kommuniziert werden.
 
 ---
@@ -90,9 +90,9 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ## 6) Hardcoded Values konfigurierbar machen
 
-- [ ] **`search.py:47` — ADS Search-URL als benannte Konstante**
+- [x] **`search.py:47` — ADS Search-URL als benannte Konstante**
   - `export.py` hat bereits `ADS_EXPORT_URL`; `search.py` hat die URL inline.
-- [ ] **`search.py:76` — Link-Gateway-URL als benannte Konstante**
+- [x] **`search.py:76` — Link-Gateway-URL als benannte Konstante**
 - [ ] **`topic_model.py:953, 971` — `"en_core_web_sm"` hardcoded**
   - Ist ein anderes spaCy-Modell als `en_core_web_lg` in `tokenize.py`; sollte Parameter sein.
 - [ ] **Magic Numbers dokumentieren oder als benannte Konstanten**
@@ -110,7 +110,7 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 - [ ] **`citations.py:137` — Spalte `"count"` speichert den Referenz-*Index*, nicht einen Count**
   - Umbenennen zu `"ref_index"` oder `"ref_position"`.
-- [ ] **`run_manager.py` — Emoji in `print()`-Aufrufen entfernen**
+- [x] **`run_manager.py` — Emoji in `print()`-Aufrufen entfernen**
   - L46, L47, L93 — inkonsistent mit dem Rest des Codebases.
 
 ---
@@ -123,7 +123,7 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
     - Debug-/Diagnostic-Ausgaben sollten abschaltbar sein.
     - Warnings (z.B. `visualize.py:428`) sollten `warnings.warn()` nutzen.
   - Empfehlung: `print()` fuer User-facing Output beibehalten, `warnings.warn()` fuer Warnungen, optional `logging` fuer Debug.
-- [ ] **Alle `print("Warning: ...")` Stellen auf `warnings.warn()` umstellen**
+- [x] **Alle `print("Warning: ...")` Stellen auf `warnings.warn()` umstellen**
 
 ---
 
