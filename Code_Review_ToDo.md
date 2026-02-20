@@ -157,11 +157,11 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ## 10) Notebook-Qualitaet
 
-- [ ] **`pipeline.ipynb` — Stale Outputs pruefen**
+- [x] **`pipeline.ipynb` — Stale Outputs pruefen**
   - Keine veralteten Schema-Namen oder historischen Logs in gespeicherten Cell-Outputs.
-- [ ] **Cell-Dokumentation pruefen**
+- [x] **Cell-Dokumentation pruefen**
   - Jede Phase sollte einen kurzen Markdown-Header haben, der erklaert *was* und *warum*.
-- [ ] **Reproduzierbarkeit sicherstellen**
+- [x] **Reproduzierbarkeit sicherstellen**
   - Alle `random_state`-Werte explizit gesetzt?
   - Keine impliziten Abhaengigkeiten von vorherigen Runs?
 
