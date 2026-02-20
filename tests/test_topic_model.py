@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import sys
+import time
 import types
 
 import numpy as np
@@ -174,6 +175,21 @@ class _FakeOpenAIEmbedder:
         return np.ones((len(texts), 3), dtype=np.float32)
 
 
+class _FakeHuggingFaceNamer:
+    def __init__(self, model, **kwargs):
+        self.model = model
+        self.kwargs = kwargs
+
+
+class _FakeSentenceTransformer:
+    def __init__(self, model_name):
+        self.model_name = model_name
+
+    def encode(self, texts, show_progress_bar=None, **kwargs):
+        del show_progress_bar, kwargs
+        return np.ones((len(texts), 3), dtype=np.float32)
+
+
 class _FakeToponymyModel:
     def __init__(
         self,
@@ -203,7 +219,7 @@ class _FakeToponymyModel:
         return self
 
 
-def _install_fake_toponymy_modules(monkeypatch):
+def _install_fake_toponymy_modules(monkeypatch, *, include_hf_namer: bool = True):
     fake_toponymy = types.ModuleType("toponymy")
     fake_toponymy.Toponymy = _FakeToponymyModel
     fake_toponymy.ToponymyClusterer = _FakeToponymyClusterer
@@ -214,9 +230,14 @@ def _install_fake_toponymy_modules(monkeypatch):
     fake_clustering = types.ModuleType("toponymy.clustering")
     fake_clustering.EVoCClusterer = _FakeEVoCClusterer
 
+    fake_llm_wrappers = types.ModuleType("toponymy.llm_wrappers")
+    if include_hf_namer:
+        fake_llm_wrappers.HuggingFaceNamer = _FakeHuggingFaceNamer
+
     monkeypatch.setitem(sys.modules, "toponymy", fake_toponymy)
     monkeypatch.setitem(sys.modules, "toponymy.embedding_wrappers", fake_embedding_wrappers)
     monkeypatch.setitem(sys.modules, "toponymy.clustering", fake_clustering)
+    monkeypatch.setitem(sys.modules, "toponymy.llm_wrappers", fake_llm_wrappers)
 
 
 def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
@@ -333,6 +354,60 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch, caps
     assert topics.tolist() == [-1, 0, 1]
 
 
+def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    calls: dict = {}
+
+    def _fake_record_llm_usage(usage, **kwargs):
+        calls["usage"] = usage
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(tm, "_record_llm_usage", _fake_record_llm_usage)
+
+    model, topics, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="local",
+        llm_model="local-llm",
+        embedding_model="local-embedder",
+    )
+
+    assert isinstance(model.llm_wrapper, _FakeHuggingFaceNamer)
+    assert model.llm_wrapper.model == "local-llm"
+    assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
+    assert model.text_embedding_model.model_name == "local-embedder"
+    assert topics.tolist() == [-1, 0, 1]
+    assert calls["usage"] is None
+    assert calls["kwargs"]["llm_provider"] == "local"
+
+
+def test_fit_toponymy_local_requires_hf_dependencies(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch, include_hf_namer=False)
+    monkeypatch.delitem(sys.modules, "sentence_transformers", raising=False)
+
+    try:
+        tm.fit_toponymy(
+            documents=["d1"],
+            embeddings=np.ones((1, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((1, 2), dtype=np.float32),
+            backend="toponymy",
+            llm_provider="local",
+            llm_model="local-llm",
+            embedding_model="local-embedder",
+        )
+        assert False, "Expected ImportError for missing local Toponymy dependencies"
+    except ImportError as exc:
+        assert "llm_provider='local' requires optional dependencies" in str(exc)
+
+
 def test_fit_toponymy_validates_layer_index(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
@@ -441,3 +516,68 @@ def test_patch_clusterer_for_toponymy_kwargs_drops_unsupported_kwargs():
 
     assert out == "ok"
     assert clusterer.seen == (True, False)
+
+
+def test_compute_embeddings_passes_max_workers_to_openrouter(monkeypatch):
+    calls: dict = {}
+
+    def _fake_embed_openrouter(documents, model, batch_size, dtype, api_key, *, max_workers=5):
+        del model, batch_size, api_key
+        calls["max_workers"] = max_workers
+        return np.ones((len(documents), 2), dtype=dtype), {
+            "prompt_tokens": 0,
+            "total_tokens": 0,
+            "call_records": [],
+        }
+
+    monkeypatch.setattr(tm, "_embed_openrouter", _fake_embed_openrouter)
+
+    emb = tm.compute_embeddings(
+        ["d1", "d2", "d3"],
+        provider="openrouter",
+        model="google/gemini-embedding-001",
+        max_workers=7,
+        api_key="key",
+    )
+
+    assert emb.shape == (3, 2)
+    assert calls["max_workers"] == 7
+
+
+def test_embed_openrouter_parallel_keeps_document_order(monkeypatch):
+    fake_litellm = types.ModuleType("litellm")
+
+    def _fake_embedding(model, input, api_key):
+        del model, api_key
+        first_idx = int(input[0].split("_")[1])
+        # Force out-of-order completion to validate deterministic reconstruction.
+        if first_idx == 0:
+            time.sleep(0.05)
+        else:
+            time.sleep(0.01)
+        return {
+            "id": f"gen_{first_idx}",
+            "usage": {"prompt_tokens": len(input), "total_tokens": len(input)},
+            "data": [{"embedding": [float(int(text.split('_')[1]))]} for text in input],
+        }
+
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    fake_litellm.embedding = _fake_embedding
+    monkeypatch.setattr(tm, "extract_usage_stats", lambda resp: resp["usage"])
+    monkeypatch.setattr(tm, "extract_generation_id", lambda resp: resp["id"])
+    monkeypatch.setattr(tm, "extract_response_cost", lambda **kwargs: None)
+
+    emb, usage = tm._embed_openrouter(
+        [f"doc_{i}" for i in range(6)],
+        model="google/gemini-embedding-001",
+        batch_size=2,
+        dtype=np.float32,
+        api_key="key",
+        max_workers=3,
+    )
+
+    assert emb.shape == (6, 1)
+    assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    assert usage["prompt_tokens"] == 6
+    assert usage["total_tokens"] == 6
+    assert [r["generation_id"] for r in usage["call_records"]] == ["gen_0", "gen_2", "gen_4"]

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import inspect
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -115,7 +117,14 @@ def compute_embeddings(
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(documents, model, batch_size, dtype)
     elif provider == "openrouter":
-        emb, usage = _embed_openrouter(documents, model, batch_size, dtype, api_key)
+        emb, usage = _embed_openrouter(
+            documents,
+            model,
+            batch_size,
+            dtype,
+            api_key,
+            max_workers=max_workers,
+        )
         if cost_tracker is not None and usage["total_tokens"] > 0:
             cost_usd = _fetch_openrouter_costs(
                 usage.get("call_records", []),
@@ -167,39 +176,79 @@ def _embed_huggingface_api(documents, model, batch_size, dtype):
     return np.array(all_emb, dtype=dtype)
 
 
-def _embed_openrouter(documents, model, batch_size, dtype, api_key):
+def _embed_openrouter(
+    documents,
+    model,
+    batch_size,
+    dtype,
+    api_key,
+    *,
+    max_workers: int = 5,
+):
     import litellm
 
     # litellm routes via "openrouter/" prefix automatically
     if not model.startswith("openrouter/"):
         model = f"openrouter/{model}"
 
-    all_emb = []
-    total_pt, total_tokens = 0, 0
-    call_records = []
     batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
-    for batch in tqdm(batches, desc="Embedding (OpenRouter)"):
+    if not batches:
+        usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
+        return np.array([], dtype=dtype), usage
+
+    worker_count = max(1, min(int(max_workers), len(batches)))
+
+    def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
         for attempt in range(3):
             try:
                 resp = litellm.embedding(
                     model=model, input=batch,
                     api_key=api_key,
                 )
-                all_emb.extend(d["embedding"] for d in resp["data"])
                 usage = extract_usage_stats(resp)
-                total_pt += usage["prompt_tokens"]
-                total_tokens += usage["total_tokens"]
-                call_records.append(
-                    {
+                return {
+                    "batch_index": batch_index,
+                    "embeddings": [d["embedding"] for d in resp["data"]],
+                    "prompt_tokens": usage["prompt_tokens"],
+                    "total_tokens": usage["total_tokens"],
+                    "call_record": {
                         "generation_id": extract_generation_id(resp),
                         "direct_cost": extract_response_cost(response=resp),
-                    }
-                )
-                break
+                    },
+                }
             except Exception:
                 if attempt == 2:
                     raise
-                import time; time.sleep(1 * (attempt + 1))
+                time.sleep(1 * (attempt + 1))
+
+        raise RuntimeError("Embedding batch failed unexpectedly after retries.")
+
+    batch_results: dict[int, dict[str, Any]] = {}
+    desc = "Embedding (OpenRouter)"
+    if worker_count == 1:
+        for batch_index, batch in tqdm(enumerate(batches), total=len(batches), desc=desc):
+            result = _embed_batch(batch_index, batch)
+            batch_results[result["batch_index"]] = result
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            futures = [
+                pool.submit(_embed_batch, batch_index, batch)
+                for batch_index, batch in enumerate(batches)
+            ]
+            for future in tqdm(as_completed(futures), total=len(futures), desc=desc):
+                result = future.result()
+                batch_results[result["batch_index"]] = result
+
+    all_emb = []
+    total_pt, total_tokens = 0, 0
+    call_records = []
+    for batch_index in range(len(batches)):
+        result = batch_results[batch_index]
+        all_emb.extend(result["embeddings"])
+        total_pt += int(result["prompt_tokens"])
+        total_tokens += int(result["total_tokens"])
+        call_records.append(result["call_record"])
+
     usage = {
         "prompt_tokens": total_pt,
         "total_tokens": total_tokens,
@@ -724,7 +773,7 @@ def fit_toponymy(
     backend : str
         ``"toponymy"`` (ToponymyClusterer) or ``"toponymy_evoc"`` (EVoCClusterer).
     llm_provider : str
-        Currently only ``"openrouter"`` is supported.
+        ``"openrouter"`` or ``"local"``.
 
     Returns
     -------
@@ -732,11 +781,12 @@ def fit_toponymy(
         ``(toponymy_model, topics, topic_info)`` where ``topic_info`` has
         BERTopic-compatible columns ``Topic`` and ``Name``.
     """
-    if llm_provider != "openrouter":
+    provider_norm = llm_provider.strip().lower()
+    if provider_norm not in {"openrouter", "local"}:
         raise ValueError(
-            "fit_toponymy currently supports llm_provider='openrouter' only."
+            f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter' or 'local'."
         )
-    if not api_key:
+    if provider_norm == "openrouter" and not api_key:
         raise ValueError("api_key is required for Toponymy with OpenRouter.")
 
     backend_norm = backend.strip().lower()
@@ -746,7 +796,6 @@ def fit_toponymy(
         )
 
     from toponymy import Toponymy, ToponymyClusterer
-    from toponymy.embedding_wrappers import OpenAIEmbedder
 
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     openrouter_api_base = normalize_openrouter_api_base(openrouter_api_base)
@@ -779,18 +828,43 @@ def fit_toponymy(
         clusterable_vectors = embeddings
     print(f"  Clusterer: {clusterer.__class__.__name__}")
 
-    llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
-        model=llm_model,
-        api_key=api_key,
-        base_url=openrouter_api_base,
-    )
-    text_embedding_model = OpenAIEmbedder(
-        api_key=api_key,
-        model=embedding_model,
-        base_url=openrouter_api_base,
-    )
+    if provider_norm == "openrouter":
+        from toponymy.embedding_wrappers import OpenAIEmbedder
 
-    print(f"Fitting Toponymy backend='{backend_norm}' (LLM: {llm_provider}/{llm_model}) ...")
+        llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
+            model=llm_model,
+            api_key=api_key,
+            base_url=openrouter_api_base,
+        )
+        text_embedding_model = OpenAIEmbedder(
+            api_key=api_key,
+            model=embedding_model,
+            base_url=openrouter_api_base,
+        )
+    else:
+        try:
+            from sentence_transformers import SentenceTransformer
+            from toponymy.llm_wrappers import HuggingFaceNamer
+        except Exception as exc:
+            raise ImportError(
+                "llm_provider='local' requires optional dependencies "
+                "'sentence-transformers', 'transformers', and "
+                "Toponymy's HuggingFaceNamer wrapper."
+            ) from exc
+
+        llm_wrapper = HuggingFaceNamer(
+            model=llm_model,
+            device_map="auto",
+            torch_dtype="auto",
+        )
+        llm_usage = None
+        text_embedding_model = SentenceTransformer(embedding_model)
+        if cost_tracker is not None:
+            print(
+                "  Local Toponymy LLM selected; token/cost tracking is unavailable for this step."
+            )
+
+    print(f"Fitting Toponymy backend='{backend_norm}' (LLM: {provider_norm}/{llm_model}) ...")
     topic_model = Toponymy(
         llm_wrapper=llm_wrapper,
         text_embedding_model=text_embedding_model,
@@ -824,7 +898,7 @@ def fit_toponymy(
     _record_llm_usage(
         llm_usage,
         step="llm_labeling_toponymy_evoc" if backend_norm == "toponymy_evoc" else "llm_labeling_toponymy",
-        llm_provider=llm_provider,
+        llm_provider=provider_norm,
         llm_model=llm_model,
         api_key=api_key,
         openrouter_cost_mode=openrouter_cost_mode,
