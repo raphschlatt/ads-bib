@@ -37,6 +37,7 @@ umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
 translate-local = ["transformers", "torch", "accelerate"]
 translate-api = ["openai"]
+test = ["pytest>=7"]
 all = ["ads-bib[topic,translate-local,translate-api]"]
 
 [tool.hatch.build.targets.wheel]

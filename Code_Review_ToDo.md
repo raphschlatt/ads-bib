@@ -137,8 +137,8 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 - [ ] **`curate.py`** — `get_cluster_summary()`, `remove_clusters()`, `filter_by_field()` — Datenfilterung
 - [ ] **`_utils/cleaning.py`** — `clean_html()`, `clean_range()`, `clean_dataframe()` — Parser-Logik
 - [ ] **`_utils/io.py`** — alle 6 I/O-Funktionen — Serialisierung ist fehleranfaellig
-- [ ] **`config.py`** — `init_paths()`, `load_env()`
-- [ ] **`run_manager.py`** — `RunManager`, `save_config()`, `get_path()`
+- [x] **`config.py`** — `init_paths()`, `load_env()`
+- [x] **`run_manager.py`** — `RunManager`, `save_config()`, `get_path()`
 
 ### Teilweise ungetestet
 
