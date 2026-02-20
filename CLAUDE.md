@@ -72,7 +72,8 @@ Optional groups: `[topic]`, `[translate-local]`, `[translate-api]`, `[all]`
 
 ## Topic Backend Matrix
 
-- `bertopic`: BERTopic workflow (`llm_labeling`, `llm_labeling_post_outliers`)
-- `toponymy`: Toponymy + `ToponymyClusterer` (`llm_labeling_toponymy`)
-- `toponymy_evoc`: Toponymy + `EVoCClusterer` (`llm_labeling_toponymy_evoc`)
-- Toponymy path is sync-only by design for now (no async wrapper in pipeline).
+- `bertopic`: BERTopic workflow (`llm_labeling`, `llm_labeling_post_outliers`). Clusters on 5D reduced vectors.
+- `toponymy`: Toponymy + `ToponymyClusterer` (`llm_labeling_toponymy`). Clusters on 5D reduced vectors (UMAP preferred).
+- `toponymy_evoc`: Toponymy + `EVoCClusterer` (`llm_labeling_toponymy_evoc`). **Clusters directly on raw high-dimensional embeddings** to avoid dimensionality reduction artifacts.
+- Toponymy path is sync-only by design for now (no async wrapper in pipeline), but provides aggregated LLM cost tracking matching the BERTopic output format.
+- All hierarchical layers from Toponymy are extracted and stored as `Topic_Layer_X` DataFrame columns to enable interactive zoomable plotting with datamapplot.

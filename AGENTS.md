@@ -37,16 +37,22 @@ Engineering rules and operating conventions for this repository.
 ## 4) Topic Modeling Rules
 
 - Single source of truth for clustering configuration:
-  - Define clustering method/params once and pass directly into BERTopic construction.
+  - Define clustering method/params once and pass directly into BERTopic construction or Toponymy clusterers.
   - Do not compute preview clusters with one config and fit BERTopic with another.
 - Backend matrix:
-  - `bertopic`: BERTopic + optional outlier reassignment refresh.
-  - `toponymy`: Toponymy + `ToponymyClusterer` (sync LLM path).
-  - `toponymy_evoc`: Toponymy + `EVoCClusterer` (sync LLM path).
+  - `bertopic`: BERTopic + optional outlier reassignment refresh. Uses 5D reduced vectors.
+  - `toponymy`: Toponymy + `ToponymyClusterer` (sync LLM path). Uses 5D reduced vectors. UMAP is preferred to preserve hierarchical structures.
+  - `toponymy_evoc`: Toponymy + `EVoCClusterer` (sync LLM path). **Clusters directly on raw high-dimensional embeddings**, bypassing 5D reduction.
+- Clustering & Reduction Parameters:
+  - `min_cluster_size`: Scales dynamically with dataset size (e.g. ~0.1%).
+  - Toponymy parameters: `min_clusters` defines broad top-level clusters, while `base_min_cluster_size` defines bottom-level micro-clusters. `TOPONYMY_LAYER_INDEX` only defines the "primary" fallback layer for visualization base colors.
+  - Dimensionality Reduction: Adjust `n_neighbors` based on dataset density (e.g., 15 for sparse small datasets, 50-60 for dense large datasets). Use `min_dist=0.0` for clustering dimensions (5D) and `min_dist=0.1` for 2D visualization to prevent visual overlap.
 - Cost tracker step names:
   - BERTopic: `llm_labeling`, `llm_labeling_post_outliers`
   - Toponymy: `llm_labeling_toponymy`
   - Toponymy + EVoC: `llm_labeling_toponymy_evoc`
+- Toponymy provides aggregated LLM cost logging identical to the BERTopic output format.
+- All Toponymy hierarchical layers are preserved as `Topic_Layer_X` columns in the output DataFrame for multi-level interactive maps.
 - After `reduce_outliers`, always refresh topic representations via `update_topics`.
   - Reason: topic assignments changed, so keywords/labels/representative docs must be recomputed.
 - If manual topic assignments are used, topic reduction must occur before the final reassignment step.
