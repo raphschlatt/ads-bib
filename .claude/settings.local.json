@@ -6,7 +6,10 @@
       "Bash(python -c:*)",
       "Bash(conda run:*)",
       "Bash(python3:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "Bash(conda activate:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(source activate:*)"
     ]
   }
 }

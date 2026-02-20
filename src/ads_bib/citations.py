@@ -19,9 +19,9 @@ import numpy as np
 import pandas as pd
 
 from ads_bib._utils.authors import (
-    author_list as _normalize_author_list,
-    author_text as _serialize_author_text,
-    first_author_lastname as _extract_first_author_lastname,
+    author_list as _author_list,
+    author_text as _author_text,
+    first_author_lastname as _first_author_lastname,
 )
 
 
@@ -60,20 +60,6 @@ def filter_nodes(
     unique = pd.unique(edges[edge_columns].values.ravel("K"))
     return nodes[nodes["id"].isin(unique)]
 
-
-def _author_list(value: object) -> list[str]:
-    """Normalize author input into a cleaned list of author strings."""
-    return _normalize_author_list(value)
-
-
-def _author_text(value: object) -> str:
-    """Serialize author input to a semicolon-separated author string."""
-    return _serialize_author_text(value)
-
-
-def _first_author_lastname(value: object) -> str | None:
-    """Extract the first author's last name from list/string author input."""
-    return _extract_first_author_lastname(value)
 
 
 def _has_value(value: object) -> bool:
