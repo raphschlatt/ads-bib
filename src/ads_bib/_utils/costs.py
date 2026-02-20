@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 class CostTracker:
     """Accumulates token usage and costs across pipeline steps."""
 
-    def __init__(self):
-        self.entries: list[dict] = []
+    def __init__(self) -> None:
+        """Initialize an empty in-memory usage ledger."""
+        self.entries: list[dict[str, Any]] = []
 
     def add(
         self,
@@ -31,15 +37,17 @@ class CostTracker:
 
     @property
     def total_tokens(self) -> int:
+        """Return the total number of tokens across all entries."""
         return sum(e["total_tokens"] for e in self.entries)
 
     @property
     def total_cost(self) -> float | None:
+        """Return aggregated USD cost, or ``None`` if all costs are missing."""
         costs = [e["cost_usd"] for e in self.entries if e["cost_usd"] is not None]
         return sum(costs) if costs else None
 
-    def summary(self):
-        """Return a summary DataFrame grouped by step."""
+    def summary(self) -> pd.DataFrame:
+        """Return a DataFrame grouped by ``(step, provider, model)``."""
         import pandas as pd
 
         if not self.entries:
@@ -86,4 +94,5 @@ class CostTracker:
         return "\n".join(lines)
 
     def __repr__(self) -> str:
+        """Return the compact text summary used for notebook/log output."""
         return self.compact_summary()

@@ -163,16 +163,29 @@ def _embed_huggingface_api(documents, model, batch_size, dtype):
 
     all_emb = []
     batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
-    for batch in tqdm(batches, desc="Embedding (HF API)"):
+    for batch_index, batch in tqdm(
+        enumerate(batches),
+        total=len(batches),
+        desc="Embedding (HF API)",
+    ):
         for attempt in range(3):
             try:
                 resp = litellm.embedding(model=model, input=batch)
                 all_emb.extend(d["embedding"] for d in resp["data"])
                 break
-            except Exception:
+            except Exception as exc:
+                wait = 1 * (attempt + 1)
                 if attempt == 2:
+                    print(
+                        f"  HF API embedding batch {batch_index} failed after 3 attempts: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
                     raise
-                time.sleep(1 * (attempt + 1))
+                print(
+                    f"  HF API embedding batch {batch_index} failed "
+                    f"({type(exc).__name__}: {exc}). Retry {attempt + 1}/2 in {wait}s ..."
+                )
+                time.sleep(wait)
     return np.array(all_emb, dtype=dtype)
 
 
@@ -216,10 +229,19 @@ def _embed_openrouter(
                         "direct_cost": extract_response_cost(response=resp),
                     },
                 }
-            except Exception:
+            except Exception as exc:
+                wait = 1 * (attempt + 1)
                 if attempt == 2:
+                    print(
+                        f"  OpenRouter embedding batch {batch_index} failed after 3 attempts: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
                     raise
-                time.sleep(1 * (attempt + 1))
+                print(
+                    f"  OpenRouter embedding batch {batch_index} failed "
+                    f"({type(exc).__name__}: {exc}). Retry {attempt + 1}/2 in {wait}s ..."
+                )
+                time.sleep(wait)
 
         raise RuntimeError("Embedding batch failed unexpectedly after retries.")
 

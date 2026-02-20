@@ -8,6 +8,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -46,8 +47,15 @@ DEFAULT_COLUMNS = [
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _export_chunk(session, bibcodes_chunk, chunk_index, custom_format,
-                  max_retries=5, backoff_factor=2, timeout=120):
+def _export_chunk(
+    session: Any,
+    bibcodes_chunk: list[str],
+    chunk_index: int,
+    custom_format: str,
+    max_retries: int = 5,
+    backoff_factor: int = 2,
+    timeout: int = 120,
+) -> tuple[int, str | None, str | None]:
     """Export a single chunk of bibcodes. Thread-safe."""
 
     payload = {"bibcode": bibcodes_chunk, "format": custom_format, "sort": "score desc"}
@@ -85,9 +93,14 @@ def _export_chunk(session, bibcodes_chunk, chunk_index, custom_format,
             resp.raise_for_status()
 
         except Exception as exc:
+            wait = backoff_factor * (2 ** attempt)
             if attempt >= max_retries:
-                return (chunk_index, None, str(exc))
-            time.sleep(backoff_factor * (2 ** attempt))
+                return (chunk_index, None, f"{type(exc).__name__}: {exc}")
+            print(
+                f"\n[Chunk {chunk_index}] Request error {type(exc).__name__}: {exc}. "
+                f"Retry {attempt + 1}/{max_retries} in {wait}s ..."
+            )
+            time.sleep(wait)
 
     return (chunk_index, None, "Max retries exceeded")
 

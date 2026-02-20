@@ -13,9 +13,9 @@ Hier stehen die konkreten, zeilenspezifischen Befunde aus einem systematischen C
   - `_embed_local()` L152, `_embed_huggingface_api()` L161, `_reduce()` L297
   - `_cost_cb()` L526, `_wrapped()` L735, `filter()` L920
   - `TrackedOpenAINamer.__init__()` L595, `_record_usage()` L599, `_call_llm()` L612, `_call_llm_with_system_prompt()` L623
-- [ ] **`export.py:48` — `_export_chunk()` hat keine Type Hints**
-- [ ] **`visualize.py` — `WordCloud`-Properties `javascript`, `html`, `css` annotieren**
-- [ ] **`_utils/costs.py` — `__init__()` L9, `summary()` L41 annotieren**
+- [x] **`export.py:48` — `_export_chunk()` hat keine Type Hints**
+- [x] **`visualize.py` — `WordCloud`-Properties `javascript`, `html`, `css` annotieren**
+- [x] **`_utils/costs.py` — `__init__()` L9, `summary()` L41 annotieren**
 - [x] **`run_manager.py:6` — `from typing import Any, Dict` auf `dict[str, Any]` umstellen**
   - Rest des Codebases nutzt lowercase generics konsistent.
 
@@ -30,21 +30,21 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
   - `_filter_by_authors()`, `_format_author()`, `_format_ref_author()`, `_format_pub()` (43 Zeilen, nicht trivial)
 - [ ] **`topic_model.py` — 16 Funktionen ohne Docstrings**
   - Insb. `_embed_local()`, `_embed_huggingface_api()`, `_embed_openrouter()`, `_reduce()`, `_record_llm_usage()`, `_build_representation_model()`, `_create_llm()`
-- [ ] **`visualize.py` — `WordCloud.__init__()` und Property-Contracts dokumentieren**
-- [ ] **`_utils/costs.py` — `CostTracker`-Properties und `__repr__()` dokumentieren**
-- [ ] **`_utils/openrouter_costs.py` — `_get_mapping_value()`, `_coerce_float()`, `_coerce_int()` dokumentieren**
+- [x] **`visualize.py` — `WordCloud.__init__()` und Property-Contracts dokumentieren**
+- [x] **`_utils/costs.py` — `CostTracker`-Properties und `__repr__()` dokumentieren**
+- [x] **`_utils/openrouter_costs.py` — `_get_mapping_value()`, `_coerce_float()`, `_coerce_int()` dokumentieren**
 
 ---
 
 ## 3) Error Handling verbessern
 
-- [ ] **Bare `except Exception:` mit Logging ersetzen**
-  - `translate.py:263` — Uebersetzungsfehler werden still geschluckt, kein Hinweis *welche* Eintraege und *warum* fehlgeschlagen sind.
-  - `translate.py:290` — Gleich, HuggingFace-Pfad.
-  - `topic_model.py:172` — Retry in `_embed_huggingface_api()` loggt nicht bei Fehlschlag.
-  - `topic_model.py:219` — Retry in `_embed_openrouter._embed_batch()` ebenso.
-  - `_utils/openrouter_costs.py:153` — `fetch_generation_cost()` ignoriert Netzwerkfehler still.
-- [ ] **`export.py:87` — Outer except in `_export_chunk()` loggt nicht, *was* fehlgeschlagen ist**
+- [x] **Bare `except Exception:` mit Logging ersetzen**
+  - [x] `translate.py:263` — Uebersetzungsfehler werden still geschluckt, kein Hinweis *welche* Eintraege und *warum* fehlgeschlagen sind.
+  - [x] `translate.py:290` — Gleich, HuggingFace-Pfad.
+  - [x] `topic_model.py:172` — Retry in `_embed_huggingface_api()` loggt nicht bei Fehlschlag.
+  - [x] `topic_model.py:219` — Retry in `_embed_openrouter._embed_batch()` ebenso.
+  - [x] `_utils/openrouter_costs.py:153` — `fetch_generation_cost()` ignoriert Netzwerkfehler still.
+- [x] **`export.py:87` — Outer except in `_export_chunk()` loggt nicht, *was* fehlgeschlagen ist**
 - [x] **`visualize.py:428` — Warning als `print()` statt `warnings.warn()`**
   - Fallback (cluster boundaries deaktiviert) ist signifikant, sollte klarer kommuniziert werden.
 

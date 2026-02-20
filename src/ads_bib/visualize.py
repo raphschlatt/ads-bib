@@ -38,8 +38,31 @@ class WordCloud(SelectionHandlerBase):
         color_scale: str = "turbo",
         location: str = "bottom-right",
         text_field: str = "tokens_str",
-        **kwargs,
-    ):
+        **kwargs: object,
+    ) -> None:
+        """Initialize the dynamic word-cloud selection handler.
+
+        Parameters
+        ----------
+        n_words : int, optional
+            Maximum number of words shown in the cloud.
+        width : int, optional
+            Width of the cloud container in pixels.
+        height : int, optional
+            Height of the cloud container in pixels.
+        font_family : str or None, optional
+            Font family used for word rendering.
+        stop_words : list[str] or None, optional
+            Additional stop words removed before counting.
+        n_rotations : int, optional
+            Number of rotation angles available for words (capped at 22).
+        color_scale : str, optional
+            D3 interpolator key (for example ``"turbo"`` or ``"turbo_r"``).
+        location : str, optional
+            Stack container location in the datamapplot layout.
+        text_field : str, optional
+            Metadata field used to build selected text snippets.
+        """
         # Only jQuery as a dependency; d3 is provided by the template,
         # d3-cloud is loaded dynamically in JS to guarantee correct order.
         super().__init__(
@@ -64,7 +87,12 @@ class WordCloud(SelectionHandlerBase):
             self.color_scale_reversed = False
 
     @property
-    def javascript(self):
+    def javascript(self) -> str:
+        """Return the JavaScript contract consumed by datamapplot.
+
+        The script loads ``d3-cloud``, builds the cloud container, and
+        registers a lasso-selection callback.
+        """
         return f"""
 // --- Dynamically load d3-cloud AFTER d3@latest is available ---
 await new Promise((resolve, reject) => {{
@@ -140,11 +168,13 @@ await datamap.addSelectionHandler(debounce(lassoSelectionCallback, 100));
 """
 
     @property
-    def html(self):
+    def html(self) -> str:
+        """Return additional HTML markup for the selection handler."""
         return ""
 
     @property
-    def css(self):
+    def css(self) -> str:
+        """Return CSS styles for the word-cloud container."""
         return f"""
 #word-cloud {{
     position: relative;

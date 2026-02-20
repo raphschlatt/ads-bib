@@ -259,15 +259,15 @@ def translate_dataframe(
                     translated, pt, ct, gen_id, direct_cost = _translate_openrouter(
                         text, target_lang, model, api_key, api_base
                     )
-                    return idx, translated, pt, ct, gen_id, direct_cost
-                except Exception:
-                    return idx, None, 0, 0, None, None
+                    return idx, translated, pt, ct, gen_id, direct_cost, None
+                except Exception as exc:
+                    return idx, None, 0, 0, None, None, f"{type(exc).__name__}: {exc}"
 
             items = list(zip(to_translate.index, to_translate[col]))
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = [pool.submit(_do_translate, item) for item in items]
                 for future in tqdm(as_completed(futures), total=n, desc=f"  {col}"):
-                    idx, translated, pt, ct, gen_id, direct_cost = future.result()
+                    idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
                     if translated is not None:
                         df.at[idx, en_col] = translated
                         call_records.append(
@@ -277,7 +277,7 @@ def translate_dataframe(
                             }
                         )
                     else:
-                        failed.append(idx)
+                        failed.append((idx, error_msg or "unknown error"))
                     total_pt += pt
                     total_ct += ct
 
@@ -287,14 +287,18 @@ def translate_dataframe(
                     df.at[idx, en_col] = _translate_huggingface(
                         text, target_lang, _pipeline=hf_pipe
                     )
-                except Exception:
-                    failed.append(idx)
+                except Exception as exc:
+                    failed.append((idx, f"{type(exc).__name__}: {exc}"))
 
         else:
             raise ValueError(f"Unknown translation provider: {provider}")
 
         if failed:
             print(f"  {col}: {len(failed)} translations failed")
+            sample = "; ".join(
+                f"idx={idx} ({msg})" for idx, msg in failed[:3]
+            )
+            print(f"    examples: {sample}")
 
     total_cost_usd = None
     cost_summary = None

@@ -37,12 +37,14 @@ def normalize_openrouter_cost_mode(mode: str | None) -> str:
 
 
 def _get_mapping_value(obj: Any, key: str) -> Any:
+    """Return ``obj[key]`` for mappings or ``getattr(obj, key, None)`` otherwise."""
     if isinstance(obj, Mapping):
         return obj.get(key)
     return getattr(obj, key, None)
 
 
 def _coerce_float(value: Any) -> float | None:
+    """Convert value to ``float`` and return ``None`` for invalid inputs."""
     if value is None:
         return None
     try:
@@ -52,6 +54,7 @@ def _coerce_float(value: Any) -> float | None:
 
 
 def _coerce_int(value: Any) -> int:
+    """Convert value to ``int`` and return ``0`` for invalid inputs."""
     if value is None:
         return 0
     try:
@@ -150,8 +153,12 @@ def fetch_generation_cost(
                     cost = _coerce_float(data.get("usage"))
                 if cost is not None:
                     return cost
-        except Exception:
-            pass
+        except Exception as exc:
+            if attempt == attempts - 1:
+                print(
+                    f"OpenRouter cost fetch failed for generation_id={generation_id}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
         if attempt < attempts - 1 and delay > 0:
             time.sleep(delay)
