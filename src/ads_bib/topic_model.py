@@ -149,7 +149,13 @@ def compute_embeddings(
     return emb
 
 
-def _embed_local(documents, model, batch_size, dtype):
+def _embed_local(
+    documents: list[str],
+    model: str,
+    batch_size: int,
+    dtype: Any,
+) -> np.ndarray:
+    """Embed documents with a local SentenceTransformer model."""
     from sentence_transformers import SentenceTransformer
 
     print(f"  Loading local model: {model}")
@@ -158,7 +164,13 @@ def _embed_local(documents, model, batch_size, dtype):
     return emb.astype(dtype)
 
 
-def _embed_huggingface_api(documents, model, batch_size, dtype):
+def _embed_huggingface_api(
+    documents: list[str],
+    model: str,
+    batch_size: int,
+    dtype: Any,
+) -> np.ndarray:
+    """Embed documents via LiteLLM against a HuggingFace API model."""
     import litellm
 
     all_emb = []
@@ -190,14 +202,15 @@ def _embed_huggingface_api(documents, model, batch_size, dtype):
 
 
 def _embed_openrouter(
-    documents,
-    model,
-    batch_size,
-    dtype,
-    api_key,
+    documents: list[str],
+    model: str,
+    batch_size: int,
+    dtype: Any,
+    api_key: str | None,
     *,
     max_workers: int = 5,
-):
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Embed documents via OpenRouter and collect token/cost call metadata."""
     import litellm
 
     # litellm routes via "openrouter/" prefix automatically
@@ -212,6 +225,7 @@ def _embed_openrouter(
     worker_count = max(1, min(int(max_workers), len(batches)))
 
     def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
+        """Embed one batch with retries and return ordered batch metadata."""
         for attempt in range(3):
             try:
                 resp = litellm.embedding(
@@ -316,7 +330,15 @@ def reduce_dimensions(
     return r5, r2
 
 
-def _reduce(embeddings, n_components, method, params, cache_dir, name):
+def _reduce(
+    embeddings: np.ndarray,
+    n_components: int,
+    method: str,
+    params: dict[str, Any],
+    cache_dir: Path | None,
+    name: str,
+) -> np.ndarray:
+    """Reduce embedding dimensionality with optional on-disk caching."""
     if cache_dir:
         path = cache_dir / f"reduced_{name}.npy"
         if path.exists():
@@ -545,7 +567,13 @@ def _track_litellm_usage(*, enabled: bool):
 
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
-    def _cost_cb(kwargs, response, start_time, end_time):
+    def _cost_cb(
+        kwargs: dict[str, Any],
+        response: Any,
+        start_time: Any,
+        end_time: Any,
+    ) -> None:
+        """Accumulate LiteLLM token usage and call metadata from callbacks."""
         del start_time, end_time
         stats = extract_usage_stats(response)
         usage["prompt_tokens"] += stats["prompt_tokens"]
@@ -575,6 +603,7 @@ def _record_llm_usage(
     openrouter_cost_mode: str,
     cost_tracker: "CostTracker | None",
 ) -> None:
+    """Persist captured LLM usage into the shared cost tracker."""
     if usage is None or cost_tracker is None:
         return
 
@@ -614,11 +643,15 @@ def _create_tracked_toponymy_namer(
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     class TrackedOpenAINamer(LLMWrapper):
-        def __init__(self):
+        """Toponymy namer wrapper that tracks token usage and direct costs."""
+
+        def __init__(self) -> None:
+            """Initialize OpenAI client bindings for Toponymy naming."""
             self.client = OpenAI(api_key=api_key, base_url=base_url)
             self.model = model
 
         def _record_usage(self, response: Any) -> None:
+            """Aggregate per-call usage stats from one completion response."""
             stats = extract_usage_stats(response)
             usage["prompt_tokens"] += stats["prompt_tokens"]
             usage["completion_tokens"] += stats["completion_tokens"]
@@ -631,7 +664,13 @@ def _create_tracked_toponymy_namer(
                 }
             )
 
-        def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
+        def _call_llm(
+            self,
+            prompt: str,
+            temperature: float,
+            max_tokens: int,
+        ) -> str:
+            """Call chat completion with a single user prompt."""
             response = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=max_tokens,
@@ -649,6 +688,7 @@ def _create_tracked_toponymy_namer(
             temperature: float,
             max_tokens: int,
         ) -> str:
+            """Call chat completion with system and user messages."""
             response = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=max_tokens,
@@ -744,6 +784,7 @@ def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
     """
 
     def _wrap_bound(method: Any) -> Any:
+        """Wrap bound methods to drop unsupported keyword arguments."""
         try:
             sig = inspect.signature(method)
         except (TypeError, ValueError):
@@ -754,7 +795,8 @@ def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
 
         accepted = set(sig.parameters.keys())
 
-        def _wrapped(*args, **kwargs):
+        def _wrapped(*args: Any, **kwargs: Any) -> Any:
+            """Forward call while filtering to accepted keyword arguments."""
             filtered = {k: v for k, v in kwargs.items() if k in accepted}
             return method(*args, **filtered)
 
@@ -939,7 +981,10 @@ def _suppress_manual_topics_warning():
     logger = logging.getLogger("BERTopic")
 
     class _MessageFilter(logging.Filter):
-        def filter(self, record):
+        """Filter out BERTopic's generic manual-topics warning."""
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            """Return True for messages that should remain visible."""
             return target not in record.getMessage()
 
     warning_filter = _MessageFilter()
@@ -950,10 +995,21 @@ def _suppress_manual_topics_warning():
         logger.removeFilter(warning_filter)
 
 
-def _build_representation_model(*, llm_provider, llm_model, llm_prompt,
-                                  pipeline_models, parallel_models,
-                                  mmr_diversity, llm_nr_docs, llm_diversity,
-                                  llm_delay, keybert_model, api_key):
+def _build_representation_model(
+    *,
+    llm_provider: str,
+    llm_model: str,
+    llm_prompt: str | None,
+    pipeline_models: list[str],
+    parallel_models: list[str],
+    mmr_diversity: float,
+    llm_nr_docs: int,
+    llm_diversity: float,
+    llm_delay: float,
+    keybert_model: str | None,
+    api_key: str | None,
+) -> dict[str, Any]:
+    """Build BERTopic representation models for sequential and parallel use."""
     from bertopic.representation import MaximalMarginalRelevance, PartOfSpeech
 
     DEFAULT_PROMPT = (
@@ -998,7 +1054,16 @@ def _build_representation_model(*, llm_provider, llm_model, llm_prompt,
     return result
 
 
-def _create_llm(provider, model, prompt, nr_docs, diversity, delay, api_key):
+def _create_llm(
+    provider: str,
+    model: str,
+    prompt: str,
+    nr_docs: int,
+    diversity: float,
+    delay: float,
+    api_key: str | None,
+) -> Any:
+    """Create configured BERTopic LLM representation backend."""
     if provider == "local":
         from transformers import pipeline as hf_pipeline
         from bertopic.representation import TextGeneration

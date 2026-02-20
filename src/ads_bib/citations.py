@@ -56,6 +56,7 @@ def filter_nodes(
 
 
 def _author_list(value: object) -> list[str]:
+    """Normalize author input into a cleaned list of author strings."""
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip()]
     if isinstance(value, str):
@@ -64,10 +65,12 @@ def _author_list(value: object) -> list[str]:
 
 
 def _author_text(value: object) -> str:
+    """Serialize author input to a semicolon-separated author string."""
     return "; ".join(_author_list(value))
 
 
 def _first_author_lastname(value: object) -> str | None:
+    """Extract the first author's last name from list/string author input."""
     authors = _author_list(value)
     if not authors:
         return None
@@ -79,6 +82,7 @@ def _first_author_lastname(value: object) -> str | None:
 
 
 def _has_value(value: object) -> bool:
+    """Return True when *value* should be exported as a meaningful attribute."""
     if value is None:
         return False
     if isinstance(value, (list, tuple, set, dict)):
@@ -372,12 +376,15 @@ def export_wos_format(
     ref_lookup = references.drop_duplicates(subset="Bibcode").set_index("Bibcode").to_dict(orient="index")
 
     def _format_author(authors: list[str] | str) -> str:
+        """Format author values into WOS multi-line AU layout."""
         return "\n   ".join(_author_list(authors))
 
     def _format_ref_author(authors: list[str] | str) -> str:
+        """Format reference author values as first-author last name."""
         return _first_author_lastname(authors) or ""
 
-    def _format_pub(pub: dict) -> str:
+    def _format_pub(pub: dict[str, object]) -> str:
+        """Format one publication record into a WOS `PT ... ER` block."""
         lines = [f"PT J\nAU {_format_author(pub['Author'])}\nTI {pub.get('Title_en', pub.get('Title', ''))}\nSO {pub['Journal']}\nDT {pub['Category']}"]
 
         if pub.get("Affiliation"):
@@ -517,6 +524,7 @@ def process_all_citations(
 def _filter_by_authors(
     df: pd.DataFrame, authors: list[str] | None
 ) -> pd.DataFrame:
+    """Filter rows whose serialized author list matches any author pattern."""
     if not authors:
         return df
     pattern = "|".join(authors)

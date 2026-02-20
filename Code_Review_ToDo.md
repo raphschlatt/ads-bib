@@ -9,7 +9,7 @@ Hier stehen die konkreten, zeilenspezifischen Befunde aus einem systematischen C
 
 ## 1) Type Hints vervollstaendigen
 
-- [ ] **Private Helper in `topic_model.py` annotieren**
+- [x] **Private Helper in `topic_model.py` annotieren**
   - `_embed_local()` L152, `_embed_huggingface_api()` L161, `_reduce()` L297
   - `_cost_cb()` L526, `_wrapped()` L735, `filter()` L920
   - `TrackedOpenAINamer.__init__()` L595, `_record_usage()` L599, `_call_llm()` L612, `_call_llm_with_system_prompt()` L623
@@ -25,10 +25,10 @@ Hier stehen die konkreten, zeilenspezifischen Befunde aus einem systematischen C
 
 Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
-- [ ] **`citations.py` — 8 Private Helper ohne Docstrings**
+- [x] **`citations.py` — 8 Private Helper ohne Docstrings**
   - `_author_list()`, `_author_text()`, `_first_author_lastname()`, `_has_value()`
   - `_filter_by_authors()`, `_format_author()`, `_format_ref_author()`, `_format_pub()` (43 Zeilen, nicht trivial)
-- [ ] **`topic_model.py` — 16 Funktionen ohne Docstrings**
+- [x] **`topic_model.py` — 16 Funktionen ohne Docstrings**
   - Insb. `_embed_local()`, `_embed_huggingface_api()`, `_embed_openrouter()`, `_reduce()`, `_record_llm_usage()`, `_build_representation_model()`, `_create_llm()`
 - [x] **`visualize.py` — `WordCloud.__init__()` und Property-Contracts dokumentieren**
 - [x] **`_utils/costs.py` — `CostTracker`-Properties und `__repr__()` dokumentieren**
