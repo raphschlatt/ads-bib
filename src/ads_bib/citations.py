@@ -18,6 +18,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ads_bib._utils.authors import (
+    author_list as _normalize_author_list,
+    author_text as _serialize_author_text,
+    first_author_lastname as _extract_first_author_lastname,
+)
+
 
 # ---------------------------------------------------------------------------
 # Node helpers
@@ -57,28 +63,17 @@ def filter_nodes(
 
 def _author_list(value: object) -> list[str]:
     """Normalize author input into a cleaned list of author strings."""
-    if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
-    if isinstance(value, str):
-        return [v.strip() for v in value.split(";") if v.strip()]
-    return []
+    return _normalize_author_list(value)
 
 
 def _author_text(value: object) -> str:
     """Serialize author input to a semicolon-separated author string."""
-    return "; ".join(_author_list(value))
+    return _serialize_author_text(value)
 
 
 def _first_author_lastname(value: object) -> str | None:
     """Extract the first author's last name from list/string author input."""
-    authors = _author_list(value)
-    if not authors:
-        return None
-    first = authors[0]
-    if "," in first:
-        return first.split(",", 1)[0].strip() or None
-    parts = first.split()
-    return parts[-1].strip() if parts else None
+    return _extract_first_author_lastname(value)
 
 
 def _has_value(value: object) -> bool:

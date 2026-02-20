@@ -3,8 +3,55 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from typing import TypeVar, Literal
 
 import requests
+
+T = TypeVar("T")
+
+
+def retry_call(
+    func: Callable[[], T],
+    *,
+    max_retries: int = 2,
+    delay: float = 1.0,
+    backoff: Literal["linear", "exponential"] = "linear",
+    on_retry: Callable[[int, int, float, Exception], None] | None = None,
+) -> T:
+    """Execute *func* with retries and configurable backoff.
+
+    Parameters
+    ----------
+    func : Callable[[], T]
+        Zero-argument callable to execute.
+    max_retries : int
+        Number of retries after the first failed attempt.
+    delay : float
+        Base delay in seconds.
+    backoff : {"linear", "exponential"}
+        Delay strategy between retries.
+    on_retry : callable, optional
+        Callback called as ``on_retry(retry_index, max_retries, wait, exc)``
+        where ``retry_index`` starts at ``1``.
+    """
+    retries = max(0, int(max_retries))
+    for attempt in range(retries + 1):
+        try:
+            return func()
+        except Exception as exc:
+            if attempt >= retries:
+                raise
+            if backoff == "exponential":
+                wait = delay * (2 ** attempt)
+            else:
+                wait = delay * (attempt + 1)
+            if on_retry is not None:
+                on_retry(attempt + 1, retries, wait, exc)
+            if wait > 0:
+                time.sleep(wait)
+
+    raise RuntimeError("retry_call exhausted unexpectedly.")
 
 
 def create_session(token: str) -> requests.Session:

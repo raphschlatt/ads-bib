@@ -15,6 +15,8 @@ from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 import datamapplot
 from datamapplot.selection_handlers import SelectionHandlerBase
 
+from ads_bib._utils.authors import author_text
+
 
 # ---------------------------------------------------------------------------
 # WordCloud selection handler
@@ -292,6 +294,225 @@ _HOVER_TEMPLATE = """
 """
 
 
+def _normalize_label_columns(label_column: str | list[str]) -> list[str]:
+    """Normalize topic label columns to a list."""
+    if isinstance(label_column, str):
+        return [label_column]
+    return list(label_column)
+
+
+def _tokens_to_text(value: object) -> str:
+    """Convert token-like values to one flat string."""
+    if isinstance(value, (list, tuple, np.ndarray, pd.Series)):
+        return " ".join(map(str, value))
+    return str(value)
+
+
+def _truncate_abstract(value: object, *, max_len: int = 200) -> object:
+    """Truncate long abstract strings for compact hover cards."""
+    if isinstance(value, str) and len(value) > max_len:
+        return f"{value[:max_len]}..."
+    return value
+
+
+def _prepare_point_data(
+    df: pd.DataFrame,
+    *,
+    primary_label_col: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Prepare dataframe copy, publication dates, and point metadata payload."""
+    df_work = df.copy()
+    df_work["tokens_str"] = df_work["tokens"].apply(_tokens_to_text)
+    df_work["publication_date"] = pd.to_datetime(
+        df_work["Year"].astype(str) + "-12-31",
+        errors="coerce",
+    )
+
+    extra_data = df_work[
+        [
+            "Bibcode",
+            "Title_en",
+            "Author",
+            "Year",
+            "Journal",
+            "Abstract_en",
+            "Citation Count",
+            "DOI",
+            "tokens_str",
+            "topic_id",
+            primary_label_col,
+        ]
+    ].copy()
+    extra_data.columns = [
+        "bibcode",
+        "title",
+        "author",
+        "year",
+        "journal",
+        "abstract",
+        "citation_count",
+        "doi",
+        "tokens_str",
+        "cluster",
+        "primary_field",
+    ]
+    extra_data["author"] = extra_data["author"].apply(author_text)
+    extra_data["abstract"] = extra_data["abstract"].apply(_truncate_abstract)
+    extra_data["citation_count"] = pd.to_numeric(
+        extra_data["citation_count"],
+        errors="coerce",
+    ).fillna(0).astype(int)
+    return df_work, extra_data
+
+
+def _resolve_histogram_range(
+    publication_dates: pd.Series,
+    *,
+    year_range: tuple[str, str] | None,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Resolve histogram date range from explicit range or observed data."""
+    valid_pub_dates = publication_dates.dropna()
+    if valid_pub_dates.empty:
+        auto_hist_start = pd.Timestamp("1900-01-01")
+        auto_hist_end = pd.Timestamp("1901-01-01")
+    else:
+        min_year = int(valid_pub_dates.dt.year.min())
+        max_year = int(valid_pub_dates.dt.year.max())
+        auto_hist_start = pd.Timestamp(f"{min_year}-01-01")
+        auto_hist_end = pd.Timestamp(f"{max_year + 1}-01-01")
+
+    if year_range is None:
+        return auto_hist_start, auto_hist_end
+
+    hist_start = pd.to_datetime(year_range[0])
+    hist_end = pd.to_datetime(year_range[1])
+    if hist_end <= hist_start:
+        raise ValueError("year_range end must be greater than start.")
+    return hist_start, hist_end
+
+
+def _apply_topic_colors(
+    extra_data: pd.DataFrame,
+    *,
+    topic_ids: pd.Series,
+) -> tuple[dict[str, str], list[str]]:
+    """Assign topic colors and return color map with detected noise labels."""
+    categories = extra_data["primary_field"].unique()
+    cmap = dict(zip(categories, map(rgb2hex, sns.color_palette("turbo", len(categories)))))
+    noise_labels = list(extra_data.loc[topic_ids == -1, "primary_field"].unique())
+    for label in noise_labels:
+        cmap[label] = "#aaaaaa44"
+    extra_data["color"] = extra_data["primary_field"].map(cmap)
+    return cmap, noise_labels
+
+
+def _histogram_theme_colors() -> tuple[str, str, str, str]:
+    """Build histogram color tuple from the turbo palette."""
+    palette = sns.color_palette("turbo", as_cmap=False)
+    return tuple(rgb2hex(palette[i]) for i in (0, 5, 3, 1))
+
+
+def _build_plot_kwargs(
+    *,
+    df_work: pd.DataFrame,
+    extra_data: pd.DataFrame,
+    hover_text: list[str],
+    title: str,
+    subtitle: str,
+    dark_mode: bool,
+    font_family: str,
+    polygon_alpha: float | None,
+    hist_start: pd.Timestamp,
+    hist_end: pd.Timestamp,
+    noise_labels: list[str],
+    legend_html: str,
+    legend_js: str,
+) -> dict[str, object]:
+    """Build keyword arguments for `datamapplot.create_interactive_plot`."""
+    bin_c, sel_c, unsel_c, ctx_c = _histogram_theme_colors()
+    marker_size = np.log1p(extra_data["citation_count"].values) + 1
+
+    return dict(
+        hover_text=hover_text,
+        extra_point_data=extra_data,
+        inline_data=True,
+        title=title,
+        sub_title=subtitle,
+        font_family=font_family,
+        enable_search=True,
+        search_field="author",
+        initial_zoom_fraction=0.99,
+        darkmode=dark_mode,
+        cluster_boundary_polygons=True,
+        polygon_alpha=polygon_alpha if polygon_alpha is not None else 0.15,
+        cluster_boundary_line_width=8,
+        use_medoids=True,
+        marker_size_array=marker_size,
+        marker_color_array=extra_data["color"],
+        point_radius_max_pixels=20,
+        point_radius_min_pixels=2,
+        noise_label=", ".join(noise_labels),
+        color_label_text=False,
+        color_cluster_boundaries=False,
+        text_outline_width=4,
+        text_min_pixel_size=16,
+        text_max_pixel_size=48,
+        min_fontsize=16,
+        max_fontsize=32,
+        histogram_data=df_work["publication_date"],
+        histogram_group_datetime_by="year",
+        histogram_range=(hist_start, hist_end),
+        histogram_settings={
+            "histogram_log_scale": True,
+            "histogram_title": "Publications per Year",
+            "histogram_width": 400,
+            "histogram_height": 150,
+            "histogram_bin_fill_color": bin_c,
+            "histogram_bin_selected_fill_color": sel_c,
+            "histogram_bin_unselected_fill_color": unsel_c,
+            "histogram_bin_context_fill_color": ctx_c,
+        },
+        hover_text_html_template=_HOVER_TEMPLATE,
+        on_click="window.open(`https://ui.adsabs.harvard.edu/abs/{bibcode}/abstract`)",
+        custom_css=_LEGEND_CSS,
+        custom_html=legend_html,
+        custom_js=legend_js,
+    )
+
+
+def _create_plot_with_polygon_fallback(
+    data_map: np.ndarray,
+    label_layers: list[np.ndarray],
+    *,
+    kwargs: dict[str, object],
+) -> object:
+    """Create plot and retry without polygons when `polygon_alpha` is unsupported."""
+    try:
+        return datamapplot.create_interactive_plot(data_map, *label_layers, **kwargs)
+    except ValueError as exc:
+        if "polygon_alpha" not in str(exc):
+            raise
+        warnings.warn(
+            "polygon_alpha too low for this dataset; disabling cluster boundaries.",
+            UserWarning,
+            stacklevel=2,
+        )
+        retry_kwargs = dict(kwargs)
+        retry_kwargs["cluster_boundary_polygons"] = False
+        retry_kwargs.pop("polygon_alpha", None)
+        return datamapplot.create_interactive_plot(data_map, *label_layers, **retry_kwargs)
+
+
+def _save_plot(plot: object, output_path: Path | str | None) -> None:
+    """Save interactive plot if an output path is provided."""
+    if not output_path:
+        return
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    plot.save(output_file)
+    print(f"Saved: {output_file.name}")
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -332,145 +553,51 @@ def create_topic_map(
     datamapplot.InteractivePlot
     """
     data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
-    
-    if isinstance(label_column, str):
-        label_columns = [label_column]
-    else:
-        label_columns = label_column
-        
+    label_columns = _normalize_label_columns(label_column)
     label_layers = [df[col].to_numpy(object) for col in label_columns]
     primary_label_col = label_columns[0]
-
     hover_text = df["Year"].astype(str).tolist()
 
-    # Tokens → string for word cloud
-    df = df.copy()
-    df["tokens_str"] = df["tokens"].apply(
-        lambda x: " ".join(map(str, x)) if isinstance(x, (list, tuple, np.ndarray, pd.Series)) else str(x)
+    df_work, extra_data = _prepare_point_data(df, primary_label_col=primary_label_col)
+    hist_start, hist_end = _resolve_histogram_range(
+        df_work["publication_date"],
+        year_range=year_range,
     )
-
-    extra_data = df[["Bibcode", "Title_en", "Author", "Year", "Journal",
-                      "Abstract_en", "Citation Count", "DOI", "tokens_str",
-                      "topic_id", primary_label_col]].copy()
-    extra_data.columns = ["bibcode", "title", "author", "year", "journal",
-                          "abstract", "citation_count", "doi", "tokens_str",
-                          "cluster", "primary_field"]
-    extra_data["author"] = extra_data["author"].apply(
-        lambda x: "; ".join(map(str, x)) if isinstance(x, (list, tuple, np.ndarray, pd.Series)) else str(x)
+    cmap, noise_labels = _apply_topic_colors(
+        extra_data,
+        topic_ids=df_work["topic_id"],
     )
-    extra_data["abstract"] = extra_data["abstract"].apply(
-        lambda x: (x[:200] + "...") if isinstance(x, str) and len(x) > 200 else x
-    )
-    extra_data["citation_count"] = pd.to_numeric(extra_data["citation_count"], errors="coerce").fillna(0).astype(int)
-
-    df["publication_date"] = pd.to_datetime(df["Year"].astype(str) + "-12-31", errors="coerce")
-    valid_pub_dates = df["publication_date"].dropna()
-    if valid_pub_dates.empty:
-        auto_hist_start = pd.Timestamp("1900-01-01")
-        auto_hist_end = pd.Timestamp("1901-01-01")
-    else:
-        min_year = int(valid_pub_dates.dt.year.min())
-        max_year = int(valid_pub_dates.dt.year.max())
-        auto_hist_start = pd.Timestamp(f"{min_year}-01-01")
-        auto_hist_end = pd.Timestamp(f"{max_year + 1}-01-01")
-
-    if year_range is None:
-        hist_start, hist_end = auto_hist_start, auto_hist_end
-    else:
-        hist_start, hist_end = (pd.to_datetime(year_range[0]), pd.to_datetime(year_range[1]))
-        if hist_end <= hist_start:
-            raise ValueError("year_range end must be greater than start.")
-
-    # Color mapping
-    categories = extra_data["primary_field"].unique()
-    cmap = dict(zip(categories, map(rgb2hex, sns.color_palette("turbo", len(categories)))))
-    noise_labels = extra_data.loc[df["topic_id"] == -1, "primary_field"].unique()
-    for lbl in noise_labels:
-        cmap[lbl] = "#aaaaaa44"
-    extra_data["color"] = extra_data["primary_field"].map(cmap)
-
-    marker_color = extra_data["color"]
-    marker_size = np.log1p(extra_data["citation_count"].values) + 1
-
-    palette = sns.color_palette("turbo", as_cmap=False)
-    bin_c, sel_c, unsel_c, ctx_c = [rgb2hex(palette[i]) for i in (0, 5, 3, 1)]
 
     legend_html = _build_legend_html(cmap)
     legend_js = _build_legend_js(dark_mode)
 
-    kwargs: dict = dict(
+    kwargs = _build_plot_kwargs(
+        df_work=df_work,
+        extra_data=extra_data,
         hover_text=hover_text,
-        extra_point_data=extra_data,
-        inline_data=True,
         title=title,
-        sub_title=subtitle,
+        subtitle=subtitle,
+        dark_mode=dark_mode,
         font_family=font_family,
-        enable_search=True,
-        search_field="author",
-        initial_zoom_fraction=0.99,
-        darkmode=dark_mode,
-        cluster_boundary_polygons=True,
-        polygon_alpha=polygon_alpha if polygon_alpha is not None else 0.15,
-        cluster_boundary_line_width=8,
-        use_medoids=True,
-        marker_size_array=marker_size,
-        marker_color_array=marker_color,
-        point_radius_max_pixels=20,
-        point_radius_min_pixels=2,
-        noise_label=", ".join(noise_labels),
-        color_label_text=False,
-        color_cluster_boundaries=False,
-        text_outline_width=4,
-        text_min_pixel_size=16,
-        text_max_pixel_size=48,
-        min_fontsize=16,
-        max_fontsize=32,
-        histogram_data=df["publication_date"],
-        histogram_group_datetime_by="year",
-        histogram_range=(hist_start, hist_end),
-        histogram_settings={
-            "histogram_log_scale": True,
-            "histogram_title": "Publications per Year",
-            "histogram_width": 400,
-            "histogram_height": 150,
-            "histogram_bin_fill_color": bin_c,
-            "histogram_bin_selected_fill_color": sel_c,
-            "histogram_bin_unselected_fill_color": unsel_c,
-            "histogram_bin_context_fill_color": ctx_c,
-        },
-        hover_text_html_template=_HOVER_TEMPLATE,
-        on_click="window.open(`https://ui.adsabs.harvard.edu/abs/{bibcode}/abstract`)",
-        custom_css=_LEGEND_CSS,
-        custom_html=legend_html,
-        custom_js=legend_js,
+        polygon_alpha=polygon_alpha,
+        hist_start=hist_start,
+        hist_end=hist_end,
+        noise_labels=noise_labels,
+        legend_html=legend_html,
+        legend_js=legend_js,
     )
 
     if word_cloud:
         kwargs["selection_handler"] = WordCloud(
-            n_words=256, width=500, height=300,
-            color_scale="turbo", font_family=font_family,
+            n_words=256,
+            width=500,
+            height=300,
+            color_scale="turbo",
+            font_family=font_family,
             text_field="tokens_str",
         )
 
-    try:
-        plot = datamapplot.create_interactive_plot(data_map, *label_layers, **kwargs)
-    except ValueError as e:
-        if "polygon_alpha" in str(e):
-            warnings.warn(
-                "polygon_alpha too low for this dataset; disabling cluster boundaries.",
-                UserWarning,
-                stacklevel=2,
-            )
-            kwargs["cluster_boundary_polygons"] = False
-            kwargs.pop("polygon_alpha", None)
-            plot = datamapplot.create_interactive_plot(data_map, *label_layers, **kwargs)
-        else:
-            raise
-
-    if output_path:
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        plot.save(output_path)
-        print(f"Saved: {output_path.name}")
+    plot = _create_plot_with_polygon_fallback(data_map, label_layers, kwargs=kwargs)
+    _save_plot(plot, output_path)
 
     return plot

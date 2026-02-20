@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -14,7 +13,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from ._utils.ads_api import create_session
+from ._utils.ads_api import create_session, retry_request
 from ._utils.cleaning import clean_dataframe
 
 # ---------------------------------------------------------------------------
@@ -57,52 +56,27 @@ def _export_chunk(
     timeout: int = 120,
 ) -> tuple[int, str | None, str | None]:
     """Export a single chunk of bibcodes. Thread-safe."""
-
     payload = {"bibcode": bibcodes_chunk, "format": custom_format, "sort": "score desc"}
+    try:
+        resp = retry_request(
+            session,
+            "post",
+            ADS_EXPORT_URL,
+            max_retries=max_retries,
+            backoff_factor=backoff_factor,
+            timeout=timeout,
+            data=json.dumps(payload),
+        )
+    except Exception as exc:
+        response = getattr(exc, "response", None)
+        if response is not None and getattr(response, "status_code", None) == 400:
+            msg = str(exc)
+            if msg.startswith("400 Bad Request: "):
+                msg = msg.replace("400 Bad Request: ", "400: ", 1)
+            return (chunk_index, None, msg)
+        return (chunk_index, None, f"{type(exc).__name__}: {exc}")
 
-    for attempt in range(max_retries + 1):
-        try:
-            resp = session.post(
-                ADS_EXPORT_URL, data=json.dumps(payload), timeout=timeout
-            )
-
-            if resp.status_code == 200:
-                return (chunk_index, resp.json()["export"], None)
-
-            if resp.status_code == 429:
-                wait = int(resp.headers.get("Retry-After", 60))
-                print(f"\n[Chunk {chunk_index}] Rate limited. Waiting {wait}s ...")
-                time.sleep(wait)
-                continue
-
-            if resp.status_code >= 500:
-                if attempt < max_retries:
-                    wait = backoff_factor * (2 ** attempt)
-                    print(f"\n[Chunk {chunk_index}] Server error {resp.status_code}. "
-                          f"Retry {attempt + 1}/{max_retries} in {wait}s ...")
-                    time.sleep(wait)
-                    continue
-
-            if resp.status_code == 400:
-                try:
-                    detail = resp.json().get("error", resp.text[:200])
-                except Exception:
-                    detail = resp.text[:200]
-                return (chunk_index, None, f"400: {detail}")
-
-            resp.raise_for_status()
-
-        except Exception as exc:
-            wait = backoff_factor * (2 ** attempt)
-            if attempt >= max_retries:
-                return (chunk_index, None, f"{type(exc).__name__}: {exc}")
-            print(
-                f"\n[Chunk {chunk_index}] Request error {type(exc).__name__}: {exc}. "
-                f"Retry {attempt + 1}/{max_retries} in {wait}s ..."
-            )
-            time.sleep(wait)
-
-    return (chunk_index, None, "Max retries exceeded")
+    return (chunk_index, resp.json()["export"], None)
 
 
 # ---------------------------------------------------------------------------

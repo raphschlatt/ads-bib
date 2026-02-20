@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import requests
+
 import ads_bib.export as ex
 
 
@@ -48,3 +50,63 @@ def test_parse_export_handles_broken_volume_page_csv_quoting():
     assert str(df.loc[0, "Volume"]) == "36"
     assert str(df.loc[0, "First Page"]) == "757"
     assert str(df.loc[0, "Last Page"]) == "763"
+
+
+def test_export_chunk_uses_retry_request_and_returns_export(monkeypatch):
+    calls: dict = {}
+
+    class _Resp:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"export": "ok\n"}
+
+    def _fake_retry_request(session, method, url, **kwargs):
+        del session
+        calls["method"] = method
+        calls["url"] = url
+        calls["kwargs"] = kwargs
+        return _Resp()
+
+    monkeypatch.setattr(ex, "retry_request", _fake_retry_request)
+
+    idx, data, err = ex._export_chunk(
+        session=object(),
+        bibcodes_chunk=["b1"],
+        chunk_index=3,
+        custom_format=ex.DEFAULT_CUSTOM_FORMAT,
+    )
+
+    assert idx == 3
+    assert data == "ok\n"
+    assert err is None
+    assert calls["method"] == "post"
+    assert calls["url"] == ex.ADS_EXPORT_URL
+
+
+def test_export_chunk_returns_compact_400_error(monkeypatch):
+    class _Response:
+        status_code = 400
+
+    exc = requests.exceptions.HTTPError(
+        "400 Bad Request: invalid query",
+        response=_Response(),
+    )
+
+    def _fake_retry_request(*args, **kwargs):
+        del args, kwargs
+        raise exc
+
+    monkeypatch.setattr(ex, "retry_request", _fake_retry_request)
+
+    idx, data, err = ex._export_chunk(
+        session=object(),
+        bibcodes_chunk=["b1"],
+        chunk_index=1,
+        custom_format=ex.DEFAULT_CUSTOM_FORMAT,
+    )
+
+    assert idx == 1
+    assert data is None
+    assert err == "400: invalid query"

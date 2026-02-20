@@ -174,6 +174,144 @@ def _load_hf_pipeline(model: str):
     )
 
 
+def _prepare_translation_targets(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_lang: str,
+) -> tuple[str, pd.DataFrame]:
+    """Initialize translated column and return rows that need translation."""
+    lang_col = f"{source_col}_lang"
+    target_col = f"{source_col}_{target_lang}"
+    if lang_col not in df.columns:
+        raise ValueError(f"Column '{lang_col}' not found. Run detect_languages() first.")
+    df[target_col] = df[source_col]
+    mask = (df[lang_col] != target_lang) & df[source_col].notna() & (df[source_col] != "")
+    return target_col, df.loc[mask]
+
+
+def _translate_rows_openrouter(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_col: str,
+    to_translate: pd.DataFrame,
+    target_lang: str,
+    model: str,
+    api_key: str | None,
+    api_base: str,
+    max_workers: int,
+) -> tuple[int, int, list[dict[str, str | float | None]], list[tuple[object, str]]]:
+    """Translate selected rows with OpenRouter and return usage/call metadata."""
+
+    def _do_translate(idx_text: tuple[object, object]) -> tuple[object, str | None, int, int, str | None, float | None, str | None]:
+        idx, text = idx_text
+        try:
+            translated, pt, ct, gen_id, direct_cost = _translate_openrouter(
+                str(text),
+                target_lang,
+                model,
+                api_key,
+                api_base,
+            )
+            return idx, translated, pt, ct, gen_id, direct_cost, None
+        except Exception as exc:
+            return idx, None, 0, 0, None, None, f"{type(exc).__name__}: {exc}"
+
+    total_pt = 0
+    total_ct = 0
+    call_records: list[dict[str, str | float | None]] = []
+    failed: list[tuple[object, str]] = []
+
+    items = list(zip(to_translate.index, to_translate[source_col]))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [pool.submit(_do_translate, item) for item in items]
+        for future in tqdm(as_completed(futures), total=len(items), desc=f"  {source_col}"):
+            idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
+            if translated is not None:
+                df.at[idx, target_col] = translated
+                call_records.append({"generation_id": gen_id, "direct_cost": direct_cost})
+            else:
+                failed.append((idx, error_msg or "unknown error"))
+            total_pt += pt
+            total_ct += ct
+
+    return total_pt, total_ct, call_records, failed
+
+
+def _translate_rows_huggingface(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_col: str,
+    to_translate: pd.DataFrame,
+    target_lang: str,
+    hf_pipeline: object,
+) -> list[tuple[object, str]]:
+    """Translate selected rows with local HuggingFace pipeline."""
+    failed: list[tuple[object, str]] = []
+    for idx, text in tqdm(to_translate[source_col].items(), total=len(to_translate), desc=f"  {source_col}"):
+        try:
+            df.at[idx, target_col] = _translate_huggingface(
+                str(text),
+                target_lang,
+                _pipeline=hf_pipeline,
+            )
+        except Exception as exc:
+            failed.append((idx, f"{type(exc).__name__}: {exc}"))
+    return failed
+
+
+def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -> None:
+    """Print compact translation failure summary for one column."""
+    if not failed:
+        return
+    print(f"  {column}: {len(failed)} translations failed")
+    sample = "; ".join(f"idx={idx} ({msg})" for idx, msg in failed[:3])
+    print(f"    examples: {sample}")
+
+
+def _summarize_translation_cost(
+    *,
+    provider: str,
+    call_records: list[dict[str, str | float | None]],
+    openrouter_cost_mode: str,
+    api_key: str | None,
+    api_base: str,
+    max_workers: int,
+) -> tuple[float | None, dict | None]:
+    """Resolve translation costs when OpenRouter metadata is available."""
+    if provider != "openrouter" or not call_records:
+        return None, None
+
+    cost_summary = summarize_openrouter_costs(
+        call_records,
+        mode=openrouter_cost_mode,
+        api_key=api_key,
+        api_base=api_base,
+        max_workers=max_workers,
+        retries=2,
+        delay=0.5,
+        wait_before_fetch=2.0,
+    )
+    total_cost_usd = cost_summary["total_cost_usd"]
+
+    if cost_summary["fetch_attempted_calls"] > 0 and not cost_summary["fetch_skipped_no_api_key"]:
+        print(
+            f"  Resolved USD costs via /generation for {cost_summary['fetch_attempted_calls']} calls "
+            f"(mode={openrouter_cost_mode}) ..."
+        )
+    if total_cost_usd is not None:
+        print(
+            f"  Total translation cost: ${total_cost_usd:.4f} "
+            f"({cost_summary['priced_calls']}/{cost_summary['total_calls']} priced; "
+            f"direct={cost_summary['direct_priced_calls']}, "
+            f"fetched={cost_summary['fetched_priced_calls']}, "
+            f"mode={openrouter_cost_mode})"
+        )
+    return total_cost_usd, cost_summary
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -221,113 +359,65 @@ def translate_dataframe(
         ``prompt_tokens``, ``completion_tokens``, ``provider``, ``model``.
     """
     df = df.copy()
-    total_pt, total_ct = 0, 0
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
-    call_records: list[dict] = []
+    total_pt = 0
+    total_ct = 0
+    call_records: list[dict[str, str | float | None]] = []
 
     # Pre-load HF pipeline once (not per-row)
-    hf_pipe = None
+    hf_pipe: object | None = None
     if provider == "huggingface":
         hf_pipe = _load_hf_pipeline(model)
 
     for col in columns:
-        lang_col = f"{col}_lang"
-        en_col = f"{col}_{target_lang}"
-
-        if lang_col not in df.columns:
-            raise ValueError(f"Column '{lang_col}' not found. Run detect_languages() first.")
-
-        # Start with original text
-        df[en_col] = df[col]
-
-        # Rows that need translation
-        mask = (df[lang_col] != target_lang) & df[col].notna() & (df[col] != "")
-        to_translate = df.loc[mask]
+        en_col, to_translate = _prepare_translation_targets(
+            df,
+            source_col=col,
+            target_lang=target_lang,
+        )
         n = len(to_translate)
-
         if n == 0:
             print(f"  {col}: nothing to translate")
             continue
 
         print(f"  {col}: translating {n:,} entries with {provider}/{model} ...")
-        failed = []
-
         if provider == "openrouter":
-            def _do_translate(idx_text):
-                idx, text = idx_text
-                try:
-                    translated, pt, ct, gen_id, direct_cost = _translate_openrouter(
-                        text, target_lang, model, api_key, api_base
-                    )
-                    return idx, translated, pt, ct, gen_id, direct_cost, None
-                except Exception as exc:
-                    return idx, None, 0, 0, None, None, f"{type(exc).__name__}: {exc}"
-
-            items = list(zip(to_translate.index, to_translate[col]))
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [pool.submit(_do_translate, item) for item in items]
-                for future in tqdm(as_completed(futures), total=n, desc=f"  {col}"):
-                    idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
-                    if translated is not None:
-                        df.at[idx, en_col] = translated
-                        call_records.append(
-                            {
-                                "generation_id": gen_id,
-                                "direct_cost": direct_cost,
-                            }
-                        )
-                    else:
-                        failed.append((idx, error_msg or "unknown error"))
-                    total_pt += pt
-                    total_ct += ct
-
+            pt, ct, records, failed = _translate_rows_openrouter(
+                df,
+                source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
+                target_lang=target_lang,
+                model=model,
+                api_key=api_key,
+                api_base=api_base,
+                max_workers=max_workers,
+            )
+            total_pt += pt
+            total_ct += ct
+            call_records.extend(records)
         elif provider == "huggingface":
-            for idx, text in tqdm(to_translate[col].items(), total=n, desc=f"  {col}"):
-                try:
-                    df.at[idx, en_col] = _translate_huggingface(
-                        text, target_lang, _pipeline=hf_pipe
-                    )
-                except Exception as exc:
-                    failed.append((idx, f"{type(exc).__name__}: {exc}"))
-
+            failed = _translate_rows_huggingface(
+                df,
+                source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
+                target_lang=target_lang,
+                hf_pipeline=hf_pipe,
+            )
         else:
             raise ValueError(f"Unknown translation provider: {provider}")
 
-        if failed:
-            print(f"  {col}: {len(failed)} translations failed")
-            sample = "; ".join(
-                f"idx={idx} ({msg})" for idx, msg in failed[:3]
-            )
-            print(f"    examples: {sample}")
+        _report_failed_translations(col, failed)
 
-    total_cost_usd = None
-    cost_summary = None
-    if provider == "openrouter" and call_records:
-        cost_summary = summarize_openrouter_costs(
-            call_records,
-            mode=openrouter_cost_mode,
-            api_key=api_key,
-            api_base=api_base,
-            max_workers=max_workers,
-            retries=2,
-            delay=0.5,
-            wait_before_fetch=2.0,
-        )
-        total_cost_usd = cost_summary["total_cost_usd"]
-
-        if cost_summary["fetch_attempted_calls"] > 0 and not cost_summary["fetch_skipped_no_api_key"]:
-            print(
-                f"  Resolved USD costs via /generation for {cost_summary['fetch_attempted_calls']} calls "
-                f"(mode={openrouter_cost_mode}) ..."
-            )
-        if total_cost_usd is not None:
-            print(
-                f"  Total translation cost: ${total_cost_usd:.4f} "
-                f"({cost_summary['priced_calls']}/{cost_summary['total_calls']} priced; "
-                f"direct={cost_summary['direct_priced_calls']}, "
-                f"fetched={cost_summary['fetched_priced_calls']}, "
-                f"mode={openrouter_cost_mode})"
-            )
+    total_cost_usd, cost_summary = _summarize_translation_cost(
+        provider=provider,
+        call_records=call_records,
+        openrouter_cost_mode=openrouter_cost_mode,
+        api_key=api_key,
+        api_base=api_base,
+        max_workers=max_workers,
+    )
 
     cost_info = {
         "prompt_tokens": total_pt,

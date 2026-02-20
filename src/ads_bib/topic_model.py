@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import inspect
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,7 +18,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from ads_bib._utils.ads_api import retry_call
 from ads_bib._utils.openrouter_costs import (
+    DEFAULT_OPENROUTER_API_BASE,
     extract_generation_id,
     extract_response_cost,
     extract_usage_stats,
@@ -180,24 +181,31 @@ def _embed_huggingface_api(
         total=len(batches),
         desc="Embedding (HF API)",
     ):
-        for attempt in range(3):
-            try:
-                resp = litellm.embedding(model=model, input=batch)
-                all_emb.extend(d["embedding"] for d in resp["data"])
-                break
-            except Exception as exc:
-                wait = 1 * (attempt + 1)
-                if attempt == 2:
-                    print(
-                        f"  HF API embedding batch {batch_index} failed after 3 attempts: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                    raise
-                print(
-                    f"  HF API embedding batch {batch_index} failed "
-                    f"({type(exc).__name__}: {exc}). Retry {attempt + 1}/2 in {wait}s ..."
-                )
-                time.sleep(wait)
+        def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
+            print(
+                f"  HF API embedding batch {batch_index} failed "
+                f"({type(exc).__name__}: {exc}). "
+                f"Retry {retry_index}/{max_retries} in {wait:.0f}s ..."
+            )
+
+        def _request_batch() -> Any:
+            return litellm.embedding(model=model, input=batch)
+
+        try:
+            resp = retry_call(
+                _request_batch,
+                max_retries=2,
+                delay=1.0,
+                backoff="linear",
+                on_retry=_on_retry,
+            )
+        except Exception as exc:
+            print(
+                f"  HF API embedding batch {batch_index} failed after 3 attempts: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
+        all_emb.extend(d["embedding"] for d in resp["data"])
     return np.array(all_emb, dtype=dtype)
 
 
@@ -226,38 +234,46 @@ def _embed_openrouter(
 
     def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
         """Embed one batch with retries and return ordered batch metadata."""
-        for attempt in range(3):
-            try:
-                resp = litellm.embedding(
-                    model=model, input=batch,
-                    api_key=api_key,
-                )
-                usage = extract_usage_stats(resp)
-                return {
-                    "batch_index": batch_index,
-                    "embeddings": [d["embedding"] for d in resp["data"]],
-                    "prompt_tokens": usage["prompt_tokens"],
-                    "total_tokens": usage["total_tokens"],
-                    "call_record": {
-                        "generation_id": extract_generation_id(resp),
-                        "direct_cost": extract_response_cost(response=resp),
-                    },
-                }
-            except Exception as exc:
-                wait = 1 * (attempt + 1)
-                if attempt == 2:
-                    print(
-                        f"  OpenRouter embedding batch {batch_index} failed after 3 attempts: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                    raise
-                print(
-                    f"  OpenRouter embedding batch {batch_index} failed "
-                    f"({type(exc).__name__}: {exc}). Retry {attempt + 1}/2 in {wait}s ..."
-                )
-                time.sleep(wait)
+        def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
+            print(
+                f"  OpenRouter embedding batch {batch_index} failed "
+                f"({type(exc).__name__}: {exc}). "
+                f"Retry {retry_index}/{max_retries} in {wait:.0f}s ..."
+            )
 
-        raise RuntimeError("Embedding batch failed unexpectedly after retries.")
+        def _request_batch() -> Any:
+            return litellm.embedding(
+                model=model,
+                input=batch,
+                api_key=api_key,
+            )
+
+        try:
+            resp = retry_call(
+                _request_batch,
+                max_retries=2,
+                delay=1.0,
+                backoff="linear",
+                on_retry=_on_retry,
+            )
+        except Exception as exc:
+            print(
+                f"  OpenRouter embedding batch {batch_index} failed after 3 attempts: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
+
+        usage = extract_usage_stats(resp)
+        return {
+            "batch_index": batch_index,
+            "embeddings": [d["embedding"] for d in resp["data"]],
+            "prompt_tokens": usage["prompt_tokens"],
+            "total_tokens": usage["total_tokens"],
+            "call_record": {
+                "generation_id": extract_generation_id(resp),
+                "direct_cost": extract_response_cost(response=resp),
+            },
+        }
 
     batch_results: dict[int, dict[str, Any]] = {}
     desc = "Embedding (OpenRouter)"
@@ -811,6 +827,165 @@ def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
             setattr(clusterer, attr, wrapped)
 
 
+def _normalize_toponymy_inputs(
+    *,
+    llm_provider: str,
+    backend: str,
+    api_key: str | None,
+) -> tuple[str, str]:
+    """Normalize and validate Toponymy backend/provider selections."""
+    provider_norm = llm_provider.strip().lower()
+    if provider_norm not in {"openrouter", "local"}:
+        raise ValueError(
+            f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter' or 'local'."
+        )
+    if provider_norm == "openrouter" and not api_key:
+        raise ValueError("api_key is required for Toponymy with OpenRouter.")
+
+    backend_norm = backend.strip().lower()
+    if backend_norm not in {"toponymy", "toponymy_evoc"}:
+        raise ValueError(
+            f"Invalid backend '{backend}'. Expected 'toponymy' or 'toponymy_evoc'."
+        )
+    return provider_norm, backend_norm
+
+
+def _build_toponymy_clusterer(
+    *,
+    backend_norm: str,
+    clusterer_params: dict[str, Any],
+    toponymy_clusterer_cls: Any,
+    embeddings: np.ndarray,
+    clusterable_vectors: np.ndarray,
+) -> tuple[Any, np.ndarray]:
+    """Create configured Toponymy/EVoC clusterer and vectors for fit."""
+    if backend_norm == "toponymy":
+        clusterer = _instantiate_with_filtered_kwargs(
+            toponymy_clusterer_cls,
+            clusterer_params,
+            component_name="ToponymyClusterer",
+        )
+        print(f"  Clusterer: {clusterer.__class__.__name__}")
+        return clusterer, clusterable_vectors
+
+    try:
+        from toponymy.clustering import EVoCClusterer
+    except Exception as exc:
+        raise ImportError(
+            "backend='toponymy_evoc' requires optional dependency 'evoc' and "
+            "a Toponymy version that exposes EVoCClusterer."
+        ) from exc
+
+    clusterer = _instantiate_with_filtered_kwargs(
+        EVoCClusterer,
+        clusterer_params,
+        component_name="EVoCClusterer",
+    )
+    _patch_clusterer_for_toponymy_kwargs(clusterer)
+    print("  Using raw embeddings for clustering with EVoCClusterer.")
+    print(f"  Clusterer: {clusterer.__class__.__name__}")
+    return clusterer, embeddings
+
+
+def _build_toponymy_models(
+    *,
+    provider_norm: str,
+    llm_model: str,
+    embedding_model: str,
+    api_key: str | None,
+    openrouter_api_base: str,
+    cost_tracker: "CostTracker | None",
+) -> tuple[Any, dict[str, Any] | None, Any]:
+    """Build Toponymy naming and text-embedding components."""
+    if provider_norm == "openrouter":
+        from toponymy.embedding_wrappers import OpenAIEmbedder
+
+        llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
+            model=llm_model,
+            api_key=api_key,
+            base_url=openrouter_api_base,
+        )
+        text_embedding_model = OpenAIEmbedder(
+            api_key=api_key,
+            model=embedding_model,
+            base_url=openrouter_api_base,
+        )
+        return llm_wrapper, llm_usage, text_embedding_model
+
+    try:
+        from sentence_transformers import SentenceTransformer
+        from toponymy.llm_wrappers import HuggingFaceNamer
+    except Exception as exc:
+        raise ImportError(
+            "llm_provider='local' requires optional dependencies "
+            "'sentence-transformers', 'transformers', and "
+            "Toponymy's HuggingFaceNamer wrapper."
+        ) from exc
+
+    llm_wrapper = HuggingFaceNamer(
+        model=llm_model,
+        device_map="auto",
+        torch_dtype="auto",
+    )
+    if cost_tracker is not None:
+        print(
+            "  Local Toponymy LLM selected; token/cost tracking is unavailable for this step."
+        )
+    return llm_wrapper, None, SentenceTransformer(embedding_model)
+
+
+def _fit_and_extract_toponymy_outputs(
+    *,
+    toponymy_cls: Any,
+    documents: list[str],
+    embeddings: np.ndarray,
+    clusterable_vectors: np.ndarray,
+    llm_wrapper: Any,
+    text_embedding_model: Any,
+    clusterer: Any,
+    object_description: str,
+    corpus_description: str,
+    verbose: bool,
+    backend_norm: str,
+    provider_norm: str,
+    llm_model: str,
+    layer_index: int,
+) -> tuple[Any, np.ndarray, pd.DataFrame]:
+    """Fit Toponymy model and extract one configured topic layer."""
+    print(f"Fitting Toponymy backend='{backend_norm}' (LLM: {provider_norm}/{llm_model}) ...")
+    topic_model = toponymy_cls(
+        llm_wrapper=llm_wrapper,
+        text_embedding_model=text_embedding_model,
+        clusterer=clusterer,
+        object_description=object_description,
+        corpus_description=corpus_description,
+        verbose=verbose,
+    )
+    topic_model.fit(
+        documents,
+        embedding_vectors=embeddings,
+        clusterable_vectors=clusterable_vectors,
+    )
+
+    n_layers = len(topic_model.cluster_layers_)
+    if layer_index < 0 or layer_index >= n_layers:
+        raise ValueError(
+            f"layer_index {layer_index} is out of range for {n_layers} available layers."
+        )
+
+    topics = np.asarray(topic_model.cluster_layers_[layer_index].cluster_labels, dtype=int)
+    n_topics = len(set(topics)) - (1 if -1 in topics else 0)
+    n_outliers = int((topics == -1).sum())
+    print(
+        f"  Selected Toponymy layer {layer_index}/{n_layers - 1}: "
+        f"{n_topics} topics, {n_outliers:,} outliers."
+    )
+
+    topic_names = topic_model.topic_names_[layer_index]
+    topic_info = _build_toponymy_topic_info(topics, topic_names)
+    return topic_model, topics, topic_info
+
+
 def fit_toponymy(
     documents: list[str],
     embeddings: np.ndarray,
@@ -822,7 +997,7 @@ def fit_toponymy(
     llm_model: str = "google/gemini-3-flash-preview",
     embedding_model: str = "google/gemini-embedding-001",
     api_key: str | None = None,
-    openrouter_api_base: str = "https://openrouter.ai/api/v1",
+    openrouter_api_base: str = DEFAULT_OPENROUTER_API_BASE,
     openrouter_cost_mode: str = "hybrid",
     clusterer_params: dict | None = None,
     object_description: str = "research papers",
@@ -845,119 +1020,47 @@ def fit_toponymy(
         ``(toponymy_model, topics, topic_info)`` where ``topic_info`` has
         BERTopic-compatible columns ``Topic`` and ``Name``.
     """
-    provider_norm = llm_provider.strip().lower()
-    if provider_norm not in {"openrouter", "local"}:
-        raise ValueError(
-            f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter' or 'local'."
-        )
-    if provider_norm == "openrouter" and not api_key:
-        raise ValueError("api_key is required for Toponymy with OpenRouter.")
-
-    backend_norm = backend.strip().lower()
-    if backend_norm not in {"toponymy", "toponymy_evoc"}:
-        raise ValueError(
-            f"Invalid backend '{backend}'. Expected 'toponymy' or 'toponymy_evoc'."
-        )
-
+    provider_norm, backend_norm = _normalize_toponymy_inputs(
+        llm_provider=llm_provider,
+        backend=backend,
+        api_key=api_key,
+    )
     from toponymy import Toponymy, ToponymyClusterer
 
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     openrouter_api_base = normalize_openrouter_api_base(openrouter_api_base)
     clusterer_params = dict(clusterer_params or {})
-
-    if backend_norm == "toponymy":
-        clusterer = _instantiate_with_filtered_kwargs(
-            ToponymyClusterer,
-            clusterer_params,
-            component_name="ToponymyClusterer",
-        )
-    else:
-        try:
-            from toponymy.clustering import EVoCClusterer
-        except Exception as exc:
-            raise ImportError(
-                "backend='toponymy_evoc' requires optional dependency 'evoc' and "
-                "a Toponymy version that exposes EVoCClusterer."
-            ) from exc
-        clusterer = _instantiate_with_filtered_kwargs(
-            EVoCClusterer,
-            clusterer_params,
-            component_name="EVoCClusterer",
-        )
-        _patch_clusterer_for_toponymy_kwargs(clusterer)
-        # EVoC is designed to cluster high-dimensional embeddings directly.
-        # We override clusterable_vectors here to ensure it uses the raw embeddings,
-        # bypassing the 5D dimensionality reduction.
-        print("  Using raw embeddings for clustering with EVoCClusterer.")
-        clusterable_vectors = embeddings
-    print(f"  Clusterer: {clusterer.__class__.__name__}")
-
-    if provider_norm == "openrouter":
-        from toponymy.embedding_wrappers import OpenAIEmbedder
-
-        llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
-            model=llm_model,
-            api_key=api_key,
-            base_url=openrouter_api_base,
-        )
-        text_embedding_model = OpenAIEmbedder(
-            api_key=api_key,
-            model=embedding_model,
-            base_url=openrouter_api_base,
-        )
-    else:
-        try:
-            from sentence_transformers import SentenceTransformer
-            from toponymy.llm_wrappers import HuggingFaceNamer
-        except Exception as exc:
-            raise ImportError(
-                "llm_provider='local' requires optional dependencies "
-                "'sentence-transformers', 'transformers', and "
-                "Toponymy's HuggingFaceNamer wrapper."
-            ) from exc
-
-        llm_wrapper = HuggingFaceNamer(
-            model=llm_model,
-            device_map="auto",
-            torch_dtype="auto",
-        )
-        llm_usage = None
-        text_embedding_model = SentenceTransformer(embedding_model)
-        if cost_tracker is not None:
-            print(
-                "  Local Toponymy LLM selected; token/cost tracking is unavailable for this step."
-            )
-
-    print(f"Fitting Toponymy backend='{backend_norm}' (LLM: {provider_norm}/{llm_model}) ...")
-    topic_model = Toponymy(
+    clusterer, clusterable_vectors_for_fit = _build_toponymy_clusterer(
+        backend_norm=backend_norm,
+        clusterer_params=clusterer_params,
+        toponymy_clusterer_cls=ToponymyClusterer,
+        embeddings=embeddings,
+        clusterable_vectors=clusterable_vectors,
+    )
+    llm_wrapper, llm_usage, text_embedding_model = _build_toponymy_models(
+        provider_norm=provider_norm,
+        llm_model=llm_model,
+        embedding_model=embedding_model,
+        api_key=api_key,
+        openrouter_api_base=openrouter_api_base,
+        cost_tracker=cost_tracker,
+    )
+    topic_model, topics, topic_info = _fit_and_extract_toponymy_outputs(
+        toponymy_cls=Toponymy,
+        documents=documents,
+        embeddings=embeddings,
+        clusterable_vectors=clusterable_vectors_for_fit,
         llm_wrapper=llm_wrapper,
         text_embedding_model=text_embedding_model,
         clusterer=clusterer,
         object_description=object_description,
         corpus_description=corpus_description,
         verbose=verbose,
+        backend_norm=backend_norm,
+        provider_norm=provider_norm,
+        llm_model=llm_model,
+        layer_index=layer_index,
     )
-    topic_model.fit(
-        documents,
-        embedding_vectors=embeddings,
-        clusterable_vectors=clusterable_vectors,
-    )
-
-    n_layers = len(topic_model.cluster_layers_)
-    if layer_index < 0 or layer_index >= n_layers:
-        raise ValueError(
-            f"layer_index {layer_index} is out of range for {n_layers} available layers."
-        )
-    topics = np.asarray(topic_model.cluster_layers_[layer_index].cluster_labels, dtype=int)
-    n_topics = len(set(topics)) - (1 if -1 in topics else 0)
-    n_outliers = int((topics == -1).sum())
-    print(
-        f"  Selected Toponymy layer {layer_index}/{n_layers - 1}: "
-        f"{n_topics} topics, {n_outliers:,} outliers."
-    )
-
-    topic_names = topic_model.topic_names_[layer_index]
-    topic_info = _build_toponymy_topic_info(topics, topic_names)
 
     _record_llm_usage(
         llm_usage,

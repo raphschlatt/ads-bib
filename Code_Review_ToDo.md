@@ -65,25 +65,25 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ### Lange Funktionen aufbrechen
 
-- [ ] **`translate.py:translate_dataframe()` — 166 Zeilen, Nesting-Tiefe 6**
+- [x] **`translate.py:translate_dataframe()` — 166 Zeilen, Nesting-Tiefe 6**
   - Provider-spezifische Logik in eigene Subfunktionen extrahieren.
-- [ ] **`topic_model.py:fit_toponymy()` — 158 Zeilen**
+- [x] **`topic_model.py:fit_toponymy()` — 158 Zeilen**
   - Setup, Fit, Post-Processing als benannte Schritte separieren.
-- [ ] **`visualize.py:create_topic_map()` — 174 Zeilen**
+- [x] **`visualize.py:create_topic_map()` — 174 Zeilen**
   - Tooltip-Aufbau, Label-Vorbereitung, Plot-Konfiguration in Helper auslagern.
-- [ ] **`_utils/openrouter_costs.py:summarize_openrouter_costs()` — 122 Zeilen**
+- [x] **`_utils/openrouter_costs.py:summarize_openrouter_costs()` — 122 Zeilen**
   - Fetch-Phase und Aggregation-Phase trennen.
 
 ### Duplikate beseitigen (DRY)
 
-- [ ] **Retry-Logik konsolidieren**
+- [x] **Retry-Logik konsolidieren**
   - `export.py:_export_chunk()` L55–93 reimplementiert `retry_request()` aus `_utils/ads_api.py` nahezu identisch.
   - `topic_model.py:_embed_huggingface_api()` L167–176 und `_embed_openrouter._embed_batch()` L202–223 haben eigene Retry-Loops.
   - Ziel: Alle 4 Stellen sollen `retry_request()` (oder eine generalisierte Variante) nutzen.
-- [ ] **OpenRouter API-Base-URL: Konstante nur einmal definieren**
+- [x] **OpenRouter API-Base-URL: Konstante nur einmal definieren**
   - `_utils/openrouter_costs.py:9` definiert `DEFAULT_OPENROUTER_API_BASE`.
   - `topic_model.py:761` dupliziert den Wert als Default-Argument.
-- [ ] **Author-Serialisierung vereinheitlichen**
+- [x] **Author-Serialisierung vereinheitlichen**
   - `citations.py:62-63` (`_author_text()`) und `visualize.py:328` (Inline-Lambda) machen dasselbe.
 
 ---
