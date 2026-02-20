@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+NOTEBOOK_PATH = Path("pipeline.ipynb")
+
+
+def _load_notebook() -> dict:
+    with NOTEBOOK_PATH.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _all_code_source(nb: dict) -> str:
+    return "\n".join(
+        "".join(cell.get("source", []))
+        for cell in nb["cells"]
+        if cell.get("cell_type") == "code"
+    )
+
+
+def _all_markdown_source(nb: dict) -> str:
+    return "\n".join(
+        "".join(cell.get("source", []))
+        for cell in nb["cells"]
+        if cell.get("cell_type") == "markdown"
+    )
+
+
+def test_pipeline_notebook_code_contract():
+    nb = _load_notebook()
+    code = _all_code_source(nb)
+
+    assert "CITE_METRICS =" in code
+    assert "metrics=CITE_METRICS" in code
+    assert "CITE_CITE_METRICS" not in code
+
+    assert "MIN_DF =" in code
+    assert "CLUSTER_PARAMS =" in code
+    assert "TOPONYMY_CLUSTER_PARAMS =" in code
+    assert "TOPONYMY_EVOC_CLUSTER_PARAMS =" in code
+    assert "clusterer_params=selected_toponymy_cluster_params" in code
+
+    assert "paths[\"output\"]" not in code
+    assert "paths['output']" not in code
+
+    assert "run.paths[\"data\"]" in code
+    assert "download_wos_export{suffix}.txt" in code
+    assert "output_path=run.paths[\"plots\"] / f\"download_wos_export" not in code
+
+
+def test_pipeline_notebook_has_expected_config_sections():
+    nb = _load_notebook()
+    markdown = _all_markdown_source(nb)
+
+    assert "### 1.1 Search Configuration" in markdown
+    assert "### 2.1 Translation Configuration" in markdown
+    assert "### 5.1 Embedding Configuration" in markdown
+    assert "### 5.3 Dimensionality Reduction Configuration" in markdown
+    assert "### 5.4 Clustering Configuration" in markdown
+    assert "### 5.5 Backend & LLM Configuration" in markdown
+    assert "### 6.1 Citation Configuration" in markdown
+
+
+def test_pipeline_notebook_is_output_clean():
+    nb = _load_notebook()
+
+    for cell in nb["cells"]:
+        if cell.get("cell_type") != "code":
+            continue
+        assert cell.get("execution_count") is None
+        assert cell.get("outputs", []) == []

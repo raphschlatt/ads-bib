@@ -258,6 +258,81 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
     assert calls["record"]["usage"]["prompt_tokens"] == 22
 
 
+def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch, capsys):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    class _StrictEVoCClusterer:
+        def __init__(self, min_clusters=5, min_samples=3):
+            self.kwargs = {"min_clusters": min_clusters, "min_samples": min_samples}
+
+    sys.modules["toponymy.clustering"].EVoCClusterer = _StrictEVoCClusterer
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url):
+        del model, api_key, base_url
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+
+    model, topics, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy_evoc",
+        layer_index=0,
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        api_key="key",
+        clusterer_params={"min_clusters": 4, "cluster_levels": 2},
+    )
+
+    output = capsys.readouterr().out
+    assert "Dropping unsupported EVoCClusterer parameter(s): cluster_levels" in output
+    assert isinstance(model.clusterer, _StrictEVoCClusterer)
+    assert model.clusterer.kwargs == {"min_clusters": 4, "min_samples": 3}
+    assert topics.tolist() == [-1, 0, 1]
+
+
+def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch, capsys):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    class _StrictToponymyClusterer:
+        def __init__(self, min_clusters=5, base_min_cluster_size=10):
+            self.kwargs = {
+                "min_clusters": min_clusters,
+                "base_min_cluster_size": base_min_cluster_size,
+            }
+
+    sys.modules["toponymy"].ToponymyClusterer = _StrictToponymyClusterer
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url):
+        del model, api_key, base_url
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+
+    model, topics, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        api_key="key",
+        clusterer_params={
+            "min_clusters": 7,
+            "base_min_cluster_size": 11,
+            "cluster_levels": 3,
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "Dropping unsupported ToponymyClusterer parameter(s): cluster_levels" in output
+    assert isinstance(model.clusterer, _StrictToponymyClusterer)
+    assert model.clusterer.kwargs == {"min_clusters": 7, "base_min_cluster_size": 11}
+    assert topics.tolist() == [-1, 0, 1]
+
+
 def test_fit_toponymy_validates_layer_index(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 

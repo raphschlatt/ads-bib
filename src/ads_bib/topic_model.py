@@ -609,6 +609,60 @@ def _build_toponymy_topic_info(topics: np.ndarray, topic_names: list[str] | None
     return pd.DataFrame(rows)
 
 
+def _instantiate_with_filtered_kwargs(
+    cls: Any,
+    params: dict[str, Any] | None,
+    *,
+    component_name: str,
+) -> Any:
+    """Instantiate *cls* with kwargs filtered to supported ``__init__`` parameters.
+
+    This keeps notebook-side parameter dicts resilient across Toponymy/EVoC
+    version differences and logs dropped keys explicitly.
+    """
+    kwargs = dict(params or {})
+
+    try:
+        sig = inspect.signature(cls.__init__)
+    except (TypeError, ValueError):
+        try:
+            return cls(**kwargs)
+        except TypeError as exc:
+            raise TypeError(
+                f"{component_name}.__init__ failed with parameters "
+                f"{sorted(kwargs.keys())}: {exc}"
+            ) from exc
+
+    params_meta = list(sig.parameters.items())
+    has_var_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for _, p in params_meta)
+    if has_var_kwargs:
+        return cls(**kwargs)
+
+    accepted: set[str] = set()
+    for name, param in params_meta:
+        if name == "self":
+            continue
+        if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+            accepted.add(name)
+
+    filtered = {k: v for k, v in kwargs.items() if k in accepted}
+    dropped = sorted(k for k in kwargs.keys() if k not in accepted)
+
+    if dropped:
+        print(
+            f"  Warning: Dropping unsupported {component_name} parameter(s): "
+            f"{', '.join(dropped)}"
+        )
+
+    try:
+        return cls(**filtered)
+    except TypeError as exc:
+        raise TypeError(
+            f"{component_name}.__init__ failed with filtered parameters "
+            f"{sorted(filtered.keys())}: {exc}"
+        ) from exc
+
+
 def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
     """Make strict clusterer methods tolerant to extra kwargs from Toponymy.fit.
 
@@ -699,7 +753,11 @@ def fit_toponymy(
     clusterer_params = dict(clusterer_params or {})
 
     if backend_norm == "toponymy":
-        clusterer = ToponymyClusterer(**clusterer_params)
+        clusterer = _instantiate_with_filtered_kwargs(
+            ToponymyClusterer,
+            clusterer_params,
+            component_name="ToponymyClusterer",
+        )
     else:
         try:
             from toponymy.clustering import EVoCClusterer
@@ -708,13 +766,18 @@ def fit_toponymy(
                 "backend='toponymy_evoc' requires optional dependency 'evoc' and "
                 "a Toponymy version that exposes EVoCClusterer."
             ) from exc
-        clusterer = EVoCClusterer(**clusterer_params)
+        clusterer = _instantiate_with_filtered_kwargs(
+            EVoCClusterer,
+            clusterer_params,
+            component_name="EVoCClusterer",
+        )
         _patch_clusterer_for_toponymy_kwargs(clusterer)
         # EVoC is designed to cluster high-dimensional embeddings directly.
         # We override clusterable_vectors here to ensure it uses the raw embeddings,
         # bypassing the 5D dimensionality reduction.
         print("  Using raw embeddings for clustering with EVoCClusterer.")
         clusterable_vectors = embeddings
+    print(f"  Clusterer: {clusterer.__class__.__name__}")
 
     llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
         model=llm_model,
