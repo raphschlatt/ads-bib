@@ -267,7 +267,7 @@ _HOVER_TEMPLATE = """
 
 def create_topic_map(
     df: pd.DataFrame,
-    label_column: str,
+    label_column: str | list[str],
     *,
     title: str = "ADS Topic Map",
     subtitle: str = "",
@@ -287,8 +287,9 @@ def create_topic_map(
         *label_column*,
         ``Bibcode``, ``Title_en``, ``Author``, ``Year``, ``Journal``,
         ``Abstract_en``, ``Citation Count``, ``tokens``.
-    label_column : str
-        Column with topic labels (e.g. ``"Name"`` or ``"MMR"``).
+    label_column : str or list[str]
+        Column(s) with topic labels (e.g. ``"Name"`` or ``["Topic_Layer_0", "Topic_Layer_1"]``).
+        If a list is provided, multiple layers are added to the map.
     year_range : tuple[str, str] or None, optional
         Histogram range as ``(start, end)`` timestamps. If ``None``, the range
         is derived from the data (``min_year-01-01`` to ``(max_year+1)-01-01``).
@@ -300,7 +301,15 @@ def create_topic_map(
     datamapplot.InteractivePlot
     """
     data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
-    label_layers = [df[label_column].to_numpy(object)]
+    
+    if isinstance(label_column, str):
+        label_columns = [label_column]
+    else:
+        label_columns = label_column
+        
+    label_layers = [df[col].to_numpy(object) for col in label_columns]
+    primary_label_col = label_columns[0]
+
     hover_text = df["Year"].astype(str).tolist()
 
     # Tokens → string for word cloud
@@ -311,7 +320,7 @@ def create_topic_map(
 
     extra_data = df[["Bibcode", "Title_en", "Author", "Year", "Journal",
                       "Abstract_en", "Citation Count", "DOI", "tokens_str",
-                      "topic_id", label_column]].copy()
+                      "topic_id", primary_label_col]].copy()
     extra_data.columns = ["bibcode", "title", "author", "year", "journal",
                           "abstract", "citation_count", "doi", "tokens_str",
                           "cluster", "primary_field"]

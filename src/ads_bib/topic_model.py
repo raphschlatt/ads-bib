@@ -551,6 +551,7 @@ def _create_tracked_toponymy_namer(
             stats = extract_usage_stats(response)
             usage["prompt_tokens"] += stats["prompt_tokens"]
             usage["completion_tokens"] += stats["completion_tokens"]
+            
             usage["call_records"].append(
                 {
                     "generation_id": extract_generation_id(response),
@@ -709,6 +710,11 @@ def fit_toponymy(
             ) from exc
         clusterer = EVoCClusterer(**clusterer_params)
         _patch_clusterer_for_toponymy_kwargs(clusterer)
+        # EVoC is designed to cluster high-dimensional embeddings directly.
+        # We override clusterable_vectors here to ensure it uses the raw embeddings,
+        # bypassing the 5D dimensionality reduction.
+        print("  Using raw embeddings for clustering with EVoCClusterer.")
+        clusterable_vectors = embeddings
 
     llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
         model=llm_model,
@@ -970,5 +976,10 @@ def build_topic_dataframe(
                 labels[tid] = " | ".join(w for w, _ in rep[:3])
         labels[-1] = "Outlier Topic"
         topic_model.set_topic_labels(labels)
+
+    # For Toponymy models, extract all hierarchical layer names as individual columns
+    if hasattr(topic_model, "cluster_layers_"):
+        for i, layer in enumerate(topic_model.cluster_layers_):
+            df[f"Topic_Layer_{i}"] = layer.topic_name_vector
 
     return df
