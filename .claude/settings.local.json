@@ -4,7 +4,9 @@
       "Bash(dir:*)",
       "Bash(~/anaconda3/envs/ADS_env/python.exe:*)",
       "Bash(python -c:*)",
-      "Bash(conda run:*)"
+      "Bash(conda run:*)",
+      "Bash(python3:*)",
+      "Bash(sort:*)"
     ]
   }
 }
