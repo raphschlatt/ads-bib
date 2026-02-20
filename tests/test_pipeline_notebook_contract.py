@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 
-NOTEBOOK_PATH = Path("pipeline.ipynb")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+NOTEBOOK_PATH = PROJECT_ROOT / "pipeline.ipynb"
 
 
 def _load_notebook() -> dict:

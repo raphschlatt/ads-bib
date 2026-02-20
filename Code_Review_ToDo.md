@@ -52,7 +52,7 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ## 4) Dead Code und Imports aufraeumen
 
-- [ ] **`citations.py:16` — `import os` entfernen** (wird nirgends verwendet, nur `pathlib.Path`)
+- [x] **`citations.py:16` — `import os` entfernen** (wird nirgends verwendet, nur `pathlib.Path`)
 - [ ] **`run_manager.py:1` — `import os` entfernen** (wird nirgends verwendet, nur `pathlib.Path`)
 - [ ] **`export.py:90` — doppelter `import time as _t` entfernen** (`time` ist bereits in L51 importiert)
 - [ ] **Inline-Imports auf Modul-Ebene verschieben**
@@ -148,7 +148,7 @@ Stil: NumPy-Format (wird bereits konsistent fuer Public API verwendet).
 
 ### Test-Infrastruktur
 
-- [ ] **`test_pipeline_notebook_contract.py:7` — relativer Pfad `Path("pipeline.ipynb")`**
+- [x] **`test_pipeline_notebook_contract.py:7` — relativer Pfad `Path("pipeline.ipynb")`**
   - Test funktioniert nur wenn `pytest` vom Projekt-Root ausgefuehrt wird.
   - Robust machen mit `Path(__file__).parent.parent / "pipeline.ipynb"`.
 

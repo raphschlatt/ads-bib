@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import gc
 import itertools
-import os
 from pathlib import Path
 
 import numpy as np
