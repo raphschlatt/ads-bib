@@ -1,6 +1,23 @@
-# Data (too large for git)
-data/
-runs/
+# Data and run artifacts (keep folder skeleton, ignore contents)
+data/**
+!data/
+!data/README.md
+!data/raw/
+data/raw/**
+!data/raw/.gitkeep
+!data/cache/
+data/cache/**
+!data/cache/.gitkeep
+!data/models/
+data/models/**
+!data/models/.gitkeep
+
+runs/**
+!runs/
+!runs/README.md
+!runs/.gitkeep
+
+# Legacy large folders
 2_data/
 3_models/
 4_utils/

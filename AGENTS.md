@@ -103,3 +103,17 @@ Engineering rules and operating conventions for this repository.
 - [ ] BERTopic outlier refresh step is explicit and cost-tracked.
 - [ ] Cost output is compact and human-readable.
 - [ ] Tests pass locally (`pytest`) for modified behavior.
+
+## 10) Public Repo Hygiene
+
+- The repository is intended to be publishable on GitHub.
+- Track code, tests, configs, docs, and reproducible notebook logic.
+- Do **not** track secrets, run artifacts, caches, model weights, or raw/derived datasets.
+- Keep directory skeletons visible for local runtime expectations:
+  - `data/README.md`
+  - `data/raw/.gitkeep`
+  - `data/cache/.gitkeep`
+  - `data/models/.gitkeep`
+  - `runs/README.md`
+  - `runs/.gitkeep`
+- `.gitignore` must enforce "structure visible, contents ignored" for `data/` and `runs/`.
