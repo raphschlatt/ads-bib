@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,16 +23,13 @@ ADS_EXPORT_URL = "https://api.adsabs.harvard.edu/v1/export/custom"
 MAX_BIBCODES_PER_REQUEST = 2000
 AUTHOR_SEPARATOR = "; "
 _COLLEAGUES_PATTERN = re.compile(r"^(?:and\s+)?\d+\s+colleagues\.?$", re.IGNORECASE)
-_BROKEN_PAGE_FIELDS_PATTERN = re.compile(
-    r'("[^"]*","[^"]*")([^",]*)",([^",]*)"(?=,)'
-)
+FIELD_SEPARATOR = "xOx"
+RECORD_SEPARATOR = f"{FIELD_SEPARATOR}\n"
 
 DEFAULT_CUSTOM_FORMAT = (
-    "%ZEncoding:csv "
     "%ZMarkup:strip "
     f"%ZAuthorSep:\"{AUTHOR_SEPARATOR}\" "
-    "%ZHeader:\"Bibcode,Author,Title,Year,Journal,Journal Abbreviation,Issue,Volume,First Page,Last Page,Abstract,Keywords,DOI,Affiliation,Category,Citation Count\" "
-    "%R,%25.25A,%>T,%Y,%J,%q,%S,%V,%p,%P,%>B,%>K,%d,%>F,%W,%c"
+    f"%R{FIELD_SEPARATOR}%25.25A{FIELD_SEPARATOR}%>T{FIELD_SEPARATOR}%Y{FIELD_SEPARATOR}%J{FIELD_SEPARATOR}%q{FIELD_SEPARATOR}%S{FIELD_SEPARATOR}%V{FIELD_SEPARATOR}%p {FIELD_SEPARATOR}%P {FIELD_SEPARATOR}%>B{FIELD_SEPARATOR}%>K{FIELD_SEPARATOR}%d{FIELD_SEPARATOR}%>F{FIELD_SEPARATOR}%W{FIELD_SEPARATOR}%c{FIELD_SEPARATOR}"
 )
 
 DEFAULT_COLUMNS = [
@@ -154,21 +150,20 @@ def parse_export(
     if not raw_data or not raw_data.strip():
         return pd.DataFrame(columns=columns)
 
-    normalized_raw = _BROKEN_PAGE_FIELDS_PATTERN.sub(
-        r'\1,"\2","\3"',
-        raw_data,
-    )
+    normalized_raw = raw_data.replace("\r\n", "\n")
+    records: list[list[str]] = []
+    for record in normalized_raw.split(RECORD_SEPARATOR):
+        if not record:
+            continue
+        fields = record.split(FIELD_SEPARATOR)
+        if fields and fields[-1] == "":
+            fields = fields[:-1]
+        if len(fields) == len(columns):
+            records.append(fields)
 
-    df = pd.read_csv(
-        io.StringIO(normalized_raw),
-        keep_default_na=False,
-        engine="python",
-    )
-
-    if all(col in df.columns for col in columns):
-        df = df[columns]
-    elif len(df.columns) == len(columns):
-        df.columns = columns
+    df = pd.DataFrame(records, columns=columns)
+    if "Bibcode" in df.columns:
+        df["Bibcode"] = df["Bibcode"].astype(str).str.strip()
 
     for col in df.select_dtypes(include="object").columns:
         df[col] = (
@@ -221,6 +216,14 @@ def resolve_dataset(
     print("=== Exporting publications ===")
     raw_pubs = export_bibcodes(bibcodes, token, custom_format=custom_format, max_workers=max_workers)
     pubs = parse_export(raw_pubs)
+    expected_publications = len(set(bibcodes))
+    parsed_publications = int(pubs["Bibcode"].nunique()) if "Bibcode" in pubs.columns else 0
+    if parsed_publications < expected_publications:
+        missing = expected_publications - parsed_publications
+        print(
+            f"Warning: parsed publications cover {parsed_publications:,}/{expected_publications:,} "
+            f"unique input bibcodes ({missing:,} missing)."
+        )
 
     # Merge references + PDF_URL
     combo = pd.DataFrame({
@@ -239,6 +242,14 @@ def resolve_dataset(
     print(f"\n=== Exporting references ({len(flat_refs):,} unique) ===")
     raw_refs = export_bibcodes(flat_refs, token, custom_format=custom_format, max_workers=max_workers)
     refs = parse_export(raw_refs)
+    expected_references = len(flat_refs)
+    parsed_references = int(refs["Bibcode"].nunique()) if "Bibcode" in refs.columns else 0
+    if parsed_references < expected_references:
+        missing = expected_references - parsed_references
+        print(
+            f"Warning: parsed references cover {parsed_references:,}/{expected_references:,} "
+            f"unique input bibcodes ({missing:,} missing)."
+        )
     refs = clean_dataframe(refs)
     print(f"References: {len(refs):,} records")
 
