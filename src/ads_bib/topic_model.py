@@ -133,14 +133,15 @@ def compute_embeddings(
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(documents, model, batch_size, dtype)
     elif provider == "openrouter":
-        emb, usage = _embed_openrouter(
-            documents,
-            model,
-            batch_size,
-            dtype,
-            api_key,
+        embedder = OpenRouterEmbedder(
+            api_key=api_key,
+            model=model,
+            batch_size=batch_size,
             max_workers=max_workers,
+            dtype=dtype,
         )
+        emb = embedder.encode(documents, show_progress_bar=True)
+        usage = embedder.usage
         if cost_tracker is not None and usage["total_tokens"] > 0:
             cost_usd = _fetch_openrouter_costs(
                 usage.get("call_records", []),
@@ -224,104 +225,182 @@ def _embed_huggingface_api(
     return np.array(all_emb, dtype=dtype)
 
 
-def _embed_openrouter(
-    documents: list[str],
-    model: str,
-    batch_size: int,
-    dtype: Any,
-    api_key: str | None,
-    *,
-    max_workers: int = 5,
-) -> tuple[np.ndarray, dict[str, Any]]:
-    """Embed documents via OpenRouter and collect token/cost call metadata."""
-    import litellm
+class OpenRouterEmbedder:
+    """Unified OpenRouter embedding client with retry, concurrency, and usage tracking."""
 
-    # litellm routes via "openrouter/" prefix automatically
-    if not model.startswith("openrouter/"):
-        model = f"openrouter/{model}"
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        model: str,
+        batch_size: int = 64,
+        max_workers: int = 5,
+        dtype: Any = np.float32,
+        api_base: str | None = None,
+    ) -> None:
+        self.api_key = api_key
+        self.model = model
+        self.batch_size = int(batch_size)
+        self.max_workers = int(max_workers)
+        self.dtype = dtype
+        self.api_base = api_base
+        self.reset_usage()
 
-    batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
-    if not batches:
-        usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
-        return np.array([], dtype=dtype), usage
+    def reset_usage(self) -> None:
+        """Reset tracked usage counters."""
+        self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
 
-    worker_count = max(1, min(int(max_workers), len(batches)))
+    @staticmethod
+    def _resolve_show_progress(*, verbose: bool | None, show_progress_bar: bool | None) -> bool:
+        """Resolve progress-bar visibility from Toponymy-compatible flags."""
+        if show_progress_bar is not None:
+            return bool(show_progress_bar)
+        if verbose is not None:
+            return bool(verbose)
+        return False
 
-    def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
-        """Embed one batch with retries and return ordered batch metadata."""
-        def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
-            print(
-                f"  OpenRouter embedding batch {batch_index} failed "
-                f"({type(exc).__name__}: {exc}). "
-                f"Retry {retry_index}/{max_retries} in {wait:.0f}s ..."
-            )
+    @staticmethod
+    def _extract_response_data(response: Any) -> Any:
+        """Return embedding payload for dict- or object-like responses."""
+        if isinstance(response, dict):
+            return response.get("data")
+        return getattr(response, "data", None)
 
-        def _request_batch() -> Any:
-            return litellm.embedding(
-                model=model,
-                input=batch,
-                api_key=api_key,
-            )
+    @staticmethod
+    def _extract_embedding(item: Any) -> Any:
+        """Extract one embedding vector from dict- or object-like payloads."""
+        if isinstance(item, dict):
+            return item.get("embedding")
+        return getattr(item, "embedding", None)
 
-        try:
-            resp = retry_call(
-                _request_batch,
-                max_retries=2,
-                delay=1.0,
-                backoff="linear",
-                on_retry=_on_retry,
-            )
-        except Exception as exc:
-            print(
-                f"  OpenRouter embedding batch {batch_index} failed after 3 attempts: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            raise
+    def encode(
+        self,
+        texts: list[str],
+        verbose: bool | None = None,
+        show_progress_bar: bool | None = None,
+        **kwargs: Any,
+    ) -> np.ndarray:
+        """Embed texts via OpenRouter using LiteLLM with retries and parallel workers."""
+        del kwargs
+        import litellm
 
-        usage = extract_usage_stats(resp)
-        return {
-            "batch_index": batch_index,
-            "embeddings": [d["embedding"] for d in resp["data"]],
-            "prompt_tokens": usage["prompt_tokens"],
-            "total_tokens": usage["total_tokens"],
-            "call_record": {
-                "generation_id": extract_generation_id(resp),
-                "direct_cost": extract_response_cost(response=resp),
-            },
-        }
+        texts = list(texts)
+        if not texts:
+            return np.array([], dtype=self.dtype)
 
-    batch_results: dict[int, dict[str, Any]] = {}
-    desc = "Embedding (OpenRouter)"
-    if worker_count == 1:
-        for batch_index, batch in tqdm(enumerate(batches), total=len(batches), desc=desc):
-            result = _embed_batch(batch_index, batch)
-            batch_results[result["batch_index"]] = result
-    else:
-        with ThreadPoolExecutor(max_workers=worker_count) as pool:
-            futures = [
-                pool.submit(_embed_batch, batch_index, batch)
-                for batch_index, batch in enumerate(batches)
-            ]
-            for future in tqdm(as_completed(futures), total=len(futures), desc=desc):
-                result = future.result()
+        model_name = self.model
+        if not model_name.startswith("openrouter/"):
+            model_name = f"openrouter/{model_name}"
+
+        batch_size = max(1, self.batch_size)
+        batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+        worker_count = max(1, min(self.max_workers, len(batches)))
+        show_progress = self._resolve_show_progress(
+            verbose=verbose,
+            show_progress_bar=show_progress_bar,
+        )
+
+        def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
+            """Embed one batch and return validated embeddings plus usage metadata."""
+
+            def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
+                print(
+                    f"  OpenRouter embedding batch {batch_index} failed "
+                    f"({type(exc).__name__}: {exc}). "
+                    f"Retry {retry_index}/{max_retries} in {wait:.0f}s ..."
+                )
+
+            def _request_batch() -> tuple[Any, list[Any]]:
+                request_kwargs: dict[str, Any] = {
+                    "model": model_name,
+                    "input": batch,
+                    "api_key": self.api_key,
+                }
+                if self.api_base:
+                    request_kwargs["api_base"] = self.api_base
+                response = litellm.embedding(**request_kwargs)
+
+                data = self._extract_response_data(response)
+                if data is None:
+                    raise RuntimeError("OpenRouter embedding response had data=None.")
+
+                embeddings = [self._extract_embedding(item) for item in data]
+                if any(embedding is None for embedding in embeddings):
+                    raise RuntimeError("OpenRouter embedding response contained missing embedding vectors.")
+                if len(embeddings) != len(batch):
+                    raise RuntimeError(
+                        f"OpenRouter embedding batch size mismatch: expected {len(batch)}, got {len(embeddings)}."
+                    )
+                return response, embeddings
+
+            try:
+                response, embeddings = retry_call(
+                    _request_batch,
+                    max_retries=2,
+                    delay=1.0,
+                    backoff="linear",
+                    on_retry=_on_retry,
+                )
+            except Exception as exc:
+                print(
+                    f"  OpenRouter embedding batch {batch_index} failed after 3 attempts: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                raise
+
+            usage = extract_usage_stats(response)
+            return {
+                "batch_index": batch_index,
+                "embeddings": embeddings,
+                "prompt_tokens": usage["prompt_tokens"],
+                "total_tokens": usage["total_tokens"],
+                "call_record": {
+                    "generation_id": extract_generation_id(response),
+                    "direct_cost": extract_response_cost(response=response),
+                },
+            }
+
+        batch_results: dict[int, dict[str, Any]] = {}
+        desc = "Embedding (OpenRouter)"
+        if worker_count == 1:
+            for batch_index, batch in tqdm(
+                enumerate(batches),
+                total=len(batches),
+                desc=desc,
+                disable=not show_progress,
+            ):
+                result = _embed_batch(batch_index, batch)
                 batch_results[result["batch_index"]] = result
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                futures = [
+                    pool.submit(_embed_batch, batch_index, batch)
+                    for batch_index, batch in enumerate(batches)
+                ]
+                for future in tqdm(
+                    as_completed(futures),
+                    total=len(futures),
+                    desc=desc,
+                    disable=not show_progress,
+                ):
+                    result = future.result()
+                    batch_results[result["batch_index"]] = result
 
-    all_emb = []
-    total_pt, total_tokens = 0, 0
-    call_records = []
-    for batch_index in range(len(batches)):
-        result = batch_results[batch_index]
-        all_emb.extend(result["embeddings"])
-        total_pt += int(result["prompt_tokens"])
-        total_tokens += int(result["total_tokens"])
-        call_records.append(result["call_record"])
+        all_embeddings: list[Any] = []
+        prompt_tokens = 0
+        total_tokens = 0
+        call_records: list[dict[str, Any]] = []
+        for batch_index in range(len(batches)):
+            result = batch_results[batch_index]
+            all_embeddings.extend(result["embeddings"])
+            prompt_tokens += int(result["prompt_tokens"])
+            total_tokens += int(result["total_tokens"])
+            call_records.append(result["call_record"])
 
-    usage = {
-        "prompt_tokens": total_pt,
-        "total_tokens": total_tokens,
-        "call_records": call_records,
-    }
-    return np.array(all_emb, dtype=dtype), usage
+        self.usage["prompt_tokens"] += prompt_tokens
+        self.usage["total_tokens"] += total_tokens
+        self.usage["call_records"].extend(call_records)
+        return np.array(all_embeddings, dtype=self.dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -962,17 +1041,15 @@ def _build_toponymy_models(
 ) -> tuple[Any, dict[str, Any] | None, Any]:
     """Build Toponymy naming and text-embedding components."""
     if provider_norm == "openrouter":
-        from toponymy.embedding_wrappers import OpenAIEmbedder
-
         llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
             model=llm_model,
             api_key=api_key,
             base_url=openrouter_api_base,
         )
-        text_embedding_model = OpenAIEmbedder(
+        text_embedding_model = OpenRouterEmbedder(
             api_key=api_key,
             model=embedding_model,
-            base_url=openrouter_api_base,
+            api_base=openrouter_api_base,
         )
         return llm_wrapper, llm_usage, text_embedding_model
 
@@ -1135,6 +1212,30 @@ def fit_toponymy(
         openrouter_cost_mode=openrouter_cost_mode,
         cost_tracker=cost_tracker,
     )
+    if (
+        cost_tracker is not None
+        and provider_norm == "openrouter"
+        and hasattr(text_embedding_model, "usage")
+    ):
+        emb_usage = text_embedding_model.usage
+        total_tokens = int(emb_usage.get("total_tokens", 0))
+        if total_tokens > 0:
+            prompt_tokens = int(emb_usage.get("prompt_tokens", 0))
+            embedder_workers = int(getattr(text_embedding_model, "max_workers", 5))
+            cost_usd = _fetch_openrouter_costs(
+                emb_usage.get("call_records", []),
+                api_key,
+                openrouter_cost_mode=openrouter_cost_mode,
+                max_workers=embedder_workers,
+            )
+            cost_tracker.add(
+                step="toponymy_embeddings",
+                provider="openrouter",
+                model=embedding_model,
+                prompt_tokens=prompt_tokens,
+                total_tokens=total_tokens,
+                cost_usd=cost_usd,
+            )
     return topic_model, topics, topic_info
 
 
