@@ -484,6 +484,28 @@ def _reduce(
     print(f"  Computing {name} with {method.upper()} ...")
     if method == "pacmap":
         import pacmap
+
+        normalized_params = dict(params)
+        metric = normalized_params.pop("metric", None)
+        if metric is not None and "distance" not in normalized_params:
+            normalized_params["distance"] = metric
+
+        if normalized_params.get("distance") == "cosine":
+            normalized_params["distance"] = "angular"
+            warnings.warn(
+                "PaCMAP uses 'distance' and does not support 'cosine'; using 'angular' instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if "min_dist" in normalized_params:
+            normalized_params.pop("min_dist", None)
+            warnings.warn(
+                "PaCMAP does not support 'min_dist'; parameter ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         defaults = dict(
             n_components=n_components,
             n_neighbors=DEFAULT_PACMAP_N_NEIGHBORS,
@@ -492,7 +514,7 @@ def _reduce(
             random_state=random_state,
             verbose=True,
         )
-        defaults.update(params)
+        defaults.update(normalized_params)
         defaults["n_components"] = n_components
         model = pacmap.PaCMAP(**defaults)
     elif method == "umap":

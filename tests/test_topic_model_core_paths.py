@@ -36,6 +36,37 @@ def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
     ]
 
 
+def test_reduce_pacmap_normalizes_metric_and_ignores_min_dist(monkeypatch):
+    calls: dict = {}
+
+    class _FakePaCMAP:
+        def __init__(self, **kwargs):
+            calls["kwargs"] = kwargs
+
+        def fit_transform(self, embeddings):
+            return np.ones((len(embeddings), calls["kwargs"]["n_components"]), dtype=np.float32)
+
+    fake_pacmap = types.ModuleType("pacmap")
+    fake_pacmap.PaCMAP = _FakePaCMAP
+    monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
+
+    out = tm._reduce(
+        embeddings=np.ones((3, 4), dtype=np.float32),
+        n_components=5,
+        method="pacmap",
+        params={"metric": "cosine", "min_dist": 0.1, "n_neighbors": 30},
+        random_state=42,
+        cache_dir=None,
+        name="unit",
+    )
+
+    assert out.shape == (3, 5)
+    assert calls["kwargs"]["distance"] == "angular"
+    assert "metric" not in calls["kwargs"]
+    assert "min_dist" not in calls["kwargs"]
+    assert calls["kwargs"]["n_neighbors"] == 30
+
+
 def test_cluster_documents_uses_selected_cluster_model(monkeypatch):
     calls: dict = {}
 
