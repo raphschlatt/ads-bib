@@ -10,7 +10,8 @@
       "Bash(conda activate:*)",
       "Bash(python -m pytest:*)",
       "Bash(source activate:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(jupyter nbconvert:*)"
     ]
   }
 }

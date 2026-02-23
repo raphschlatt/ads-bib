@@ -194,7 +194,9 @@ def compute_embeddings(
     if provider == "local":
         emb = _embed_local(documents, model, batch_size, dtype)
     elif provider == "huggingface_api":
-        emb = _embed_huggingface_api(documents, model, batch_size, dtype)
+        emb = _embed_huggingface_api(
+            documents, model, batch_size, dtype, cost_tracker=cost_tracker,
+        )
     elif provider == "openrouter":
         embedder = OpenRouterEmbedder(
             api_key=api_key,
@@ -256,11 +258,14 @@ def _embed_huggingface_api(
     model: str,
     batch_size: int,
     dtype: Any,
+    *,
+    cost_tracker: "CostTracker | None" = None,
 ) -> np.ndarray:
     """Embed documents via LiteLLM against a HuggingFace API model."""
     import litellm
 
     all_emb = []
+    total_prompt_tokens = 0
     batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
     for batch_index, batch in tqdm(
         enumerate(batches),
@@ -298,6 +303,19 @@ def _embed_huggingface_api(
             )
             raise
         all_emb.extend(d["embedding"] for d in resp["data"])
+        usage = getattr(resp, "usage", None) or resp.get("usage", {})
+        total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or usage.get("prompt_tokens", 0)
+
+    if cost_tracker is not None and total_prompt_tokens > 0:
+        cost_tracker.add(
+            step="embeddings",
+            provider="huggingface_api",
+            model=model,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=0,
+            cost_usd=None,
+        )
+
     return np.array(all_emb, dtype=dtype)
 
 
