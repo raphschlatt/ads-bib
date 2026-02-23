@@ -1,8 +1,21 @@
-import json
-import yaml
 import datetime
+import logging
+import re
+import yaml
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_SECRET_NAME_PATTERN = re.compile(
+    r"(^|_)(API_KEY|KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)($|_)",
+    re.IGNORECASE,
+)
+
+
+def _is_secret_key(name: str) -> bool:
+    """Return True when config key name should be redacted."""
+    return bool(_SECRET_NAME_PATTERN.search(name))
 
 
 class RunManager:
@@ -40,9 +53,9 @@ class RunManager:
         }
         
         self._create_directories()
-        
-        print(f"Run initialized: {self.run_id}")
-        print(f"All run outputs will be saved to: {self.run_dir}")
+
+        logger.info("Run initialized: %s", self.run_id)
+        logger.info("All run outputs will be saved to: %s", self.run_dir)
 
     def _create_directories(self) -> None:
         """Creates the necessary folder structure for the run."""
@@ -75,6 +88,9 @@ class RunManager:
                 match = True
 
             if match:
+                if _is_secret_key(key):
+                    config[key] = "<redacted>"
+                    continue
                 # Ensure the value is serializable (e.g., Path to str)
                 if isinstance(value, Path):
                     config[key] = str(value)
@@ -87,8 +103,12 @@ class RunManager:
         config_path = self.paths["root"] / "config_used.yaml"
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=True)
-            
-        print(f"Snapshot of configuration saved to {config_path.name} ({len(config)} parameters tracked).")
+
+        logger.info(
+            "Snapshot of configuration saved to %s (%d parameters tracked).",
+            config_path.name,
+            len(config),
+        )
 
     def get_path(self, asset_type: str) -> Path:
         """Retrieves the Path object for a specific type of asset in this run.

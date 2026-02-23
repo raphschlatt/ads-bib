@@ -113,3 +113,26 @@ def test_process_all_citations_runs_selected_metrics_and_exports_csv(monkeypatch
 
     assert set(results.keys()) == {"co_citation", "bibliographic_coupling"}
     assert len(calls) == 2
+
+
+def test_build_citation_inputs_from_publications_normalizes_invalid_references():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1", None, "p3"],
+            "References": [["r1", 3, "", "r2"], None, "invalid"],
+        }
+    )
+
+    bibcodes, references = cit.build_citation_inputs_from_publications(publications)
+
+    assert bibcodes == ["p1", "", "p3"]
+    assert references == [["r1", "r2"], [], []]
+
+
+def test_build_citation_inputs_from_publications_requires_columns():
+    publications = pd.DataFrame({"Bibcode": ["p1"]})
+    try:
+        cit.build_citation_inputs_from_publications(publications)
+        assert False, "Expected ValueError for missing References column"
+    except ValueError as exc:
+        assert "References" in str(exc)

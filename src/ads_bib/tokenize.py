@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import logging
 import os
 import subprocess
 import sys
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
-def _default_n_process() -> int:
+
+def default_n_process() -> int:
     """Return a conservative parallel worker default for spaCy."""
     cpu_count = os.cpu_count() or 1
     return min(max(cpu_count - 1, 1), 8)
@@ -43,23 +46,29 @@ def ensure_spacy_model(
         return spacy_model, _load_spacy_model(spacy_model, disable)
     except Exception as exc:
         if auto_download:
-            print(
-                f"spaCy model '{spacy_model}' not available "
-                f"({type(exc).__name__}: {exc}). Trying to install it now ..."
+            logger.warning(
+                "spaCy model '%s' not available (%s: %s). Trying to install it now ...",
+                spacy_model,
+                type(exc).__name__,
+                exc,
             )
             try:
                 subprocess.check_call([sys.executable, "-m", "spacy", "download", spacy_model])
                 return spacy_model, _load_spacy_model(spacy_model, disable)
             except Exception as install_exc:
-                print(
-                    "Warning: automatic install failed "
-                    f"({type(install_exc).__name__}: {install_exc}). "
-                    f"Falling back to '{fallback_model}'."
+                logger.warning(
+                    "Automatic install failed (%s: %s). Falling back to '%s'.",
+                    type(install_exc).__name__,
+                    install_exc,
+                    fallback_model,
                 )
         else:
-            print(
-                f"Warning: spaCy model '{spacy_model}' unavailable "
-                f"({type(exc).__name__}: {exc}). Falling back to '{fallback_model}'."
+            logger.warning(
+                "spaCy model '%s' unavailable (%s: %s). Falling back to '%s'.",
+                spacy_model,
+                type(exc).__name__,
+                exc,
+                fallback_model,
             )
 
     return fallback_model, _load_spacy_model(fallback_model, disable)
@@ -119,7 +128,7 @@ def tokenize_texts(
     if nlp is None:
         nlp = _load_spacy_model(spacy_model, tuple(spacy_disable))
 
-    requested_n_process = _default_n_process() if n_process is None else max(int(n_process), 1)
+    requested_n_process = default_n_process() if n_process is None else max(int(n_process), 1)
     df = df.copy()
 
     # Build full_text
@@ -148,9 +157,12 @@ def tokenize_texts(
             for doc in docs
         ]
 
-    print(
-        f"Tokenizing {len(df):,} documents with {spacy_model} "
-        f"(n_process={requested_n_process}, batch_size={batch_size}) ..."
+    logger.info(
+        "Tokenizing %s documents with %s (n_process=%s, batch_size=%s) ...",
+        f"{len(df):,}",
+        spacy_model,
+        requested_n_process,
+        batch_size,
     )
     try:
         tokens = _tokenize_docs(requested_n_process)
@@ -158,16 +170,22 @@ def tokenize_texts(
     except Exception as exc:
         if requested_n_process == 1:
             raise
-        print(
-            "  Warning: spaCy multiprocessing failed "
-            f"({type(exc).__name__}: {exc}). Retrying with n_process=1 ..."
+        logger.warning(
+            "  spaCy multiprocessing failed (%s: %s). Retrying with n_process=1 ...",
+            type(exc).__name__,
+            exc,
         )
         tokens = _tokenize_docs(1)
         used_n_process = 1
 
     df[token_col] = tokens
     if used_n_process != requested_n_process:
-        print(f"  Done (fallback n_process={used_n_process}).")
+        logger.info("  Done (fallback n_process=%s).", used_n_process)
     else:
-        print("  Done.")
+        logger.info("  Done.")
     return df
+
+
+def _default_n_process() -> int:
+    """Backward-compatible alias for previous private helper name."""
+    return default_n_process()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ads_bib._utils.ads_api import retry_call
@@ -10,6 +11,8 @@ from ads_bib._utils.openrouter_costs import (
     extract_response_cost,
     extract_usage_stats,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def openrouter_chat_completion(
@@ -28,10 +31,14 @@ def openrouter_chat_completion(
     """Execute one chat completion call with retry handling."""
 
     def _on_retry(retry_index: int, retries: int, wait: float, exc: Exception) -> None:
-        print(
-            f"  {retry_label} failed "
-            f"({type(exc).__name__}: {exc}). "
-            f"Retry {retry_index}/{retries} in {wait:.0f}s ..."
+        logger.warning(
+            "  %s failed (%s: %s). Retry %s/%s in %.0fs ...",
+            retry_label,
+            type(exc).__name__,
+            exc,
+            retry_index,
+            retries,
+            wait,
         )
 
     def _request() -> Any:
@@ -54,9 +61,12 @@ def openrouter_chat_completion(
             on_retry=_on_retry,
         )
     except Exception as exc:
-        print(
-            f"  {retry_label} failed after {max_retries + 1} attempts: "
-            f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "  %s failed after %s attempts: %s: %s",
+            retry_label,
+            max_retries + 1,
+            type(exc).__name__,
+            exc,
         )
         raise
 

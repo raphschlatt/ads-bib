@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import types
 
@@ -142,7 +143,8 @@ def test_tokenize_texts_caches_spacy_model(monkeypatch):
     assert calls["count"] == 1
 
 
-def test_tokenize_texts_falls_back_to_single_process(monkeypatch, capsys):
+def test_tokenize_texts_falls_back_to_single_process(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.tokenize")
     fake_nlp = _FakeNLP(fail_on_n_process=4)
     _install_fake_spacy(monkeypatch, fake_nlp)
     df = pd.DataFrame({"Title_en": ["Alpha"], "Abstract_en": ["Beta"]})
@@ -151,9 +153,8 @@ def test_tokenize_texts_falls_back_to_single_process(monkeypatch, capsys):
 
     assert out.loc[0, "tokens"] == ["alpha", "beta"]
     assert [c["n_process"] for c in fake_nlp.pipe_calls] == [4, 1]
-    logs = capsys.readouterr().out
-    assert "Retrying with n_process=1" in logs
-    assert "fallback n_process=1" in logs
+    assert "Retrying with n_process=1" in caplog.text
+    assert "fallback n_process=1" in caplog.text
 
 
 def test_ensure_spacy_model_returns_requested_when_available(monkeypatch):

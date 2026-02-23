@@ -49,6 +49,10 @@ def test_pipeline_notebook_code_contract():
     assert "run.paths[\"data\"]" in code
     assert "download_wos_export{suffix}.txt" in code
     assert "output_path=run.paths[\"plots\"] / f\"download_wos_export" not in code
+    assert "run.save_config(globals())" in code
+    assert "references_translated_tokenized.json" not in code
+    assert "references_translated.json" in code
+    assert "build_citation_inputs_from_publications(publications)" in code
 
 
 def test_pipeline_notebook_has_expected_config_sections():

@@ -8,8 +8,10 @@ and LLM labeling.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import inspect
+import json
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -35,6 +37,8 @@ from ads_bib._utils.openrouter_costs import (
     summarize_openrouter_costs,
 )
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Module defaults
 # ---------------------------------------------------------------------------
@@ -48,6 +52,34 @@ DEFAULT_UMAP_N_NEIGHBORS = 80
 DEFAULT_CLUSTER_MIN_SIZE = 180
 DEFAULT_BERTOPIC_TOP_N_WORDS = 20
 DEFAULT_POS_SPACY_MODEL = "en_core_web_sm"
+_DOC_FINGERPRINT_SEPARATOR = "\x1f"
+_DOC_FINGERPRINT_ENCODING = "utf-8"
+
+
+def _documents_fingerprint(documents: list[str]) -> str:
+    """Return deterministic SHA-256 over document sequence."""
+    hasher = hashlib.sha256()
+    for doc in documents:
+        payload = str(doc).encode(_DOC_FINGERPRINT_ENCODING, errors="replace")
+        hasher.update(payload)
+        hasher.update(_DOC_FINGERPRINT_SEPARATOR.encode(_DOC_FINGERPRINT_ENCODING))
+    return hasher.hexdigest()
+
+
+def _stable_hash(payload: dict[str, Any]) -> str:
+    """Return deterministic SHA-256 hash for JSON-serializable payloads."""
+    packed = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(packed.encode("utf-8")).hexdigest()
+
+
+def _array_fingerprint(values: np.ndarray) -> str:
+    """Return deterministic SHA-256 fingerprint for a numpy array."""
+    arr = np.ascontiguousarray(values)
+    hasher = hashlib.sha256()
+    hasher.update(str(arr.shape).encode("utf-8"))
+    hasher.update(str(arr.dtype).encode("utf-8"))
+    hasher.update(memoryview(arr).cast("B"))
+    return hasher.hexdigest()
 
 # ---------------------------------------------------------------------------
 # OpenRouter cost lookup
@@ -75,12 +107,14 @@ def _fetch_openrouter_costs(
     )
     total = summary["total_cost_usd"]
     if total is not None:
-        print(
-            f"  OpenRouter cost: ${total:.4f} "
-            f"({summary['priced_calls']}/{summary['total_calls']} priced; "
-            f"direct={summary['direct_priced_calls']}, "
-            f"fetched={summary['fetched_priced_calls']}, "
-            f"mode={summary['mode']})"
+        logger.info(
+            "  OpenRouter cost: $%.4f (%s/%s priced; direct=%s, fetched=%s, mode=%s)",
+            total,
+            summary["priced_calls"],
+            summary["total_calls"],
+            summary["direct_priced_calls"],
+            summary["fetched_priced_calls"],
+            summary["mode"],
         )
     return total
 
@@ -118,20 +152,44 @@ def compute_embeddings(
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     model_safe = model.replace("/", "_")
     cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
+    doc_fingerprint = _documents_fingerprint(documents)
 
     # Check legacy cache (without provider prefix)
     if cache_file and not cache_file.exists():
         legacy = cache_dir / f"embeddings_{model_safe}.npz"
         if legacy.exists():
-            print(f"  Using legacy cache: {legacy.name}")
+            logger.info("  Using legacy cache: %s", legacy.name)
             cache_file = legacy
 
     if cache_file and cache_file.exists():
         data = np.load(cache_file, allow_pickle=True)
-        print(f"  Loaded embeddings from cache: {cache_file.name}")
-        return data["embeddings"]
+        cached = data["embeddings"]
+        cached_n_docs = int(data["n_docs"]) if "n_docs" in data.files else None
+        cached_fingerprint = str(data["doc_fingerprint"]) if "doc_fingerprint" in data.files else None
+        cached_provider = str(data["provider"]) if "provider" in data.files else None
+        cached_model = str(data["model"]) if "model" in data.files else None
+        is_valid = (
+            cached_n_docs == len(documents)
+            and cached_fingerprint == doc_fingerprint
+            and cached_provider == provider
+            and cached_model == model
+        )
+        if is_valid:
+            logger.info("  Loaded embeddings from cache: %s", cache_file.name)
+            return cached
+        logger.warning(
+            "  Embedding cache mismatch for %s. Recomputing "
+            "(cached n_docs=%s, current n_docs=%s; cached provider/model=%s/%s, current=%s/%s).",
+            cache_file.name,
+            cached_n_docs,
+            len(documents),
+            cached_provider,
+            cached_model,
+            provider,
+            model,
+        )
 
-    print(f"  Computing embeddings with {provider}/{model} ...")
+    logger.info("  Computing embeddings with %s/%s ...", provider, model)
 
     if provider == "local":
         emb = _embed_local(documents, model, batch_size, dtype)
@@ -165,8 +223,15 @@ def compute_embeddings(
 
     if cache_file:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(cache_file, embeddings=emb, model=model, provider=provider)
-        print(f"  Saved: {cache_file.name}")
+        np.savez_compressed(
+            cache_file,
+            embeddings=emb,
+            model=model,
+            provider=provider,
+            n_docs=len(documents),
+            doc_fingerprint=doc_fingerprint,
+        )
+        logger.info("  Saved: %s", cache_file.name)
 
     return emb
 
@@ -180,7 +245,7 @@ def _embed_local(
     """Embed documents with a local SentenceTransformer model."""
     from sentence_transformers import SentenceTransformer
 
-    print(f"  Loading local model: {model}")
+    logger.info("  Loading local model: %s", model)
     st = SentenceTransformer(model)
     emb = st.encode(documents, show_progress_bar=True, batch_size=batch_size)
     return emb.astype(dtype)
@@ -203,10 +268,14 @@ def _embed_huggingface_api(
         desc="Embedding (HF API)",
     ):
         def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
-            print(
-                f"  HF API embedding batch {batch_index} failed "
-                f"({type(exc).__name__}: {exc}). "
-                f"Retry {retry_index}/{max_retries} in {wait:.0f}s ..."
+            logger.warning(
+                "  HF API embedding batch %s failed (%s: %s). Retry %s/%s in %.0fs ...",
+                batch_index,
+                type(exc).__name__,
+                exc,
+                retry_index,
+                max_retries,
+                wait,
             )
 
         def _request_batch() -> Any:
@@ -221,9 +290,11 @@ def _embed_huggingface_api(
                 on_retry=_on_retry,
             )
         except Exception as exc:
-            print(
-                f"  HF API embedding batch {batch_index} failed after 3 attempts: "
-                f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "  HF API embedding batch %s failed after 3 attempts: %s: %s",
+                batch_index,
+                type(exc).__name__,
+                exc,
             )
             raise
         all_emb.extend(d["embedding"] for d in resp["data"])
@@ -309,10 +380,14 @@ class OpenRouterEmbedder:
             """Embed one batch and return validated embeddings plus usage metadata."""
 
             def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
-                print(
-                    f"  OpenRouter embedding batch {batch_index} failed "
-                    f"({type(exc).__name__}: {exc}). "
-                    f"Retry {retry_index}/{max_retries} in {wait:.0f}s ..."
+                logger.warning(
+                    "  OpenRouter embedding batch %s failed (%s: %s). Retry %s/%s in %.0fs ...",
+                    batch_index,
+                    type(exc).__name__,
+                    exc,
+                    retry_index,
+                    max_retries,
+                    wait,
                 )
 
             def _request_batch() -> tuple[Any, list[Any]]:
@@ -347,9 +422,11 @@ class OpenRouterEmbedder:
                     on_retry=_on_retry,
                 )
             except Exception as exc:
-                print(
-                    f"  OpenRouter embedding batch {batch_index} failed after 3 attempts: "
-                    f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "  OpenRouter embedding batch %s failed after 3 attempts: %s: %s",
+                    batch_index,
+                    type(exc).__name__,
+                    exc,
                 )
                 raise
 
@@ -434,7 +511,7 @@ def reduce_dimensions(
         Shared RNG seed used by PaCMAP/UMAP unless explicitly overridden in
         ``params_5d`` or ``params_2d``.
     cache_dir : Path, optional
-        Directory for ``.npy`` caches.
+        Directory for ``.npz`` caches.
     cache_suffix : str
         Appended to cache filenames for uniqueness.
 
@@ -461,7 +538,7 @@ def reduce_dimensions(
         cache_dir,
         f"2d_{cache_suffix}",
     )
-    print(f"  5D shape: {r5.shape}, 2D shape: {r2.shape}")
+    logger.info("  5D shape: %s, 2D shape: %s", r5.shape, r2.shape)
     return r5, r2
 
 
@@ -475,13 +552,49 @@ def _reduce(
     name: str,
 ) -> np.ndarray:
     """Reduce embedding dimensionality with optional on-disk caching."""
-    if cache_dir:
-        path = cache_dir / f"reduced_{name}.npy"
-        if path.exists():
-            print(f"  Loaded {name} from cache")
-            return np.load(path)
+    meta_payload = {
+        "method": method,
+        "n_components": int(n_components),
+        "random_state": int(random_state),
+        "params": params,
+    }
+    params_hash = _stable_hash(meta_payload)
+    n_docs = int(len(embeddings))
+    embedding_fingerprint = _array_fingerprint(embeddings)
 
-    print(f"  Computing {name} with {method.upper()} ...")
+    if cache_dir:
+        path = cache_dir / f"reduced_{name}.npz"
+        if path.exists():
+            data = np.load(path, allow_pickle=True)
+            reduced = data["reduced"] if "reduced" in data.files else None
+            cached_n_docs = int(data["n_docs"]) if "n_docs" in data.files else None
+            cached_embedding_fingerprint = (
+                str(data["embedding_fingerprint"])
+                if "embedding_fingerprint" in data.files
+                else None
+            )
+            cached_method = str(data["method"]) if "method" in data.files else None
+            cached_n_components = int(data["n_components"]) if "n_components" in data.files else None
+            cached_random_state = int(data["random_state"]) if "random_state" in data.files else None
+            cached_params_hash = str(data["params_hash"]) if "params_hash" in data.files else None
+            is_valid = (
+                reduced is not None
+                and cached_n_docs == n_docs
+                and cached_embedding_fingerprint == embedding_fingerprint
+                and cached_method == method
+                and cached_n_components == int(n_components)
+                and cached_random_state == int(random_state)
+                and cached_params_hash == params_hash
+            )
+            if is_valid:
+                logger.info("  Loaded %s from cache", name)
+                return reduced
+            logger.warning(
+                "  Reduction cache mismatch for %s. Recomputing.",
+                path.name,
+            )
+
+    logger.info("  Computing %s with %s ...", name, method.upper())
     if method == "pacmap":
         import pacmap
 
@@ -512,7 +625,7 @@ def _reduce(
             MN_ratio=0.5,
             FP_ratio=1.0,
             random_state=random_state,
-            verbose=True,
+            verbose=False,
         )
         defaults.update(normalized_params)
         defaults["n_components"] = n_components
@@ -525,7 +638,7 @@ def _reduce(
             min_dist=0.05,
             metric="cosine",
             random_state=random_state,
-            verbose=True,
+            verbose=False,
         )
         defaults.update(params)
         defaults["n_components"] = n_components
@@ -536,10 +649,19 @@ def _reduce(
     reduced = model.fit_transform(embeddings)
 
     if cache_dir:
-        path = cache_dir / f"reduced_{name}.npy"
+        path = cache_dir / f"reduced_{name}.npz"
         path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(path, reduced)
-        print(f"  Saved: {path.name}")
+        np.savez_compressed(
+            path,
+            reduced=reduced,
+            n_docs=n_docs,
+            embedding_fingerprint=embedding_fingerprint,
+            method=method,
+            n_components=int(n_components),
+            random_state=int(random_state),
+            params_hash=params_hash,
+        )
+        logger.info("  Saved: %s", path.name)
 
     return reduced
 
@@ -612,7 +734,13 @@ def cluster_documents(
     clusters = model.fit_predict(reduced_5d)
     n_topics = len(set(clusters)) - (1 if -1 in clusters else 0)
     n_outliers = (clusters == -1).sum()
-    print(f"  {method.upper()}: {n_topics} topics, {n_outliers:,} outliers ({n_outliers / len(clusters) * 100:.1f}%)")
+    logger.info(
+        "  %s: %s topics, %s outliers (%.1f%%)",
+        method.upper(),
+        n_topics,
+        f"{n_outliers:,}",
+        n_outliers / len(clusters) * 100,
+    )
     return clusters
 
 
@@ -675,9 +803,10 @@ def fit_bertopic(
 
     pipeline_models = pipeline_models or ["POS", "KeyBERT", "MMR"]
     parallel_models = parallel_models or ["MMR", "POS", "KeyBERT"]
-    print(
-        "Preparing BERTopic components "
-        f"(pipeline={pipeline_models}, parallel={parallel_models}) ..."
+    logger.info(
+        "Preparing BERTopic components (pipeline=%s, parallel=%s) ...",
+        pipeline_models,
+        parallel_models,
     )
 
     # Build representation model
@@ -721,7 +850,7 @@ def fit_bertopic(
         verbose=True,
     )
 
-    print(f"Fitting BERTopic (LLM: {llm_provider}/{llm_model}) ...")
+    logger.info("Fitting BERTopic (LLM: %s/%s) ...", llm_provider, llm_model)
 
     track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
     with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
@@ -1061,7 +1190,7 @@ def _build_toponymy_clusterer(
             clusterer_params,
             component_name="ToponymyClusterer",
         )
-        print(f"  Clusterer: {clusterer.__class__.__name__}")
+        logger.info("  Clusterer: %s", clusterer.__class__.__name__)
         return clusterer, clusterable_vectors
 
     try:
@@ -1078,8 +1207,8 @@ def _build_toponymy_clusterer(
         component_name="EVoCClusterer",
     )
     _patch_clusterer_for_toponymy_kwargs(clusterer)
-    print("  Using raw embeddings for clustering with EVoCClusterer.")
-    print(f"  Clusterer: {clusterer.__class__.__name__}")
+    logger.info("  Using raw embeddings for clustering with EVoCClusterer.")
+    logger.info("  Clusterer: %s", clusterer.__class__.__name__)
     return clusterer, embeddings
 
 
@@ -1125,7 +1254,7 @@ def _build_toponymy_models(
         torch_dtype="auto",
     )
     if cost_tracker is not None:
-        print(
+        logger.info(
             "  Local Toponymy LLM selected; token/cost tracking is unavailable for this step."
         )
     return llm_wrapper, None, SentenceTransformer(embedding_model)
@@ -1149,7 +1278,12 @@ def _fit_and_extract_toponymy_outputs(
     layer_index: int,
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
     """Fit Toponymy model and extract one configured topic layer."""
-    print(f"Fitting Toponymy backend='{backend_norm}' (LLM: {provider_norm}/{llm_model}) ...")
+    logger.info(
+        "Fitting Toponymy backend='%s' (LLM: %s/%s) ...",
+        backend_norm,
+        provider_norm,
+        llm_model,
+    )
     topic_model = toponymy_cls(
         llm_wrapper=llm_wrapper,
         text_embedding_model=text_embedding_model,
@@ -1173,9 +1307,12 @@ def _fit_and_extract_toponymy_outputs(
     topics = np.asarray(topic_model.cluster_layers_[layer_index].cluster_labels, dtype=int)
     n_topics = len(set(topics)) - (1 if -1 in topics else 0)
     n_outliers = int((topics == -1).sum())
-    print(
-        f"  Selected Toponymy layer {layer_index}/{n_layers - 1}: "
-        f"{n_topics} topics, {n_outliers:,} outliers."
+    logger.info(
+        "  Selected Toponymy layer %s/%s: %s topics, %s outliers.",
+        layer_index,
+        n_layers - 1,
+        n_topics,
+        f"{n_outliers:,}",
     )
 
     topic_names = topic_model.topic_names_[layer_index]
@@ -1352,7 +1489,7 @@ def _build_representation_model(
     prompt = llm_prompt or DEFAULT_PROMPT
 
     if "POS" in pipeline_models or "POS" in parallel_models:
-        print(f"  Initializing POS keyword extraction model: {pos_spacy_model}")
+        logger.info("  Initializing POS keyword extraction model: %s", pos_spacy_model)
 
     # Pipeline (sequential before LLM)
     pipe = []
@@ -1398,7 +1535,7 @@ def _create_llm(
         from transformers import pipeline as hf_pipeline
         from bertopic.representation import TextGeneration
 
-        print(f"  Loading local LLM: {model}")
+        logger.info("  Loading local LLM: %s", model)
         gen = hf_pipeline("text-generation", model=model, device_map="auto", torch_dtype="auto")
         return TextGeneration(
             gen, prompt=prompt,
@@ -1454,9 +1591,13 @@ def reduce_outliers(
         embeddings=reduced_5d, threshold=threshold,
     )
     after = (np.array(new_topics) == -1).sum()
-    print(f"  Outliers: {before:,} → {after:,}")
-    print("  Refreshing topic representations after outlier reassignment (not a full BERTopic refit).")
-    print("  Topic reduction must happen before this step when using manual topic assignments.")
+    logger.info("  Outliers: %s → %s", f"{before:,}", f"{after:,}")
+    logger.info(
+        "  Refreshing topic representations after outlier reassignment (not a full BERTopic refit)."
+    )
+    logger.info(
+        "  Topic reduction must happen before this step when using manual topic assignments."
+    )
 
     track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
     with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:

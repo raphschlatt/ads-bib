@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 from pathlib import Path
 import threading
 
@@ -20,6 +21,8 @@ from ads_bib._utils.openrouter_costs import (
     normalize_openrouter_cost_mode,
     summarize_openrouter_costs,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Language detection  (fasttext – fast & free)
@@ -73,7 +76,7 @@ def detect_languages(
         df[col] = df[col].fillna("")
         df[f"{col}_lang"] = df[col].apply(lambda t: _predict_language(t, model_path))
         n_non_en = (df[f"{col}_lang"] != "en").sum()
-        print(f"  {col}: {n_non_en:,} non-English entries detected")
+        logger.info("  %s: %s non-English entries detected", col, f"{n_non_en:,}")
     return df
 
 
@@ -174,7 +177,7 @@ def _load_hf_pipeline(model: str):
     """Load a HuggingFace text-generation pipeline (cached)."""
     from transformers import pipeline as hf_pipeline
 
-    print(f"Loading local translation model: {model}")
+    logger.info("Loading local translation model: %s", model)
     return hf_pipeline(
         "text-generation",
         model=model,
@@ -279,9 +282,9 @@ def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -
     """Print compact translation failure summary for one column."""
     if not failed:
         return
-    print(f"  {column}: {len(failed)} translations failed")
+    logger.warning("  %s: %s translations failed", column, len(failed))
     sample = "; ".join(f"idx={idx} ({msg})" for idx, msg in failed[:3])
-    print(f"    examples: {sample}")
+    logger.warning("    examples: %s", sample)
 
 
 def _summarize_translation_cost(
@@ -310,17 +313,20 @@ def _summarize_translation_cost(
     total_cost_usd = cost_summary["total_cost_usd"]
 
     if cost_summary["fetch_attempted_calls"] > 0 and not cost_summary["fetch_skipped_no_api_key"]:
-        print(
-            f"  Resolved USD costs via /generation for {cost_summary['fetch_attempted_calls']} calls "
-            f"(mode={openrouter_cost_mode}) ..."
+        logger.info(
+            "  Resolved USD costs via /generation for %s calls (mode=%s) ...",
+            cost_summary["fetch_attempted_calls"],
+            openrouter_cost_mode,
         )
     if total_cost_usd is not None:
-        print(
-            f"  Total translation cost: ${total_cost_usd:.4f} "
-            f"({cost_summary['priced_calls']}/{cost_summary['total_calls']} priced; "
-            f"direct={cost_summary['direct_priced_calls']}, "
-            f"fetched={cost_summary['fetched_priced_calls']}, "
-            f"mode={openrouter_cost_mode})"
+        logger.info(
+            "  Total translation cost: $%.4f (%s/%s priced; direct=%s, fetched=%s, mode=%s)",
+            total_cost_usd,
+            cost_summary["priced_calls"],
+            cost_summary["total_calls"],
+            cost_summary["direct_priced_calls"],
+            cost_summary["fetched_priced_calls"],
+            openrouter_cost_mode,
         )
     return total_cost_usd, cost_summary
 
@@ -396,10 +402,16 @@ def translate_dataframe(
         )
         n = len(to_translate)
         if n == 0:
-            print(f"  {col}: nothing to translate")
+            logger.info("  %s: nothing to translate", col)
             continue
 
-        print(f"  {col}: translating {n:,} entries with {provider}/{model} ...")
+        logger.info(
+            "  %s: translating %s entries with %s/%s ...",
+            col,
+            f"{n:,}",
+            provider,
+            model,
+        )
         if provider == "openrouter":
             pt, ct, records, failed = _translate_rows_openrouter(
                 df,

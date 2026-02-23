@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import itertools
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -24,10 +25,43 @@ from ads_bib._utils.authors import (
     first_author_lastname as _first_author_lastname,
 )
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Node helpers
 # ---------------------------------------------------------------------------
+
+
+def build_citation_inputs_from_publications(
+    publications: pd.DataFrame,
+) -> tuple[list[str], list[list[str]]]:
+    """Build ``(bibcodes, references)`` lists from publications DataFrame.
+
+    Parameters
+    ----------
+    publications : pd.DataFrame
+        Must contain ``Bibcode`` and ``References`` columns.
+
+    Returns
+    -------
+    tuple[list[str], list[list[str]]]
+        Bibcodes and normalized reference lists aligned by row order.
+    """
+    if "Bibcode" not in publications.columns:
+        raise ValueError("publications DataFrame must contain a 'Bibcode' column.")
+    if "References" not in publications.columns:
+        raise ValueError("publications DataFrame must contain a 'References' column.")
+
+    bibcodes = publications["Bibcode"].fillna("").astype(str).tolist()
+
+    def _normalize_refs(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(ref) for ref in value if isinstance(ref, str) and ref]
+        return []
+
+    references = publications["References"].apply(_normalize_refs).tolist()
+    return bibcodes, references
 
 def build_all_nodes(
     publications: pd.DataFrame,
@@ -47,7 +81,7 @@ def build_all_nodes(
         .drop(columns="_src")
     )
     combined = combined.rename(columns={"Bibcode": "id"})
-    print(f"All nodes: {len(combined):,}")
+    logger.info("All nodes: %s", f"{len(combined):,}")
     return combined
 
 
@@ -276,7 +310,7 @@ def export_to_gexf(
         G.add_edge(str(row["source"]), str(row["target"]), **attrs)
 
     nx.write_gexf(G, str(path))
-    print(f"  GEXF: {path.name}")
+    logger.info("  GEXF: %s", path.name)
 
 
 def export_to_graphology_json(
@@ -321,7 +355,7 @@ def export_to_graphology_json(
 
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(graph, fh, ensure_ascii=False, default=str)
-    print(f"  Graphology JSON: {path.name}")
+    logger.info("  Graphology JSON: %s", path.name)
 
 
 def export_to_csv(
@@ -334,7 +368,7 @@ def export_to_csv(
     directory.mkdir(parents=True, exist_ok=True)
     edges.to_csv(directory / "edges.csv", index=False)
     nodes.to_csv(directory / "nodes.csv", index=False)
-    print(f"  CSV: {directory.name}/")
+    logger.info("  CSV: %s/", directory.name)
 
 
 def export_wos_format(
@@ -419,7 +453,7 @@ def export_wos_format(
 
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write("\n\n".join(formatted))
-    print(f"  WOS format: {output_path.name}")
+    logger.info("  WOS format: %s", output_path.name)
 
 
 # ---------------------------------------------------------------------------
@@ -479,12 +513,12 @@ def process_all_citations(
     }
 
     for metric in metrics:
-        print(f"Processing {metric} ...")
+        logger.info("Processing %s ...", metric)
         mc = min_counts.get(metric, 1)
         edges = _funcs[metric](mc)
 
         if edges.empty:
-            print(f"  No edges for '{metric}'.")
+            logger.info("  No edges for '%s'.", metric)
             continue
 
         results[metric] = edges

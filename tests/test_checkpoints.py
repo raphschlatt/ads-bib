@@ -66,7 +66,7 @@ def test_save_phase3_checkpoint_writes_expected_files(tmp_path):
     )
 
     assert pub_path.name == "publications_translated_tokenized.json"
-    assert ref_path.name == "references_translated_tokenized.json"
+    assert ref_path.name == "references_translated.json"
     assert pub_path.exists()
     assert ref_path.exists()
     assert (run_dir / pub_path.name).exists()

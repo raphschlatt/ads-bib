@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import requests
 
 import ads_bib.export as ex
@@ -113,7 +115,8 @@ def test_parse_export_strips_bibcode_whitespace():
     assert df["Bibcode"].tolist() == ["b1"]
 
 
-def test_resolve_dataset_warns_when_parsed_bibcodes_are_missing(monkeypatch, capsys):
+def test_resolve_dataset_warns_when_parsed_bibcodes_are_missing(monkeypatch, caplog):
+    caplog.set_level(logging.WARNING, logger="ads_bib.export")
     pub_raw = _build_xox_raw([[
         "b1", "A", "T", "2024", "J", "J", "1", "2", "3", "4", "Abs", "K", "D", "F", "W", "0",
     ]])
@@ -137,9 +140,8 @@ def test_resolve_dataset_warns_when_parsed_bibcodes_are_missing(monkeypatch, cap
         fulltext_urls=[None, None],
         token="token",
     )
-    out = capsys.readouterr().out
-    assert "Warning: parsed publications cover 1/2 unique input bibcodes (1 missing)." in out
-    assert "Warning: parsed references cover 1/2 unique input bibcodes (1 missing)." in out
+    assert "Warning: parsed publications cover 1/2 unique input bibcodes (1 missing)." in caplog.text
+    assert "Warning: parsed references cover 1/2 unique input bibcodes (1 missing)." in caplog.text
 
 
 def test_resolve_dataset_merges_references_and_pdf_url_after_bibcode_strip(monkeypatch):

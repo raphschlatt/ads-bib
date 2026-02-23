@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import logging
 import sys
 import time
 import types
@@ -96,7 +97,8 @@ def test_build_topic_dataframe_accepts_external_topic_info():
     assert out["Main"].tolist() == ["alpha", "beta", "noise"]
 
 
-def test_reduce_outliers_refreshes_representations_and_logs(capsys):
+def test_reduce_outliers_refreshes_representations_and_logs(caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
     model = _FakeTopicModel()
     topics = np.array([-1, 1, -1], dtype=int)
     reduced_5d = np.array([[0, 0, 0, 0, 0], [1, 1, 1, 1, 1], [2, 2, 2, 2, 2]], dtype=np.float32)
@@ -109,8 +111,7 @@ def test_reduce_outliers_refreshes_representations_and_logs(capsys):
         threshold=0.8,
     )
 
-    output = capsys.readouterr().out
-    assert "Refreshing topic representations after outlier reassignment" in output
+    assert "Refreshing topic representations after outlier reassignment" in caplog.text
     assert np.array_equal(new_topics, np.array([0, 1, 0]))
     assert np.array_equal(model.updated_topics, np.array([0, 1, 0]))
 
@@ -443,7 +444,7 @@ def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeyp
     assert tracker.entries == []
 
 
-def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch, capsys):
+def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
     class _StrictEVoCClusterer:
@@ -472,7 +473,6 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch, capsys):
             clusterer_params={"min_clusters": 4, "cluster_levels": 2},
         )
 
-    capsys.readouterr()
     assert any(
         "Dropping unsupported EVoCClusterer parameter(s): cluster_levels" in str(w.message)
         for w in caught
@@ -482,7 +482,7 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch, capsys):
     assert topics.tolist() == [-1, 0, 1]
 
 
-def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch, capsys):
+def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
     class _StrictToponymyClusterer:
@@ -518,7 +518,6 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch, caps
             },
         )
 
-    capsys.readouterr()
     assert any(
         "Dropping unsupported ToponymyClusterer parameter(s): cluster_levels" in str(w.message)
         for w in caught
@@ -808,3 +807,166 @@ def test_openrouter_embedder_retries_when_data_is_none(monkeypatch):
     assert emb.shape == (2, 2)
     assert embedder.usage["total_tokens"] == 2
     assert [r["generation_id"] for r in embedder.usage["call_records"]] == ["gen_ok"]
+
+
+def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
+    model = "local/test-model"
+    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    np.savez_compressed(
+        cache_file,
+        embeddings=np.zeros((1, 3), dtype=np.float32),
+        n_docs=1,
+        doc_fingerprint="stale",
+        provider="local",
+        model=model,
+    )
+    calls = {"n": 0}
+
+    def _fake_embed_local(documents, model_name, batch_size, dtype):
+        del model_name, batch_size, dtype
+        calls["n"] += 1
+        return np.ones((len(documents), 3), dtype=np.float32)
+
+    monkeypatch.setattr(tm, "_embed_local", _fake_embed_local)
+    out = tm.compute_embeddings(
+        ["doc-a", "doc-b"],
+        provider="local",
+        model=model,
+        cache_dir=tmp_path,
+    )
+
+    assert out.shape == (2, 3)
+    assert calls["n"] == 1
+    assert "Embedding cache mismatch" in caplog.text
+
+
+def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
+    model = "local/test-model"
+    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    np.savez_compressed(
+        cache_file,
+        embeddings=np.zeros((2, 2), dtype=np.float32),
+        n_docs=2,
+        doc_fingerprint="invalid-fingerprint",
+        provider="local",
+        model=model,
+    )
+    calls = {"n": 0}
+
+    def _fake_embed_local(documents, model_name, batch_size, dtype):
+        del model_name, batch_size, dtype
+        calls["n"] += 1
+        return np.full((len(documents), 2), fill_value=7.0, dtype=np.float32)
+
+    monkeypatch.setattr(tm, "_embed_local", _fake_embed_local)
+    out = tm.compute_embeddings(
+        ["doc-a", "doc-b"],
+        provider="local",
+        model=model,
+        cache_dir=tmp_path,
+    )
+
+    assert out.shape == (2, 2)
+    assert float(out[0, 0]) == 7.0
+    assert calls["n"] == 1
+    assert "Embedding cache mismatch" in caplog.text
+
+
+def test_reduce_recomputes_on_params_hash_mismatch(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
+    embeddings = np.ones((4, 3), dtype=np.float32)
+    cache_path = tmp_path / "reduced_unit.npz"
+    np.savez_compressed(
+        cache_path,
+        reduced=np.zeros((4, 2), dtype=np.float32),
+        n_docs=4,
+        embedding_fingerprint=tm._array_fingerprint(embeddings),
+        method="pacmap",
+        n_components=2,
+        random_state=42,
+        params_hash="stale",
+    )
+
+    calls = {"n": 0}
+
+    class _FakePaCMAP:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fit_transform(self, values):
+            del values
+            calls["n"] += 1
+            return np.full((4, 2), fill_value=9.0, dtype=np.float32)
+
+    fake_pacmap = types.ModuleType("pacmap")
+    fake_pacmap.PaCMAP = _FakePaCMAP
+    monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
+
+    reduced = tm._reduce(
+        embeddings=embeddings,
+        n_components=2,
+        method="pacmap",
+        params={"n_neighbors": 15, "metric": "euclidean"},
+        random_state=42,
+        cache_dir=tmp_path,
+        name="unit",
+    )
+
+    assert calls["n"] == 1
+    assert np.allclose(reduced, 9.0)
+    assert "Reduction cache mismatch" in caplog.text
+
+
+def test_reduce_recomputes_on_embedding_fingerprint_mismatch(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
+    embeddings = np.ones((3, 2), dtype=np.float32)
+    params = {"n_neighbors": 12}
+    params_hash = tm._stable_hash(
+        {
+            "method": "pacmap",
+            "n_components": 2,
+            "random_state": 42,
+            "params": params,
+        }
+    )
+    cache_path = tmp_path / "reduced_fp.npz"
+    np.savez_compressed(
+        cache_path,
+        reduced=np.zeros((3, 2), dtype=np.float32),
+        n_docs=3,
+        embedding_fingerprint="wrong",
+        method="pacmap",
+        n_components=2,
+        random_state=42,
+        params_hash=params_hash,
+    )
+    calls = {"n": 0}
+
+    class _FakePaCMAP:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fit_transform(self, values):
+            del values
+            calls["n"] += 1
+            return np.full((3, 2), fill_value=4.0, dtype=np.float32)
+
+    fake_pacmap = types.ModuleType("pacmap")
+    fake_pacmap.PaCMAP = _FakePaCMAP
+    monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
+
+    reduced = tm._reduce(
+        embeddings=embeddings,
+        n_components=2,
+        method="pacmap",
+        params=params,
+        random_state=42,
+        cache_dir=tmp_path,
+        name="fp",
+    )
+
+    assert calls["n"] == 1
+    assert np.allclose(reduced, 4.0)
+    assert "Reduction cache mismatch" in caplog.text

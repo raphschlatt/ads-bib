@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,6 +15,8 @@ from tqdm.auto import tqdm
 
 from ._utils.ads_api import create_session, retry_request
 from ._utils.cleaning import clean_dataframe
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -105,7 +108,12 @@ def export_bibcodes(
     results: list[str | None] = [None] * n_chunks
     errors: list[tuple[int, str]] = []
 
-    print(f"Exporting {len(bibcodes):,} bibcodes in {n_chunks} chunks ({max_workers} workers) ...")
+    logger.info(
+        "Exporting %s bibcodes in %s chunks (%s workers) ...",
+        f"{len(bibcodes):,}",
+        n_chunks,
+        max_workers,
+    )
     pbar = tqdm(total=len(bibcodes), desc="Exporting")
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -131,9 +139,9 @@ def export_bibcodes(
     session.close()
 
     if errors:
-        print(f"\n{len(errors)} chunk(s) failed:")
+        logger.warning("%s chunk(s) failed:", len(errors))
         for idx, err in errors[:5]:
-            print(f"  Chunk {idx}: {err}")
+            logger.warning("  Chunk %s: %s", idx, err)
 
     return "".join(r for r in results if r is not None)
 
@@ -213,16 +221,18 @@ def resolve_dataset(
         and ``PDF_URL`` columns on the publications frame.
     """
     # --- Publications ---
-    print("=== Exporting publications ===")
+    logger.info("=== Exporting publications ===")
     raw_pubs = export_bibcodes(bibcodes, token, custom_format=custom_format, max_workers=max_workers)
     pubs = parse_export(raw_pubs)
     expected_publications = len(set(bibcodes))
     parsed_publications = int(pubs["Bibcode"].nunique()) if "Bibcode" in pubs.columns else 0
     if parsed_publications < expected_publications:
         missing = expected_publications - parsed_publications
-        print(
-            f"Warning: parsed publications cover {parsed_publications:,}/{expected_publications:,} "
-            f"unique input bibcodes ({missing:,} missing)."
+        logger.warning(
+            "Warning: parsed publications cover %s/%s unique input bibcodes (%s missing).",
+            f"{parsed_publications:,}",
+            f"{expected_publications:,}",
+            f"{missing:,}",
         )
 
     # Merge references + PDF_URL
@@ -233,24 +243,26 @@ def resolve_dataset(
     })
     pubs = pubs.merge(combo[["Bibcode", "References", "PDF_URL"]], on="Bibcode", how="left")
     pubs = clean_dataframe(pubs)
-    print(f"Publications: {len(pubs):,} records")
+    logger.info("Publications: %s records", f"{len(pubs):,}")
 
     # --- References ---
     flat_refs = list(dict.fromkeys(
         ref for ref_list in references for ref in ref_list
     ))
-    print(f"\n=== Exporting references ({len(flat_refs):,} unique) ===")
+    logger.info("=== Exporting references (%s unique) ===", f"{len(flat_refs):,}")
     raw_refs = export_bibcodes(flat_refs, token, custom_format=custom_format, max_workers=max_workers)
     refs = parse_export(raw_refs)
     expected_references = len(flat_refs)
     parsed_references = int(refs["Bibcode"].nunique()) if "Bibcode" in refs.columns else 0
     if parsed_references < expected_references:
         missing = expected_references - parsed_references
-        print(
-            f"Warning: parsed references cover {parsed_references:,}/{expected_references:,} "
-            f"unique input bibcodes ({missing:,} missing)."
+        logger.warning(
+            "Warning: parsed references cover %s/%s unique input bibcodes (%s missing).",
+            f"{parsed_references:,}",
+            f"{expected_references:,}",
+            f"{missing:,}",
         )
     refs = clean_dataframe(refs)
-    print(f"References: {len(refs):,} records")
+    logger.info("References: %s records", f"{len(refs):,}")
 
     return pubs, refs

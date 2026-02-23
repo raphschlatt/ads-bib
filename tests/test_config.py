@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import ads_bib.config as cfg
+import pytest
 
 
 def test_init_paths_creates_expected_directory_structure(tmp_path):
@@ -41,3 +42,41 @@ def test_load_env_resolves_env_file_from_project_root(tmp_path, monkeypatch):
     cfg.load_env(project_root=tmp_path)
 
     assert calls["path"] == tmp_path / ".env"
+
+
+def test_validate_provider_accepts_valid_provider_without_requirements():
+    cfg.validate_provider("openrouter", valid={"openrouter", "local"})
+
+
+def test_validate_provider_raises_for_unknown_provider():
+    with pytest.raises(ValueError, match="Invalid provider 'foo'"):
+        cfg.validate_provider("foo", valid={"openrouter", "local"})
+
+
+def test_validate_provider_requires_api_key():
+    with pytest.raises(ValueError, match="requires an API key"):
+        cfg.validate_provider(
+            "openrouter",
+            valid={"openrouter", "local"},
+            api_key=None,
+            requires_key={"openrouter"},
+        )
+
+
+def test_validate_provider_checks_optional_dependency(monkeypatch):
+    monkeypatch.setattr(cfg, "find_spec", lambda module: None)
+    with pytest.raises(ImportError, match="requires optional dependency 'litellm'"):
+        cfg.validate_provider(
+            "openrouter",
+            valid={"openrouter", "local"},
+            requires_import={"openrouter": "litellm"},
+        )
+
+
+def test_validate_provider_dependency_present(monkeypatch):
+    monkeypatch.setattr(cfg, "find_spec", lambda module: object())
+    cfg.validate_provider(
+        "openrouter",
+        valid={"openrouter", "local"},
+        requires_import={"openrouter": "litellm"},
+    )

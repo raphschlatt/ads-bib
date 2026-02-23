@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qsl
 
 from ._utils.ads_api import create_session, retry_request
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +65,7 @@ def search_ads(
     esources: list[list[str]] = []
     fulltext_urls: list[str | None] = []
 
-    print("Starting ADS search ...")
+    logger.info("Starting ADS search ...")
 
     while True:
         params["cursorMark"] = cursor
@@ -93,10 +96,10 @@ def search_ads(
         if next_cursor == cursor or not next_cursor:
             break
         cursor = next_cursor
-        print(f"  {len(bibcodes):,} records fetched ...", end="\r")
+        logger.info("  %s records fetched ...", f"{len(bibcodes):,}")
 
     session.close()
-    print(f"\nDone. Total retrieved: {len(bibcodes):,}")
+    logger.info("Done. Total retrieved: %s", f"{len(bibcodes):,}")
     return bibcodes, references, esources, fulltext_urls
 
 
@@ -134,6 +137,6 @@ def save_search_results(
     save_pickle(data, run_path)
     shutil.copy(run_path, latest_path)
 
-    print(f"Saved: {run_path.name}")
-    print(f"Latest: {latest_path.name}")
+    logger.info("Saved: %s", run_path.name)
+    logger.info("Latest: %s", latest_path.name)
     return run_path

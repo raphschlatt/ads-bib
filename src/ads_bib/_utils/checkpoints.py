@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
 import pandas as pd
 
 from ads_bib._utils.io import load_json_lines, save_json_lines
+
+logger = logging.getLogger(__name__)
 
 
 def save_translated_checkpoint(
@@ -31,7 +34,7 @@ def save_translated_checkpoint(
         shutil.copy(pub_path, run_data_dir / pub_path.name)
         shutil.copy(ref_path, run_data_dir / ref_path.name)
 
-    print("Translated checkpoint saved to global cache and local run folder.")
+    logger.info("Translated checkpoint saved to global cache and local run folder.")
     return pub_path, ref_path
 
 
@@ -73,7 +76,7 @@ def save_phase3_checkpoint(
     """Save Phase-3 outputs (tokenized pubs + refs frame) for Phase-4 restart."""
     cache_dir = Path(cache_dir)
     pub_path = cache_dir / "publications_translated_tokenized.json"
-    ref_path = cache_dir / "references_translated_tokenized.json"
+    ref_path = cache_dir / "references_translated.json"
 
     save_json_lines(publications, pub_path)
     save_json_lines(references, ref_path)
@@ -84,5 +87,5 @@ def save_phase3_checkpoint(
         shutil.copy(pub_path, run_data_dir / pub_path.name)
         shutil.copy(ref_path, run_data_dir / ref_path.name)
 
-    print("Phase 3 checkpoint saved (publications tokenized; refs retained without tokenization).")
+    logger.info("Phase 3 checkpoint saved (publications tokenized; refs retained without tokenization).")
     return pub_path, ref_path

@@ -3,6 +3,7 @@ These paths handle global storage (raw data, cached embeddings, models) that per
 across multiple runs. Run-specific outputs (plots, subsets) are handled by the RunManager.
 """
 
+from importlib.util import find_spec
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -47,3 +48,42 @@ def load_env(project_root: Path | str | None = None) -> None:
     """Load ``.env`` file from project root."""
     root = Path(project_root) if project_root else Path.cwd()
     load_dotenv(root / ".env")
+
+
+def validate_provider(
+    provider: str,
+    *,
+    valid: set[str],
+    api_key: str | None = None,
+    requires_key: set[str] | None = None,
+    requires_import: dict[str, str] | None = None,
+) -> None:
+    """Validate provider selection and runtime dependencies.
+
+    Parameters
+    ----------
+    provider : str
+        Provider name to validate.
+    valid : set[str]
+        Allowed provider names.
+    api_key : str | None
+        Optional API key used for providers that require one.
+    requires_key : set[str] | None
+        Provider names that require *api_key*.
+    requires_import : dict[str, str] | None
+        Mapping of provider to required import path/module name.
+    """
+    if provider not in valid:
+        allowed = ", ".join(sorted(valid))
+        raise ValueError(f"Invalid provider '{provider}'. Expected one of: {allowed}.")
+
+    requires_key = requires_key or set()
+    if provider in requires_key and not api_key:
+        raise ValueError(f"Provider '{provider}' requires an API key.")
+
+    requires_import = requires_import or {}
+    module_name = requires_import.get(provider)
+    if module_name and find_spec(module_name) is None:
+        raise ImportError(
+            f"Provider '{provider}' requires optional dependency '{module_name}'."
+        )

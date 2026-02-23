@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 OPENROUTER_COST_MODES = {"hybrid", "strict", "fast"}
@@ -155,9 +158,11 @@ def fetch_generation_cost(
                     return cost
         except Exception as exc:
             if attempt == attempts - 1:
-                print(
-                    f"OpenRouter cost fetch failed for generation_id={generation_id}: "
-                    f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "OpenRouter cost fetch failed for generation_id=%s: %s: %s",
+                    generation_id,
+                    type(exc).__name__,
+                    exc,
                 )
 
         if attempt < attempts - 1 and delay > 0:

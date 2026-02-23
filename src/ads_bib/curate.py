@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def get_cluster_summary(df: pd.DataFrame, label_column: str = "Name") -> pd.DataFrame:
@@ -54,8 +58,8 @@ def remove_clusters(
     before = len(df)
     df_out = df[~df["topic_id"].isin(cluster_ids)].copy()
     removed = before - len(df_out)
-    print(f"Removed {removed:,} documents from clusters {cluster_ids}")
-    print(f"Remaining: {len(df_out):,} documents")
+    logger.info("Removed %s documents from clusters %s", f"{removed:,}", cluster_ids)
+    logger.info("Remaining: %s documents", f"{len(df_out):,}")
     return df_out
 
 
@@ -89,6 +93,11 @@ def filter_by_field(
         mask = df[column].isin(values)
 
     result = df[mask] if keep else df[~mask]
-    print(f"{'Kept' if keep else 'Removed'} {len(df) - len(result) if not keep else len(result):,} rows "
-          f"(column={column}, values={values})")
+    logger.info(
+        "%s %s rows (column=%s, values=%s)",
+        "Kept" if keep else "Removed",
+        f"{len(df) - len(result) if not keep else len(result):,}",
+        column,
+        values,
+    )
     return result.copy()

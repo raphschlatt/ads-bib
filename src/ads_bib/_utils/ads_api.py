@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from typing import TypeVar, Literal
@@ -9,6 +10,7 @@ from typing import TypeVar, Literal
 import requests
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 def retry_call(
@@ -133,14 +135,20 @@ def retry_request(
 
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 60))
-            print(f"Rate limited. Waiting {wait}s ...")
+            logger.warning("Rate limited. Waiting %ss ...", wait)
             time.sleep(wait)
             continue
 
         if resp.status_code >= 500:
             if attempt < max_retries:
                 wait = backoff_factor * (2 ** attempt)
-                print(f"Server error {resp.status_code}. Retry {attempt + 1}/{max_retries} in {wait}s ...")
+                logger.warning(
+                    "Server error %s. Retry %s/%s in %ss ...",
+                    resp.status_code,
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
                 time.sleep(wait)
                 continue
 

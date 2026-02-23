@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import string
 import warnings
 from pathlib import Path
@@ -16,6 +17,8 @@ import datamapplot
 from datamapplot.selection_handlers import SelectionHandlerBase
 
 from ads_bib._utils.authors import author_text
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # External asset URLs
@@ -517,7 +520,7 @@ def _save_plot(plot: object, output_path: Path | str | None) -> None:
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     plot.save(output_file)
-    print(f"Saved: {output_file.name}")
+    logger.info("Saved: %s", output_file.name)
 
 
 # ---------------------------------------------------------------------------

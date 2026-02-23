@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 import ads_bib.curate as curate
@@ -27,24 +29,24 @@ def test_get_cluster_summary_returns_expected_columns_and_order():
     assert summary["Count"].sum() == len(df)
 
 
-def test_remove_clusters_filters_and_logs(capsys):
+def test_remove_clusters_filters_and_logs(caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.curate")
     df = _sample_df()
     out = curate.remove_clusters(df, cluster_ids=[-1, 1])
 
-    output = capsys.readouterr().out
-    assert "Removed 3 documents from clusters [-1, 1]" in output
-    assert "Remaining: 3 documents" in output
+    assert "Removed 3 documents from clusters [-1, 1]" in caplog.text
+    assert "Remaining: 3 documents" in caplog.text
     assert set(out["topic_id"].unique()) == {2}
 
 
-def test_filter_by_field_string_case_insensitive_keep_and_drop(capsys):
+def test_filter_by_field_string_case_insensitive_keep_and_drop(caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.curate")
     df = _sample_df()
     kept = curate.filter_by_field(df, column="Journal", values=["apj"], keep=True)
     dropped = curate.filter_by_field(df, column="Journal", values=["apj"], keep=False)
 
-    output = capsys.readouterr().out
-    assert "Kept 2 rows" in output
-    assert "Removed 2 rows" in output
+    assert "Kept 2 rows" in caplog.text
+    assert "Removed 2 rows" in caplog.text
     assert set(kept["Journal"].str.lower().unique()) == {"apj"}
     assert "ApJ" not in dropped["Journal"].values
 
