@@ -95,6 +95,8 @@ Engineering rules and operating conventions for this repository.
 - `pipeline.ipynb` is a first-class entrypoint and must stay synchronized with package APIs.
 - When API contracts change, update notebook cells in the same change set.
 - Clear stale outputs when they encode outdated schema names or misleading historical logs.
+- Notebook cells should stay orchestration-only (top layer).
+- Background logic (fallbacks, retries/backoff strategies, install/preflight mechanics, checkpoint internals, data-shaping helpers) belongs in `src/ads_bib/` modules, not inline notebook code.
 
 ## 9) Review Checklist (Before Merge)
 
