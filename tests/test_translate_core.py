@@ -78,6 +78,53 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
     assert tracker.entries[0]["cost_usd"] == 0.01
 
 
+def test_translate_openrouter_uses_shared_chat_core(monkeypatch):
+    class _Resp:
+        class _Choice:
+            class _Message:
+                content = "Hallo-EN"
+
+            message = _Message()
+
+        choices = [_Choice()]
+
+    calls: dict = {}
+
+    monkeypatch.setattr(tr, "_get_openai_client", lambda api_key, api_base: object())
+
+    def _fake_openrouter_chat_completion(**kwargs):
+        calls["retry_label"] = kwargs["retry_label"]
+        calls["model"] = kwargs["model"]
+        return _Resp()
+
+    monkeypatch.setattr(tr, "openrouter_chat_completion", _fake_openrouter_chat_completion)
+    monkeypatch.setattr(
+        tr,
+        "openrouter_usage_from_response",
+        lambda response: {
+            "prompt_tokens": 5,
+            "completion_tokens": 2,
+            "total_tokens": 7,
+            "call_record": {"generation_id": "gid-1", "direct_cost": 0.01},
+        },
+    )
+
+    translated, pt, ct, gid, cost = tr._translate_openrouter(
+        "Hallo",
+        "en",
+        "openrouter/test-model",
+        "dummy-key",
+    )
+
+    assert translated == "Hallo-EN"
+    assert pt == 5
+    assert ct == 2
+    assert gid == "gid-1"
+    assert cost == 0.01
+    assert calls["retry_label"] == "OpenRouter translation call"
+    assert calls["model"] == "openrouter/test-model"
+
+
 def test_translate_dataframe_validates_max_translation_tokens():
     df = pd.DataFrame(
         {

@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from ._utils.ads_api import create_session, retry_request
 from ._utils.cleaning import clean_dataframe

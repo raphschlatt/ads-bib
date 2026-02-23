@@ -28,6 +28,7 @@ Engineering rules and operating conventions for this repository.
 - `KISS`: prefer the simplest implementation that satisfies requirements.
 - `DRY`: centralize shared logic; avoid copy-pasted behavior across modules.
 - `YAGNI`: do not add abstractions or compatibility layers unless they are actively needed.
+- Uniformity-first: prefer one shared implementation path for equivalent provider operations (especially OpenRouter calls) unless a documented exception is justified.
 - Explicit over implicit: avoid hidden side effects and implicit schema coupling.
 - Deterministic outputs: prefer reproducible defaults (`random_state`, stable ordering).
 
@@ -58,11 +59,12 @@ Engineering rules and operating conventions for this repository.
   - Toponymy: `llm_labeling_toponymy`
   - Toponymy + EVoC: `llm_labeling_toponymy_evoc`
 - Toponymy provides aggregated LLM cost logging identical to the BERTopic output format.
+- BERTopic OpenRouter labeling is a conscious third-party exception (LiteLLM path) unless a low-risk adapter is explicitly implemented.
 - All Toponymy hierarchical layers are preserved as `Topic_Layer_X` columns in the output DataFrame for multi-level interactive maps.
 - After `reduce_outliers`, always refresh topic representations via `update_topics`.
   - Reason: topic assignments changed, so keywords/labels/representative docs must be recomputed.
 - If manual topic assignments are used, topic reduction must occur before the final reassignment step.
-- Toponymy in this repository is intentionally sync-only for now.
+- Notebook orchestration remains sync, but internal async/concurrent OpenRouter labeling is allowed when it preserves behavior and improves robustness.
 
 ## 5) Logging and Console Output
 
@@ -71,6 +73,7 @@ Engineering rules and operating conventions for this repository.
   - `step | model | tokens(total,prompt,completion) | calls | cost`
 - Avoid large raw DataFrame dumps in notebook output where concise summaries are sufficient.
 - Keep progress bars that communicate long-running work; remove redundant noise.
+- In repository-owned code, standardize progress bars on `tqdm.auto`.
 
 ## 6) Testing and Quality Gates
 

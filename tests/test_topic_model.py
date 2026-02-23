@@ -245,8 +245,13 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
     calls: dict = {}
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url):
-        calls["namer"] = {"model": model, "api_key": api_key, "base_url": base_url}
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        calls["namer"] = {
+            "model": model,
+            "api_key": api_key,
+            "base_url": base_url,
+            "max_workers": max_workers,
+        }
         usage = {"prompt_tokens": 22, "completion_tokens": 7, "call_records": []}
         return object(), usage
 
@@ -278,6 +283,7 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
     assert calls["record"]["step"] == "llm_labeling_toponymy_evoc"
     assert calls["record"]["llm_provider"] == "openrouter"
     assert calls["record"]["usage"]["prompt_tokens"] == 22
+    assert calls["namer"]["max_workers"] == 5
 
 
 def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatch):
@@ -291,8 +297,8 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         def add(self, **kwargs):
             self.entries.append(kwargs)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url):
-        del model, api_key, base_url
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     def _fake_fit_outputs(**kwargs):
@@ -340,6 +346,46 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
     assert tracker.entries[0]["prompt_tokens"] == 17
     assert tracker.entries[0]["total_tokens"] == 17
     assert tracker.entries[0]["cost_usd"] == 0.0042
+
+
+def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+    calls: dict = {}
+
+    class _FakeOpenRouterEmbedder:
+        def __init__(self, *, api_key, model, batch_size=64, max_workers=5, dtype=np.float32, api_base=None):
+            del api_key, model, batch_size, dtype, api_base
+            calls["embedder_workers"] = max_workers
+            self.max_workers = max_workers
+            self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, **kwargs):
+            del texts, verbose, show_progress_bar, kwargs
+            return np.ones((0, 0), dtype=np.float32)
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url
+        calls["namer_workers"] = max_workers
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    tm.fit_toponymy(
+        documents=["d1", "d2"],
+        embeddings=np.ones((2, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((2, 2), dtype=np.float32),
+        backend="toponymy",
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        embedding_model="google/gemini-embedding-001",
+        api_key="key",
+        max_workers=9,
+    )
+
+    assert calls["namer_workers"] == 9
+    assert calls["embedder_workers"] == 9
 
 
 def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeypatch):
@@ -406,8 +452,8 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch, capsys):
 
     sys.modules["toponymy.clustering"].EVoCClusterer = _StrictEVoCClusterer
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url):
-        del model, api_key, base_url
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -448,8 +494,8 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch, caps
 
     sys.modules["toponymy"].ToponymyClusterer = _StrictToponymyClusterer
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url):
-        del model, api_key, base_url
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -539,8 +585,8 @@ def test_fit_toponymy_local_requires_hf_dependencies(monkeypatch):
 def test_fit_toponymy_validates_layer_index(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url):
-        del model, api_key, base_url
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)

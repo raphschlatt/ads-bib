@@ -7,11 +7,14 @@ from pathlib import Path
 import threading
 
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
+from ads_bib._utils.openrouter_client import (
+    openrouter_chat_completion,
+    openrouter_usage_from_response,
+)
 from ads_bib._utils.openrouter_costs import (
     DEFAULT_OPENROUTER_API_BASE,
-    extract_response_cost,
     fetch_generation_cost,
     normalize_openrouter_api_base,
     normalize_openrouter_cost_mode,
@@ -130,7 +133,8 @@ def _translate_openrouter(
 ) -> tuple[str, int, int, str | None, float | None]:
     """Translate *text* via OpenRouter."""
     client = _get_openai_client(api_key, api_base)
-    resp = client.chat.completions.create(
+    resp = openrouter_chat_completion(
+        client=client,
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -138,13 +142,14 @@ def _translate_openrouter(
         ],
         max_tokens=max_tokens,
         temperature=0,
+        retry_label="OpenRouter translation call",
     )
     translated = resp.choices[0].message.content.strip()
-    usage = getattr(resp, "usage", None)
-    pt = getattr(usage, "prompt_tokens", 0) if usage else 0
-    ct = getattr(usage, "completion_tokens", 0) if usage else 0
-    gen_id = getattr(resp, "id", None)
-    direct_cost = extract_response_cost(response=resp)
+    usage = openrouter_usage_from_response(resp)
+    pt = usage["prompt_tokens"]
+    ct = usage["completion_tokens"]
+    gen_id = usage["call_record"]["generation_id"]
+    direct_cost = usage["call_record"]["direct_cost"]
     return translated, pt, ct, gen_id, direct_cost
 
 

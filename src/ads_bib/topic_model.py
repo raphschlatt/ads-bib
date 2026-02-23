@@ -7,6 +7,7 @@ and LLM labeling.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import inspect
 import warnings
@@ -17,9 +18,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from ads_bib._utils.ads_api import retry_call
+from ads_bib._utils.openrouter_client import (
+    openrouter_chat_completion,
+    openrouter_usage_from_response,
+)
 from ads_bib._utils.openrouter_costs import (
     DEFAULT_OPENROUTER_API_BASE,
     extract_generation_id,
@@ -792,74 +797,100 @@ def _create_tracked_toponymy_namer(
     model: str,
     api_key: str,
     base_url: str,
+    max_workers: int = 5,
 ) -> tuple[Any, dict]:
-    """Create a Toponymy-compatible OpenAI wrapper and capture usage/cost metadata."""
+    """Create a Toponymy-compatible async OpenRouter wrapper with usage tracking."""
     from openai import OpenAI
-    from toponymy.llm_wrappers import LLMWrapper
+    from toponymy.llm_wrappers import AsyncLLMWrapper
 
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+    worker_count = max(1, int(max_workers))
 
-    class TrackedOpenAINamer(LLMWrapper):
-        """Toponymy namer wrapper that tracks token usage and direct costs."""
+    class TrackedAsyncOpenRouterNamer(AsyncLLMWrapper):
+        """Toponymy async namer wrapper with retry, concurrency, and usage capture."""
 
         def __init__(self) -> None:
             """Initialize OpenAI client bindings for Toponymy naming."""
             self.client = OpenAI(api_key=api_key, base_url=base_url)
             self.model = model
+            self.max_workers = worker_count
+            self._semaphore = asyncio.Semaphore(self.max_workers)
 
-        def _record_usage(self, response: Any) -> None:
-            """Aggregate per-call usage stats from one completion response."""
-            stats = extract_usage_stats(response)
-            usage["prompt_tokens"] += stats["prompt_tokens"]
-            usage["completion_tokens"] += stats["completion_tokens"]
-            
-            usage["call_records"].append(
-                {
-                    "generation_id": extract_generation_id(response),
-                    "direct_cost": extract_response_cost(response=response),
-                    "response": response,
-                }
-            )
-
-        def _call_llm(
+        async def _call_single(
             self,
-            prompt: str,
+            *,
+            messages: list[dict[str, str]],
             temperature: float,
             max_tokens: int,
         ) -> str:
-            """Call chat completion with a single user prompt."""
-            response = self.client.chat.completions.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                response_format={"type": "json_object"},
-            )
-            self._record_usage(response)
-            return response.choices[0].message.content or ""
+            """Call one prompt with shared retry logic and collect usage."""
+            try:
+                async with self._semaphore:
+                    response = await asyncio.to_thread(
+                        openrouter_chat_completion,
+                        client=self.client,
+                        model=self.model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        response_format={"type": "json_object"},
+                        retry_label="Toponymy OpenRouter labeling call",
+                    )
+                stats = openrouter_usage_from_response(response)
+                usage["prompt_tokens"] += int(stats["prompt_tokens"])
+                usage["completion_tokens"] += int(stats["completion_tokens"])
+                usage["call_records"].append(stats["call_record"])
+                return response.choices[0].message.content or ""
+            except Exception as exc:
+                warnings.warn(
+                    f"Toponymy OpenRouter labeling failed: {type(exc).__name__}: {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                return ""
 
-        def _call_llm_with_system_prompt(
+        async def _call_llm_batch(
             self,
-            system_prompt: str,
-            user_prompt: str,
+            prompts: list[str],
             temperature: float,
             max_tokens: int,
-        ) -> str:
-            """Call chat completion with system and user messages."""
-            response = self.client.chat.completions.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=temperature,
-                response_format={"type": "json_object"},
-            )
-            self._record_usage(response)
-            return response.choices[0].message.content or ""
+        ) -> list[str]:
+            """Process a batch of plain-text prompts concurrently."""
+            tasks = [
+                self._call_single(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                for prompt in prompts
+            ]
+            return await asyncio.gather(*tasks)
 
-    return TrackedOpenAINamer(), usage
+        async def _call_llm_with_system_prompt_batch(
+            self,
+            system_prompts: list[str],
+            user_prompts: list[str],
+            temperature: float,
+            max_tokens: int,
+        ) -> list[str]:
+            """Process a batch of system+user prompts concurrently."""
+            if len(system_prompts) != len(user_prompts):
+                raise ValueError("Number of system prompts must match number of user prompts")
+
+            tasks = [
+                self._call_single(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                for system_prompt, user_prompt in zip(system_prompts, user_prompts)
+            ]
+            return await asyncio.gather(*tasks)
+
+    return TrackedAsyncOpenRouterNamer(), usage
 
 
 def _build_toponymy_topic_info(topics: np.ndarray, topic_names: list[str] | None) -> pd.DataFrame:
@@ -1037,6 +1068,7 @@ def _build_toponymy_models(
     embedding_model: str,
     api_key: str | None,
     openrouter_api_base: str,
+    max_workers: int,
     cost_tracker: "CostTracker | None",
 ) -> tuple[Any, dict[str, Any] | None, Any]:
     """Build Toponymy naming and text-embedding components."""
@@ -1045,11 +1077,13 @@ def _build_toponymy_models(
             model=llm_model,
             api_key=api_key,
             base_url=openrouter_api_base,
+            max_workers=max_workers,
         )
         text_embedding_model = OpenRouterEmbedder(
             api_key=api_key,
             model=embedding_model,
             api_base=openrouter_api_base,
+            max_workers=max_workers,
         )
         return llm_wrapper, llm_usage, text_embedding_model
 
@@ -1140,6 +1174,7 @@ def fit_toponymy(
     api_key: str | None = None,
     openrouter_api_base: str = DEFAULT_OPENROUTER_API_BASE,
     openrouter_cost_mode: str = "hybrid",
+    max_workers: int = 5,
     clusterer_params: dict | None = None,
     object_description: str = "research papers",
     corpus_description: str = "collection of research papers",
@@ -1154,6 +1189,8 @@ def fit_toponymy(
         ``"toponymy"`` (ToponymyClusterer) or ``"toponymy_evoc"`` (EVoCClusterer).
     llm_provider : str
         ``"openrouter"`` or ``"local"``.
+    max_workers : int
+        Max concurrent OpenRouter requests for Toponymy labeling and embedding.
 
     Returns
     -------
@@ -1170,6 +1207,7 @@ def fit_toponymy(
 
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     openrouter_api_base = normalize_openrouter_api_base(openrouter_api_base)
+    max_workers = max(1, int(max_workers))
     clusterer_params = dict(clusterer_params or {})
     clusterer, clusterable_vectors_for_fit = _build_toponymy_clusterer(
         backend_norm=backend_norm,
@@ -1184,6 +1222,7 @@ def fit_toponymy(
         embedding_model=embedding_model,
         api_key=api_key,
         openrouter_api_base=openrouter_api_base,
+        max_workers=max_workers,
         cost_tracker=cost_tracker,
     )
     topic_model, topics, topic_info = _fit_and_extract_toponymy_outputs(
