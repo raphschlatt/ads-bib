@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 import pandas as pd
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ def tokenize_texts(
     batch_size: int = 512,
     n_process: int | None = None,
     spacy_disable: tuple[str, ...] = ("ner", "parser", "textcat"),
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Create *full_text* from title + abstract, then tokenize.
 
@@ -116,6 +118,8 @@ def tokenize_texts(
         If ``None``, uses ``min(max(cpu_count - 1, 1), 8)``.
     spacy_disable : tuple[str, ...]
         spaCy pipeline components to disable when loading by model name.
+    show_progress : bool
+        Show a tqdm progress bar while consuming ``nlp.pipe`` output.
 
     Returns
     -------
@@ -142,20 +146,27 @@ def tokenize_texts(
 
     def _tokenize_docs(proc_count: int) -> list[list[str]]:
         docs = nlp.pipe(texts, batch_size=batch_size, n_process=proc_count)
-        return [
-            [
-                token.lemma_.lower()
-                for token in doc
-                if (
-                    not token.is_stop
-                    and not token.is_punct
-                    and not token.like_num
-                    and token.is_alpha
-                    and len(token.lemma_) >= min_token_length
-                )
-            ]
-            for doc in docs
-        ]
+        tokens: list[list[str]] = []
+        for doc in tqdm(
+            docs,
+            total=len(texts),
+            desc="Tokenization",
+            disable=not show_progress,
+        ):
+            tokens.append(
+                [
+                    token.lemma_.lower()
+                    for token in doc
+                    if (
+                        not token.is_stop
+                        and not token.is_punct
+                        and not token.like_num
+                        and token.is_alpha
+                        and len(token.lemma_) >= min_token_length
+                    )
+                ]
+            )
+        return tokens
 
     logger.info(
         "Tokenizing %s documents with %s (n_process=%s, batch_size=%s) ...",

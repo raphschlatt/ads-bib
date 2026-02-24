@@ -532,6 +532,7 @@ def reduce_dimensions(
     cache_dir: Path | None = None,
     cache_suffix: str = "",
     embedding_id: str | None = None,
+    show_progress: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute 5-D (for clustering) and 2-D (for visualisation) projections.
 
@@ -552,6 +553,8 @@ def reduce_dimensions(
         Provider/model identifier (e.g. ``"openrouter/model-name"``).
         When *cache_suffix* is empty and *embedding_id* is given, a suffix is
         built automatically from the embedding id, method, and 5-D params.
+    show_progress : bool
+        Show a tqdm progress bar across 5-D and 2-D reduction steps.
 
     Returns
     -------
@@ -567,24 +570,31 @@ def reduce_dimensions(
             f"_metric{p5.get('metric', 'def')}"
             f"_rs{random_state}"
         )
-    r5 = _reduce(
-        embeddings,
-        5,
-        method,
-        params_5d or {},
-        random_state,
-        cache_dir,
-        f"5d_{cache_suffix}",
-    )
-    r2 = _reduce(
-        embeddings,
-        2,
-        method,
-        params_2d or {},
-        random_state,
-        cache_dir,
-        f"2d_{cache_suffix}",
-    )
+    with tqdm(
+        total=2,
+        desc=f"Reduction ({method.upper()})",
+        disable=not show_progress,
+    ) as pbar:
+        r5 = _reduce(
+            embeddings,
+            5,
+            method,
+            params_5d or {},
+            random_state,
+            cache_dir,
+            f"5d_{cache_suffix}",
+        )
+        pbar.update(1)
+        r2 = _reduce(
+            embeddings,
+            2,
+            method,
+            params_2d or {},
+            random_state,
+            cache_dir,
+            f"2d_{cache_suffix}",
+        )
+        pbar.update(1)
     logger.info("  5D shape: %s, 2D shape: %s", r5.shape, r2.shape)
     return r5, r2
 
@@ -815,6 +825,7 @@ def fit_bertopic(
     clustering_params: dict | None = None,
     top_n_words: int = DEFAULT_BERTOPIC_TOP_N_WORDS,
     pos_spacy_model: str = DEFAULT_POS_SPACY_MODEL,
+    show_progress: bool = True,
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
@@ -913,7 +924,9 @@ def fit_bertopic(
 
     track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
     with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
-        topic_model.fit_transform(documents, reduced_5d)
+        with tqdm(total=1, desc="BERTopic fit", disable=not show_progress) as pbar:
+            topic_model.fit_transform(documents, reduced_5d)
+            pbar.update(1)
 
     _record_llm_usage(
         llm_usage,
@@ -1634,6 +1647,7 @@ def reduce_outliers(
     threshold: float = 0.8,
     llm_provider: str = "local",
     llm_model: str = "google/gemma-3-1b-it",
+    show_progress: bool = True,
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
@@ -1660,13 +1674,15 @@ def reduce_outliers(
 
     track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
     with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
-        with _suppress_manual_topics_warning():
-            topic_model.update_topics(
-                documents, topics=new_topics,
-                vectorizer_model=topic_model.vectorizer_model,
-                ctfidf_model=topic_model.ctfidf_model,
-                representation_model=topic_model.representation_model,
-            )
+        with tqdm(total=1, desc="BERTopic refresh", disable=not show_progress) as pbar:
+            with _suppress_manual_topics_warning():
+                topic_model.update_topics(
+                    documents, topics=new_topics,
+                    vectorizer_model=topic_model.vectorizer_model,
+                    ctfidf_model=topic_model.ctfidf_model,
+                    representation_model=topic_model.representation_model,
+                )
+            pbar.update(1)
 
     _record_llm_usage(
         llm_usage,
