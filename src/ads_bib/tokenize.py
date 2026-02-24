@@ -14,6 +14,17 @@ from tqdm.auto import tqdm
 logger = logging.getLogger(__name__)
 
 
+def _require_columns(df: pd.DataFrame, columns: list[str], *, function_name: str) -> None:
+    """Raise a clear error when required DataFrame columns are missing."""
+    missing = [col for col in columns if col not in df.columns]
+    if missing:
+        required_text = ", ".join(columns)
+        missing_text = ", ".join(missing)
+        raise ValueError(
+            f"{function_name} requires columns: {required_text}. Missing: {missing_text}."
+        )
+
+
 def default_n_process() -> int:
     """Return a conservative parallel worker default for spaCy."""
     cpu_count = os.cpu_count() or 1
@@ -128,6 +139,7 @@ def tokenize_texts(
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be > 0.")
+    _require_columns(df, [title_col, abstract_col], function_name="tokenize_texts")
 
     if nlp is None:
         nlp = _load_spacy_model(spacy_model, tuple(spacy_disable))

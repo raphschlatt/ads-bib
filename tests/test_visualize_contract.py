@@ -88,7 +88,7 @@ def test_create_topic_map_raises_if_new_coordinate_column_missing(monkeypatch):
     viz, _ = _load_visualize_module(monkeypatch)
     df = _build_df().drop(columns=["embedding_2d_y"])
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="Missing: embedding_2d_y"):
         viz.create_topic_map(df, label_column="Name", word_cloud=False)
 
 
@@ -127,3 +127,11 @@ def test_create_topic_map_auto_detects_name_when_no_layers(monkeypatch):
 
     assert len(calls["label_layers"]) == 1
     assert plot is not None
+
+
+def test_create_topic_map_raises_clear_error_for_missing_label_column(monkeypatch):
+    viz, _ = _load_visualize_module(monkeypatch)
+    df = _build_df().drop(columns=["Name"])
+
+    with pytest.raises(ValueError, match="Missing: Name"):
+        viz.create_topic_map(df, label_column="Name", word_cloud=False)

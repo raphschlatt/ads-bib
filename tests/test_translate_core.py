@@ -152,3 +152,15 @@ def test_translate_dataframe_validates_provider():
             provider="bad_provider",
             model="m",
         )
+
+
+def test_translate_dataframe_openrouter_requires_api_key():
+    df = pd.DataFrame({"Title": ["Hallo"], "Title_lang": ["de"]})
+    with pytest.raises(ValueError, match="requires an API key"):
+        tr.translate_dataframe(
+            df,
+            columns=["Title"],
+            provider="openrouter",
+            model="openrouter/test-model",
+            api_key=None,
+        )

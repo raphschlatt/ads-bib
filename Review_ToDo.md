@@ -16,14 +16,14 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ### A) Stabilitaet und Korrektheit
 
-- [ ] End-to-end Smoke-Test definieren: ein kompletter Lauf auf kleinem Datensatz (Search -> Export -> Translate -> Tokenize -> Topics -> Visualize -> Citations).
-- [ ] Alle kritischen Fehlerszenarien mit klaren Meldungen abdecken:
+- [x] End-to-end Smoke-Test definieren: ein kompletter Lauf auf kleinem Datensatz (Search -> Export -> Translate -> Tokenize -> Topics -> Visualize -> Citations).
+- [x] Alle kritischen Fehlerszenarien mit klaren Meldungen abdecken:
   - fehlende API-Keys
   - fehlende Pflichtspalten
   - leere Eingabedaten
   - optionale Dependencies nicht installiert
 - [ ] Reproduzierbarkeit pruefen: gleiche Inputs + gleiche Config geben konsistente Outputs (soweit algorithmisch moeglich).
-- [ ] AGENTS-Contracts als harte Gates halten (`topic_id`, `embedding_2d_x/y`, Outlier-Refresh, Notebook-Contract).
+- [x] AGENTS-Contracts als harte Gates halten (`topic_id`, `embedding_2d_x/y`, Outlier-Refresh, Notebook-Contract).
 
 ### B) Lesbarkeit und Wartbarkeit
 

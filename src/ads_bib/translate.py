@@ -31,6 +31,17 @@ logger = logging.getLogger(__name__)
 _ft_model = None
 
 
+def _require_columns(df: pd.DataFrame, columns: list[str], *, function_name: str) -> None:
+    """Raise a clear error when required DataFrame columns are missing."""
+    missing = [col for col in columns if col not in df.columns]
+    if missing:
+        required_text = ", ".join(columns)
+        missing_text = ", ".join(missing)
+        raise ValueError(
+            f"{function_name} requires columns: {required_text}. Missing: {missing_text}."
+        )
+
+
 def _get_ft_model(model_path: str | Path | None = None):
     """Lazy-load the fasttext language-identification model."""
     global _ft_model
@@ -71,6 +82,7 @@ def detect_languages(
     pd.DataFrame
         Copy of *df* with added language columns.
     """
+    _require_columns(df, columns, function_name="detect_languages")
     df = df.copy()
     for col in columns:
         df[col] = df[col].fillna("")
@@ -194,6 +206,10 @@ def _prepare_translation_targets(
 ) -> tuple[str, pd.DataFrame]:
     """Initialize translated column and return rows that need translation."""
     lang_col = f"{source_col}_lang"
+    if source_col not in df.columns:
+        raise ValueError(
+            f"Column '{source_col}' not found. Ensure source columns exist before translation."
+        )
     target_col = f"{source_col}_{target_lang}"
     if lang_col not in df.columns:
         raise ValueError(f"Column '{lang_col}' not found. Run detect_languages() first.")
@@ -392,6 +408,7 @@ def translate_dataframe(
     df = df.copy()
     if max_translation_tokens <= 0:
         raise ValueError("max_translation_tokens must be > 0.")
+    _require_columns(df, columns, function_name="translate_dataframe")
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     total_pt = 0
     total_ct = 0

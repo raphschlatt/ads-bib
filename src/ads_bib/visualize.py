@@ -311,6 +311,17 @@ def _normalize_label_columns(label_column: str | list[str]) -> list[str]:
     return list(label_column)
 
 
+def _require_columns(df: pd.DataFrame, columns: list[str], *, function_name: str) -> None:
+    """Raise a clear error when required DataFrame columns are missing."""
+    missing = [col for col in columns if col not in df.columns]
+    if missing:
+        required_text = ", ".join(columns)
+        missing_text = ", ".join(missing)
+        raise ValueError(
+            f"{function_name} requires columns: {required_text}. Missing: {missing_text}."
+        )
+
+
 def _tokens_to_text(value: object) -> str:
     """Convert token-like values to one flat string."""
     if isinstance(value, (list, tuple, np.ndarray, pd.Series)):
@@ -548,7 +559,7 @@ def create_topic_map(
         Must contain ``embedding_2d_x``, ``embedding_2d_y``, ``topic_id``,
         *label_column*,
         ``Bibcode``, ``Title_en``, ``Author``, ``Year``, ``Journal``,
-        ``Abstract_en``, ``Citation Count``, ``tokens``.
+        ``Abstract_en``, ``Citation Count``, ``DOI``, ``tokens``.
     label_column : str, list[str], or None
         Column(s) with topic labels (e.g. ``"Name"`` or ``["Topic_Layer_0", "Topic_Layer_1"]``).
         If a list is provided, multiple layers are added to the map.
@@ -567,8 +578,28 @@ def create_topic_map(
         topic_layers = [c for c in df.columns if c.startswith("Topic_Layer_")]
         label_column = topic_layers if topic_layers else "Name"
 
-    data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
     label_columns = _normalize_label_columns(label_column)
+    _require_columns(
+        df,
+        [
+            "embedding_2d_x",
+            "embedding_2d_y",
+            "topic_id",
+            "Bibcode",
+            "Title_en",
+            "Author",
+            "Year",
+            "Journal",
+            "Abstract_en",
+            "Citation Count",
+            "DOI",
+            "tokens",
+            *label_columns,
+        ],
+        function_name="create_topic_map",
+    )
+
+    data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
     label_layers = [df[col].to_numpy(object) for col in label_columns]
     primary_label_col = label_columns[0]
     hover_text = df["Year"].astype(str).tolist()

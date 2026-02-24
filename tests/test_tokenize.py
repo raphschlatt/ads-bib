@@ -132,6 +132,22 @@ def test_tokenize_texts_respects_custom_column_names(monkeypatch):
     assert out.loc[0, "toks"] == ["delta", "epsilon"]
 
 
+def test_tokenize_texts_raises_clear_error_for_missing_required_columns():
+    df = pd.DataFrame({"Title_en": ["Alpha"]})
+
+    with pytest.raises(ValueError, match="tokenize_texts requires columns"):
+        tok.tokenize_texts(df, nlp=_FakeNLP(), n_process=1, show_progress=False)
+
+
+def test_tokenize_texts_handles_empty_input_dataframe():
+    df = pd.DataFrame({"Title_en": [], "Abstract_en": []})
+
+    out = tok.tokenize_texts(df, nlp=_FakeNLP(), n_process=1, show_progress=False)
+
+    assert list(out.columns) == ["Title_en", "Abstract_en", "full_text", "tokens"]
+    assert out.empty
+
+
 def test_tokenize_texts_caches_spacy_model(monkeypatch):
     fake_nlp = _FakeNLP()
     calls = _install_fake_spacy(monkeypatch, fake_nlp)

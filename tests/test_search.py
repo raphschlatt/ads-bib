@@ -141,3 +141,21 @@ def test_search_ads_auto_saves_when_raw_dir_given(tmp_path, monkeypatch):
 
     search.search_ads("q", "tok", raw_dir=tmp_path, force_refresh=False)
     assert (tmp_path / "search_results_latest.pkl").exists()
+
+
+def test_search_ads_returns_empty_outputs_when_no_docs(monkeypatch):
+    session = _FakeSession()
+    monkeypatch.setattr(search, "create_session", lambda t: session)
+    monkeypatch.setattr(
+        search,
+        "retry_request",
+        lambda s, m, u, params: _FakeResponse({"response": {"docs": []}, "nextCursorMark": "*"}),
+    )
+
+    bibcodes, references, esources, fulltext_urls = search.search_ads("q", "tok")
+
+    assert bibcodes == []
+    assert references == []
+    assert esources == []
+    assert fulltext_urls == []
+    assert session.closed is True
