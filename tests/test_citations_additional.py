@@ -136,3 +136,37 @@ def test_build_citation_inputs_from_publications_requires_columns():
         assert False, "Expected ValueError for missing References column"
     except ValueError as exc:
         assert "References" in str(exc)
+
+
+def test_co_citation_single_ref_paper_no_pairs():
+    """A paper with only 1 reference cannot produce co-citation pairs."""
+    bibcodes = ["p1"]
+    references = [["r1"]]
+    publications = pd.DataFrame(
+        {"Bibcode": ["p1"], "Year": [2020], "Author": [["A, A."]]}
+    )
+    edges = cit.create_co_citations(bibcodes, references, publications)
+    assert edges.empty
+    assert set(edges.columns) == {"id", "year", "source", "target", "cocit_source"}
+
+
+def test_co_citation_empty_references():
+    """Empty reference lists produce no co-citation edges."""
+    bibcodes = ["p1"]
+    references = [[]]
+    publications = pd.DataFrame(
+        {"Bibcode": ["p1"], "Year": [2020], "Author": [["A, A."]]}
+    )
+    edges = cit.create_co_citations(bibcodes, references, publications)
+    assert edges.empty
+    assert set(edges.columns) == {"id", "year", "source", "target", "cocit_source"}
+
+
+def test_bibliographic_coupling_empty_pubs():
+    """An empty publications DataFrame produces no coupling edges."""
+    publications = pd.DataFrame(
+        columns=["Bibcode", "Year", "Author", "References"]
+    )
+    edges = cit.create_bibliographic_coupling(publications)
+    assert edges.empty
+    assert set(edges.columns) == {"id", "year", "source", "target", "shared_ref"}

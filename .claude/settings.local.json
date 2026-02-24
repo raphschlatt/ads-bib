@@ -11,7 +11,8 @@
       "Bash(python -m pytest:*)",
       "Bash(source activate:*)",
       "Bash(grep:*)",
-      "Bash(jupyter nbconvert:*)"
+      "Bash(jupyter nbconvert:*)",
+      "Bash(pytest tests/test_citations_additional.py tests/test_citations_author_list.py -v)"
     ]
   }
 }

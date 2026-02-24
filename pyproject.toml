@@ -16,6 +16,7 @@ dependencies = [
     "spacy>=3.7",
     "tqdm",
     "plotly",
+    "scipy>=1.10",
 ]
 
 [project.optional-dependencies]

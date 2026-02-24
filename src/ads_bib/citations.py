@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 from ads_bib._utils.authors import (
     author_list as _author_list,
@@ -110,6 +111,25 @@ def _has_value(value: object) -> bool:
         return True
 
 
+def _fmt_size(nbytes: int | float) -> str:
+    """Human-readable file size."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if nbytes < 1024:
+            return f"{nbytes:.1f} {unit}"
+        nbytes /= 1024
+    return f"{nbytes:.1f} TB"
+
+
+def _sanitize_graphology_attrs(attrs: dict) -> dict:
+    """Convert non-JSON-serializable attribute values in-place."""
+    for k, v in attrs.items():
+        if isinstance(v, (list, dict)):
+            attrs[k] = str(v)
+        elif hasattr(v, "item"):  # numpy scalar
+            attrs[k] = v.item()
+    return attrs
+
+
 # ---------------------------------------------------------------------------
 # Direct citation
 # ---------------------------------------------------------------------------
@@ -147,7 +167,12 @@ def create_direct_citations(
     author_map = publications.set_index("Bibcode")["Author"].to_dict()
 
     rows = []
-    for src, ref_list in zip(bibcodes, references):
+    for src, ref_list in tqdm(
+        zip(bibcodes, references),
+        total=len(bibcodes),
+        desc="Direct citations",
+        leave=False,
+    ):
         year = year_map.get(src)
         if year is None:
             continue
@@ -184,24 +209,7 @@ def create_co_citations(
     """Build a co-citation edge list (pairs of references cited together)."""
     pubs = _filter_by_authors(publications, authors_filter)
     year_map = pubs.set_index("Bibcode")["Year"].to_dict()
-
-    rows = []
-    for src, ref_list in zip(bibcodes, references):
-        year = year_map.get(src)
-        if year is None:
-            continue
-        refs = [r for r in ref_list if r]
-        for r1, r2 in itertools.combinations(refs, 2):
-            rows.append({"cocit_source": src, "source": r1, "target": r2, "year": year})
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-
-    df["pair_count"] = df.groupby(["source", "target"])["cocit_source"].transform("count")
-    df = df[df["pair_count"] >= min_count]
-    df.insert(0, "id", range(len(df)))
-    return df[["id", "year", "source", "target", "cocit_source"]]
+    return _co_citation_fast(bibcodes, references, year_map, min_count)
 
 
 # ---------------------------------------------------------------------------
@@ -216,26 +224,7 @@ def create_bibliographic_coupling(
 ) -> pd.DataFrame:
     """Build a bibliographic-coupling edge list (publications sharing references)."""
     pubs = _filter_by_authors(publications, authors_filter)
-    df_refs = pubs.explode("References").dropna(subset=["References"])
-    ref_source_map = df_refs.groupby("References")["Bibcode"].agg(list).to_dict()
-
-    rows = []
-    for ref, sources in ref_source_map.items():
-        for s1, s2 in itertools.combinations(sources, 2):
-            rows.append({"source": s1, "target": s2, "shared_ref": ref})
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-
-    year_map = pubs.set_index("Bibcode")["Year"].to_dict()
-    df["year"] = df["source"].map(year_map).astype("Int64")
-    df["pair_count"] = df.groupby(["source", "target"])["shared_ref"].transform("count")
-    df = df[df["pair_count"] >= min_shared_refs].drop_duplicates(
-        subset=["source", "target", "shared_ref"]
-    )
-    df.insert(0, "id", range(len(df)))
-    return df[["id", "year", "source", "target", "shared_ref"]]
+    return _bibliographic_coupling_fast(pubs, min_shared_refs)
 
 
 # ---------------------------------------------------------------------------
@@ -261,26 +250,7 @@ def create_author_co_citations(
     df_exp = df_exp.dropna(subset=["first_author"])
 
     grouped = df_exp.groupby(["Bibcode", "Year"])["first_author"].agg(list).reset_index()
-
-    rows = []
-    for _, row in grouped.iterrows():
-        authors_set = sorted(set(row["first_author"]))
-        for a1, a2 in itertools.combinations(authors_set, 2):
-            rows.append({
-                "year": row["Year"],
-                "source": a1,
-                "target": a2,
-                "source_citation": row["Bibcode"],
-            })
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-
-    df["pair_count"] = df.groupby(["source", "target"])["source_citation"].transform("count")
-    df = df[df["pair_count"] >= min_count]
-    df.insert(0, "id", range(len(df)))
-    return df[["id", "year", "source", "target", "source_citation"]]
+    return _author_co_citation_fast(grouped, min_count)
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +261,7 @@ def export_to_gexf(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
     path: Path | str,
-) -> None:
+) -> Path:
     """Write edges and nodes to a GEXF file (native Gephi format)."""
     import networkx as nx
 
@@ -301,23 +271,29 @@ def export_to_gexf(
     nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
 
     G = nx.DiGraph()
-    for _, row in nodes_out.iterrows():
-        attrs = {k: str(v) for k, v in row.items() if k != "id" and _has_value(v)}
-        G.add_node(str(row["id"]), **attrs)
 
-    for _, row in edges.iterrows():
-        attrs = {k: str(v) for k, v in row.items() if k not in ("source", "target") and _has_value(v)}
-        G.add_edge(str(row["source"]), str(row["target"]), **attrs)
+    node_records = nodes_out.to_dict(orient="records")
+    G.add_nodes_from(
+        (str(rec["id"]), {k: str(v) for k, v in rec.items() if k != "id" and _has_value(v)})
+        for rec in tqdm(node_records, desc="GEXF nodes", leave=False)
+    )
+
+    edge_records = edges.to_dict(orient="records")
+    G.add_edges_from(
+        (str(rec["source"]), str(rec["target"]),
+         {k: str(v) for k, v in rec.items() if k not in ("source", "target") and _has_value(v)})
+        for rec in tqdm(edge_records, desc="GEXF edges", leave=False)
+    )
 
     nx.write_gexf(G, str(path))
-    logger.info("  GEXF: %s", path.name)
+    return path
 
 
 def export_to_graphology_json(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
     path: Path | str,
-) -> None:
+) -> Path:
     """Write edges and nodes to Graphology JSON format (Sigma.js compatible)."""
     import json
 
@@ -326,49 +302,52 @@ def export_to_graphology_json(
 
     nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
 
+    node_records = nodes_out.to_dict(orient="records")
+    graph_nodes = [
+        {
+            "key": str(rec["id"]),
+            "attributes": _sanitize_graphology_attrs(
+                {k: v for k, v in rec.items() if k != "id" and _has_value(v)}
+            ),
+        }
+        for rec in tqdm(node_records, desc="Graphology nodes", leave=False)
+    ]
+
+    edge_records = edges.to_dict(orient="records")
+    graph_edges = [
+        {
+            "source": str(rec["source"]),
+            "target": str(rec["target"]),
+            "attributes": _sanitize_graphology_attrs(
+                {k: v for k, v in rec.items()
+                 if k not in ("source", "target") and _has_value(v)}
+            ),
+        }
+        for rec in tqdm(edge_records, desc="Graphology edges", leave=False)
+    ]
+
     graph = {
         "attributes": {"type": "directed"},
-        "nodes": [],
-        "edges": [],
+        "nodes": graph_nodes,
+        "edges": graph_edges,
     }
-
-    for _, row in nodes_out.iterrows():
-        attrs = {k: v for k, v in row.items() if k != "id" and _has_value(v)}
-        # Convert non-serializable types
-        for k, v in attrs.items():
-            if isinstance(v, (list, dict)):
-                attrs[k] = str(v)
-            elif hasattr(v, "item"):  # numpy scalar
-                attrs[k] = v.item()
-        graph["nodes"].append({"key": str(row["id"]), "attributes": attrs})
-
-    for i, row in edges.iterrows():
-        attrs = {k: v for k, v in row.items() if k not in ("source", "target") and _has_value(v)}
-        for k, v in attrs.items():
-            if hasattr(v, "item"):
-                attrs[k] = v.item()
-        graph["edges"].append({
-            "source": str(row["source"]),
-            "target": str(row["target"]),
-            "attributes": attrs,
-        })
 
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(graph, fh, ensure_ascii=False, default=str)
-    logger.info("  Graphology JSON: %s", path.name)
+    return path
 
 
 def export_to_csv(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
     directory: Path | str,
-) -> None:
+) -> Path:
     """Write edges and nodes to CSV files in *directory*."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     edges.to_csv(directory / "edges.csv", index=False)
     nodes.to_csv(directory / "nodes.csv", index=False)
-    logger.info("  CSV: %s/", directory.name)
+    return directory
 
 
 def export_wos_format(
@@ -513,23 +492,58 @@ def process_all_citations(
     }
 
     for metric in metrics:
-        logger.info("Processing %s ...", metric)
+        desc = metric.replace("_", " ").title()
         mc = min_counts.get(metric, 1)
-        edges = _funcs[metric](mc)
 
-        if edges.empty:
-            logger.info("  No edges for '%s'.", metric)
-            continue
+        with tqdm(total=2, desc=desc, leave=True,
+                  bar_format="{desc}: {bar} {n}/{total} [{elapsed}]") as pbar:
+            # Step 1: Compute
+            pbar.set_postfix_str("computing")
+            edges = _funcs[metric](mc)
+            pbar.update(1)
 
-        results[metric] = edges
-        filtered_nodes = filter_nodes(all_nodes, edges, _edge_cols[metric])
+            if edges.empty:
+                pbar.set_postfix_str("no edges")
+                pbar.update(1)
+                continue
 
-        if output_format in ("gexf", "all"):
-            export_to_gexf(edges, filtered_nodes, output_dir / f"{metric}{suffix}.gexf")
-        if output_format in ("graphology", "all"):
-            export_to_graphology_json(edges, filtered_nodes, output_dir / f"{metric}{suffix}.json")
-        if output_format in ("csv", "all"):
-            export_to_csv(edges, filtered_nodes, output_dir / f"{metric}{suffix}_csv")
+            results[metric] = edges
+            filtered_nodes = filter_nodes(all_nodes, edges, _edge_cols[metric])
+
+            # Step 2: Export
+            pbar.set_postfix_str("exporting")
+            written: list[Path] = []
+
+            if output_format in ("gexf", "all"):
+                p = export_to_gexf(edges, filtered_nodes, output_dir / f"{metric}{suffix}.gexf")
+                if p is not None:
+                    written.append(p)
+            if output_format in ("graphology", "all"):
+                p = export_to_graphology_json(edges, filtered_nodes, output_dir / f"{metric}{suffix}.json")
+                if p is not None:
+                    written.append(p)
+            if output_format in ("csv", "all"):
+                p = export_to_csv(edges, filtered_nodes, output_dir / f"{metric}{suffix}_csv")
+                if p is not None:
+                    written.append(p)
+
+            pbar.update(1)
+
+        # Summary line below the completed bar
+        total_bytes = sum(
+            (p.stat().st_size if p.is_file()
+             else sum(c.stat().st_size for c in p.iterdir() if c.is_file()))
+            for p in written
+        )
+        filter_info = f"filter={','.join(authors_filter)}" if authors_filter else "no filter"
+        logger.info(
+            "  %s — %s nodes, %s edges, %s, %s",
+            desc,
+            f"{len(filtered_nodes):,}",
+            f"{len(edges):,}",
+            filter_info,
+            _fmt_size(total_bytes),
+        )
 
         del edges, filtered_nodes
         gc.collect()
@@ -550,3 +564,275 @@ def _filter_by_authors(
     pattern = "|".join(authors)
     author_series = df["Author"].apply(_author_text)
     return df[author_series.str.contains(pattern, case=False, na=False)]
+
+
+def _build_incidence_matrix(
+    row_indices: list[int],
+    col_indices: list[int],
+    n_rows: int,
+    n_cols: int,
+) -> "scipy.sparse.csr_matrix":
+    """Build a binary sparse incidence matrix (CSR, int8).
+
+    Duplicate (row, col) entries are clamped to 1.
+    Uses int8 (1 byte per NNZ) for minimal memory.
+    """
+    from scipy.sparse import coo_matrix
+
+    row_arr = np.asarray(row_indices, dtype=np.int32)
+    col_arr = np.asarray(col_indices, dtype=np.int32)
+    data = np.ones(len(row_indices), dtype=np.int8)
+    mat = coo_matrix(
+        (data, (row_arr, col_arr)),
+        shape=(n_rows, n_cols),
+    ).tocsr()
+    mat.data = np.clip(mat.data, 0, 1)  # clamp duplicates
+    return mat
+
+
+def _sparse_upper_pairs(
+    mat: "scipy.sparse.csr_matrix",
+    min_count: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (row_indices, col_indices) of upper-triangle entries >= *min_count*."""
+    from scipy.sparse import triu
+
+    upper = triu(mat, k=1, format="csr")
+    if min_count > 1:
+        upper.data[upper.data < min_count] = 0
+        upper.eliminate_zeros()
+    rows, cols = upper.nonzero()
+    return rows, cols
+
+
+# ---------------------------------------------------------------------------
+# Sparse-accelerated implementations
+# ---------------------------------------------------------------------------
+
+def _co_citation_fast(
+    bibcodes: list[str],
+    references: list[list[str]],
+    year_map: dict[str, object],
+    min_count: int,
+) -> pd.DataFrame:
+    """Sparse-matrix accelerated co-citation edge list construction."""
+    _COLS = ["id", "year", "source", "target", "cocit_source"]
+
+    # Collect valid (paper_idx, ref_bibcode) pairs
+    ref_to_idx: dict[str, int] = {}
+    paper_rows: list[int] = []
+    ref_cols: list[int] = []
+    valid_papers: list[tuple[str, int, list[str]]] = []
+
+    for src, ref_list in zip(bibcodes, references):
+        year = year_map.get(src)
+        if year is None:
+            continue
+        refs = [r for r in ref_list if r]
+        if len(refs) < 2:
+            continue
+        pidx = len(valid_papers)
+        valid_papers.append((src, year, refs))
+        for r in refs:
+            if r not in ref_to_idx:
+                ref_to_idx[r] = len(ref_to_idx)
+            paper_rows.append(pidx)
+            ref_cols.append(ref_to_idx[r])
+
+    if not valid_papers or not ref_to_idx:
+        return pd.DataFrame(columns=_COLS)
+
+    # Phase 1: sparse matrix multiply for pair counts
+    n_papers = len(valid_papers)
+    n_refs = len(ref_to_idx)
+    R = _build_incidence_matrix(paper_rows, ref_cols, n_papers, n_refs)
+    R32 = R.astype(np.int32)
+    del R
+    C = (R32.T @ R32).tocsr()
+    del R32
+    ri, ci = _sparse_upper_pairs(C, min_count)
+    del C
+
+    if len(ri) == 0:
+        return pd.DataFrame(columns=_COLS)
+
+    # Build qualifying pair set (canonical order by index)
+    idx_to_ref = {v: k for k, v in ref_to_idx.items()}
+    qualifying = set(zip(ri.tolist(), ci.tolist()))
+    del ri, ci
+
+    # Phase 2: reconstruct detail rows only for qualifying pairs
+    rows: list[dict] = []
+    for src, year, refs in tqdm(valid_papers, desc="Co-citation detail", leave=False):
+        ref_idxs = [ref_to_idx[r] for r in refs]
+        for i in range(len(ref_idxs)):
+            for j in range(i + 1, len(ref_idxs)):
+                a, b = ref_idxs[i], ref_idxs[j]
+                key = (a, b) if a < b else (b, a)
+                if key in qualifying:
+                    rows.append({
+                        "cocit_source": src,
+                        "source": refs[i],
+                        "target": refs[j],
+                        "year": year,
+                    })
+
+    if not rows:
+        return pd.DataFrame(columns=_COLS)
+
+    df = pd.DataFrame(rows)
+    df.insert(0, "id", range(len(df)))
+    return df[_COLS]
+
+
+def _bibliographic_coupling_fast(
+    pubs: pd.DataFrame,
+    min_shared_refs: int,
+) -> pd.DataFrame:
+    """Sparse-matrix accelerated bibliographic coupling edge list."""
+    _COLS = ["id", "year", "source", "target", "shared_ref"]
+
+    df_refs = pubs.explode("References").dropna(subset=["References"])
+    if df_refs.empty:
+        return pd.DataFrame(columns=_COLS)
+
+    # Build index maps (deduplicate to avoid index > matrix dimension)
+    pub_bibcodes = pubs["Bibcode"].unique().tolist()
+    pub_to_idx = {b: i for i, b in enumerate(pub_bibcodes)}
+    all_refs = df_refs["References"].unique()
+    ref_to_idx = {r: i for i, r in enumerate(all_refs)}
+
+    # Build incidence matrix
+    paper_rows = []
+    ref_cols = []
+    for bib, ref in zip(df_refs["Bibcode"], df_refs["References"]):
+        pidx = pub_to_idx.get(bib)
+        if pidx is not None:
+            paper_rows.append(pidx)
+            ref_cols.append(ref_to_idx[ref])
+
+    if not paper_rows:
+        return pd.DataFrame(columns=_COLS)
+
+    n_pubs = len(pub_to_idx)
+    n_refs = len(ref_to_idx)
+
+    if n_pubs > 50_000:
+        logger.warning(
+            "Bibliographic coupling: %s publications — matrix multiply may use "
+            "significant memory. Consider increasing min_shared_refs.",
+            f"{n_pubs:,}",
+        )
+
+    R = _build_incidence_matrix(paper_rows, ref_cols, n_pubs, n_refs)
+    R32 = R.astype(np.int32)
+    del R
+    B = (R32 @ R32.T).tocsr()
+    del R32
+    ri, ci = _sparse_upper_pairs(B, min_shared_refs)
+    del B
+
+    if len(ri) == 0:
+        return pd.DataFrame(columns=_COLS)
+
+    # Build qualifying pair set
+    idx_to_pub = {v: k for k, v in pub_to_idx.items()}
+    qualifying = {
+        (min(idx_to_pub[r], idx_to_pub[c]), max(idx_to_pub[r], idx_to_pub[c]))
+        for r, c in zip(ri.tolist(), ci.tolist())
+    }
+    del ri, ci
+
+    # Reconstruct shared_ref detail from ref_source_map
+    ref_source_map = df_refs.groupby("References")["Bibcode"].agg(list).to_dict()
+    year_map = pubs.set_index("Bibcode")["Year"].to_dict()
+
+    rows: list[dict] = []
+    for ref, sources in tqdm(ref_source_map.items(), desc="Bib. coupling detail", leave=False):
+        if len(sources) < 2:
+            continue
+        for s1, s2 in itertools.combinations(sources, 2):
+            key = (min(s1, s2), max(s1, s2))
+            if key in qualifying:
+                rows.append({"source": s1, "target": s2, "shared_ref": ref})
+
+    if not rows:
+        return pd.DataFrame(columns=_COLS)
+
+    df = pd.DataFrame(rows)
+    df["year"] = df["source"].map(year_map).astype("Int64")
+    df = df.drop_duplicates(subset=["source", "target", "shared_ref"])
+    df.insert(0, "id", range(len(df)))
+    return df[_COLS]
+
+
+def _author_co_citation_fast(
+    grouped: pd.DataFrame,
+    min_count: int,
+) -> pd.DataFrame:
+    """Sparse-matrix accelerated first-author co-citation edge list."""
+    _COLS = ["id", "year", "source", "target", "source_citation"]
+
+    if grouped.empty:
+        return pd.DataFrame(columns=_COLS)
+
+    # Build incidence matrix (citing_paper × first_author)
+    author_to_idx: dict[str, int] = {}
+    paper_rows: list[int] = []
+    author_cols: list[int] = []
+    valid_rows: list[tuple[int, str, int, list[str]]] = []
+
+    for row_idx, row in grouped.iterrows():
+        authors_set = sorted(set(row["first_author"]))
+        if len(authors_set) < 2:
+            continue
+        pidx = len(valid_rows)
+        valid_rows.append((pidx, row["Bibcode"], row["Year"], authors_set))
+        for a in authors_set:
+            if a not in author_to_idx:
+                author_to_idx[a] = len(author_to_idx)
+            paper_rows.append(pidx)
+            author_cols.append(author_to_idx[a])
+
+    if not valid_rows or not author_to_idx:
+        return pd.DataFrame(columns=_COLS)
+
+    n_papers = len(valid_rows)
+    n_authors = len(author_to_idx)
+    A = _build_incidence_matrix(paper_rows, author_cols, n_papers, n_authors)
+    A32 = A.astype(np.int32)
+    del A
+    AC = (A32.T @ A32).tocsr()
+    del A32
+    ri, ci = _sparse_upper_pairs(AC, min_count)
+    del AC
+
+    if len(ri) == 0:
+        return pd.DataFrame(columns=_COLS)
+
+    # Build qualifying pair set using author indices
+    qualifying = set(zip(ri.tolist(), ci.tolist()))
+    del ri, ci
+
+    # Reconstruct detail rows
+    rows: list[dict] = []
+    for _, bibcode, year, authors_set in tqdm(valid_rows, desc="Author co-cit. detail", leave=False):
+        aidxs = [author_to_idx[a] for a in authors_set]
+        for i in range(len(aidxs)):
+            for j in range(i + 1, len(aidxs)):
+                a, b = aidxs[i], aidxs[j]
+                key = (a, b) if a < b else (b, a)
+                if key in qualifying:
+                    rows.append({
+                        "year": year,
+                        "source": authors_set[i],
+                        "target": authors_set[j],
+                        "source_citation": bibcode,
+                    })
+
+    if not rows:
+        return pd.DataFrame(columns=_COLS)
+
+    df = pd.DataFrame(rows)
+    df.insert(0, "id", range(len(df)))
+    return df[_COLS]
