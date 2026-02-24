@@ -32,6 +32,8 @@ def search_ads(
     fields: str = "bibcode,reference,esources",
     rows: int = 2000,
     sort: str = "date desc, id asc",
+    raw_dir: Path | None = None,
+    force_refresh: bool = False,
 ) -> tuple[list[str], list[list[str]], list[list[str]], list[str | None]]:
     """Run an ADS search and return bibcodes with their references.
 
@@ -47,6 +49,12 @@ def search_ads(
         Page size for cursor-based deep paging (max 2000).
     sort : str
         Sort order.  Must include a unique tie-breaker for cursor paging.
+    raw_dir : Path, optional
+        Directory for caching search results.  When given, results are
+        persisted via :func:`save_search_results` and reloaded on subsequent
+        calls unless *force_refresh* is ``True``.
+    force_refresh : bool
+        If ``True``, ignore cached results even when *raw_dir* is set.
 
     Returns
     -------
@@ -54,6 +62,13 @@ def search_ads(
         ``(bibcodes, references, esources, fulltext_urls)`` – each a list
         aligned by index.
     """
+    if raw_dir is not None:
+        latest = Path(raw_dir) / "search_results_latest.pkl"
+        if not force_refresh and latest.exists():
+            from ._utils.io import load_pickle
+            logger.info("Loading cached search results: %s", latest.name)
+            return load_pickle(latest)
+
     session = create_session(token)
     url = ADS_SEARCH_URL
 
@@ -99,7 +114,19 @@ def search_ads(
         logger.info("  %s records fetched ...", f"{len(bibcodes):,}")
 
     session.close()
-    logger.info("Done. Total retrieved: %s", f"{len(bibcodes):,}")
+
+    unique_refs = len(set(r for rl in references for r in rl))
+    total_refs = sum(len(rl) for rl in references)
+    logger.info(
+        "Done. Bibcodes: %s | Unique refs: %s | Total refs: %s",
+        f"{len(bibcodes):,}", f"{unique_refs:,}", f"{total_refs:,}",
+    )
+
+    if raw_dir is not None:
+        save_search_results(
+            (bibcodes, references, esources, fulltext_urls), Path(raw_dir),
+        )
+
     return bibcodes, references, esources, fulltext_urls
 
 

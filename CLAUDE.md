@@ -79,6 +79,7 @@ Optional groups: `[topic]`, `[translate-local]`, `[translate-api]`, `[all]`
 - Intermediate results saved as JSON lines or Parquet
 - Caching for embeddings (.npz) and dim reduction (.npy)
 - No global state — all config passed as function parameters
+- Caching convention: Functions that do expensive I/O or API calls accept `cache_dir` and `force_refresh` parameters and handle caching internally. The notebook never contains `if cache_exists / else compute` blocks.
 
 ## Topic Backend Matrix
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import pandas as pd
+
+_logger = logging.getLogger(__name__)
 
 
 class CostTracker:
@@ -92,6 +95,22 @@ class CostTracker:
             f"calls={len(self.entries)} | cost={cost_line}"
         )
         return "\n".join(lines)
+
+    def log_step_summary(self, step: str) -> None:
+        """Log a one-line cost summary for *step*.  No-op if no entries match."""
+        matched = [e for e in self.entries if e["step"] == step]
+        if not matched:
+            return
+        tokens = sum(e["total_tokens"] for e in matched)
+        costs = [e["cost_usd"] for e in matched if e["cost_usd"] is not None]
+        cost_total = sum(costs) if costs else None
+        cost_str = f"${cost_total:.4f}" if cost_total is not None else "n/a"
+        _logger.info("  %s | tokens=%s | cost=%s", step, f"{tokens:,}", cost_str)
+
+    def log_steps_summary(self, steps: list[str]) -> None:
+        """Log one-line summaries for each *step* that has entries."""
+        for s in steps:
+            self.log_step_summary(s)
 
     def __repr__(self) -> str:
         """Return the compact text summary used for notebook/log output."""

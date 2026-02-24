@@ -5,6 +5,7 @@ import sys
 import types
 
 import numpy as np
+import pytest
 
 import ads_bib.topic_model as tm
 
@@ -182,3 +183,59 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert calls["record_kwargs"]["step"] == "llm_labeling"
     assert calls["record_kwargs"]["llm_provider"] == "openrouter"
     assert calls["usage"]["prompt_tokens"] == 9
+
+
+def test_compute_embeddings_validates_provider():
+    with pytest.raises(ValueError, match="Invalid provider 'bad_provider'"):
+        tm.compute_embeddings(["doc"], provider="bad_provider", model="m")
+
+
+def test_fit_bertopic_validates_provider():
+    with pytest.raises(ValueError, match="Invalid provider 'bad_provider'"):
+        tm.fit_bertopic(
+            ["doc"], np.ones((1, 5), dtype=np.float32),
+            llm_provider="bad_provider", llm_model="m",
+        )
+
+
+def test_reduce_dimensions_auto_builds_suffix_from_embedding_id(monkeypatch):
+    calls: list[tuple[int, str, dict, int, str]] = []
+
+    def _fake_reduce(embeddings, n_components, method, params, random_state, cache_dir, name):
+        del cache_dir
+        calls.append((n_components, method, dict(params), random_state, name))
+        return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
+
+    monkeypatch.setattr(tm, "_reduce", _fake_reduce)
+
+    tm.reduce_dimensions(
+        np.ones((4, 3), dtype=np.float32),
+        method="pacmap",
+        params_5d={"n_neighbors": 60, "metric": "angular"},
+        random_state=42,
+        embedding_id="openrouter/google/gemini-embedding-001",
+    )
+
+    expected_suffix = "openrouter_google_gemini-embedding-001_pacmap_nn60_minddef_metricangular_rs42"
+    assert calls[0][4] == f"5d_{expected_suffix}"
+    assert calls[1][4] == f"2d_{expected_suffix}"
+
+
+def test_reduce_dimensions_explicit_suffix_takes_precedence(monkeypatch):
+    calls: list[str] = []
+
+    def _fake_reduce(embeddings, n_components, method, params, random_state, cache_dir, name):
+        del cache_dir
+        calls.append(name)
+        return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
+
+    monkeypatch.setattr(tm, "_reduce", _fake_reduce)
+
+    tm.reduce_dimensions(
+        np.ones((4, 3), dtype=np.float32),
+        cache_suffix="explicit",
+        embedding_id="openrouter/model",
+    )
+
+    assert calls[0] == "5d_explicit"
+    assert calls[1] == "2d_explicit"

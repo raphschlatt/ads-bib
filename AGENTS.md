@@ -100,6 +100,19 @@ Engineering rules and operating conventions for this repository.
 - Clear stale outputs when they encode outdated schema names or misleading historical logs.
 - Notebook cells should stay orchestration-only (top layer).
 - Background logic (fallbacks, retries/backoff strategies, install/preflight mechanics, checkpoint internals, data-shaping helpers) belongs in `src/ads_bib/` modules, not inline notebook code.
+- Functions that access APIs or disk own their caching internally.
+  Convention: accept `cache_dir: Path | None` and `force_refresh: bool` parameters.
+  The notebook passes paths; the function decides whether to load or compute.
+  Reference implementation: `topic_model.compute_embeddings()`.
+- Functions log their own result summaries (counts, shapes, costs).
+  The notebook must not duplicate these logs.
+- Cost snapshots use `CostTracker.log_step_summary()`, not inline aggregation.
+- Functions validate their own provider/backend parameters internally
+  using `config.validate_provider()`. The notebook never calls
+  `validate_provider()` directly.
+- Functions auto-detect defaults when possible (e.g. `label_column=None`
+  auto-detects `Topic_Layer_*` columns; `embedding_id` auto-builds cache suffixes).
+  The notebook passes high-level identifiers, not constructed intermediates.
 
 ## 9) Review Checklist (Before Merge)
 

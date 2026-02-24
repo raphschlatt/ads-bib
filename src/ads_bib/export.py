@@ -211,8 +211,19 @@ def resolve_dataset(
     *,
     custom_format: str = DEFAULT_CUSTOM_FORMAT,
     max_workers: int = 5,
+    cache_dir: Path | None = None,
+    force_refresh: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the full export+parse+clean pipeline for publications and references.
+
+    Parameters
+    ----------
+    cache_dir : Path, optional
+        Directory for caching exported JSON lines.  When given, results are
+        persisted and reloaded on subsequent calls unless *force_refresh* is
+        ``True``.
+    force_refresh : bool
+        If ``True``, ignore cached results even when *cache_dir* is set.
 
     Returns
     -------
@@ -220,6 +231,18 @@ def resolve_dataset(
         ``(publications_df, references_df)`` – cleaned, with ``References``
         and ``PDF_URL`` columns on the publications frame.
     """
+    if cache_dir is not None:
+        _cache = Path(cache_dir)
+        _pubs_path = _cache / "publications.json"
+        _refs_path = _cache / "references.json"
+        if not force_refresh and _pubs_path.exists() and _refs_path.exists():
+            from ._utils.io import load_json_lines
+            logger.info("Loading cached exports from %s", _cache)
+            _p = load_json_lines(_pubs_path)
+            _r = load_json_lines(_refs_path)
+            logger.info("Publications: %s | References: %s", f"{len(_p):,}", f"{len(_r):,}")
+            return _p, _r
+
     # --- Publications ---
     logger.info("=== Exporting publications ===")
     raw_pubs = export_bibcodes(bibcodes, token, custom_format=custom_format, max_workers=max_workers)
@@ -264,5 +287,12 @@ def resolve_dataset(
         )
     refs = clean_dataframe(refs)
     logger.info("References: %s records", f"{len(refs):,}")
+
+    if cache_dir is not None:
+        from ._utils.io import save_json_lines
+        _cache = Path(cache_dir)
+        _cache.mkdir(parents=True, exist_ok=True)
+        save_json_lines(pubs, _cache / "publications.json")
+        save_json_lines(refs, _cache / "references.json")
 
     return pubs, refs

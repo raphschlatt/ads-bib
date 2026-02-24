@@ -529,7 +529,7 @@ def _save_plot(plot: object, output_path: Path | str | None) -> None:
 
 def create_topic_map(
     df: pd.DataFrame,
-    label_column: str | list[str],
+    label_column: str | list[str] | None = None,
     *,
     title: str = "ADS Topic Map",
     subtitle: str = "",
@@ -549,9 +549,10 @@ def create_topic_map(
         *label_column*,
         ``Bibcode``, ``Title_en``, ``Author``, ``Year``, ``Journal``,
         ``Abstract_en``, ``Citation Count``, ``tokens``.
-    label_column : str or list[str]
+    label_column : str, list[str], or None
         Column(s) with topic labels (e.g. ``"Name"`` or ``["Topic_Layer_0", "Topic_Layer_1"]``).
         If a list is provided, multiple layers are added to the map.
+        If ``None``, auto-detects ``Topic_Layer_*`` columns or falls back to ``"Name"``.
     year_range : tuple[str, str] or None, optional
         Histogram range as ``(start, end)`` timestamps. If ``None``, the range
         is derived from the data (``min_year-01-01`` to ``(max_year+1)-01-01``).
@@ -562,6 +563,10 @@ def create_topic_map(
     -------
     datamapplot.InteractivePlot
     """
+    if label_column is None:
+        topic_layers = [c for c in df.columns if c.startswith("Topic_Layer_")]
+        label_column = topic_layers if topic_layers else "Name"
+
     data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
     label_columns = _normalize_label_columns(label_column)
     label_layers = [df[col].to_numpy(object) for col in label_columns]

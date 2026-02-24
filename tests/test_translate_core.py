@@ -141,3 +141,14 @@ def test_translate_dataframe_validates_max_translation_tokens():
             api_key="dummy",
             max_translation_tokens=0,
         )
+
+
+def test_translate_dataframe_validates_provider():
+    df = pd.DataFrame({"Title": ["Hallo"], "Title_lang": ["de"]})
+    with pytest.raises(ValueError, match="Invalid provider 'bad_provider'"):
+        tr.translate_dataframe(
+            df,
+            columns=["Title"],
+            provider="bad_provider",
+            model="m",
+        )

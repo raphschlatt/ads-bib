@@ -87,3 +87,57 @@ def test_save_search_results_writes_timestamped_and_latest_files(tmp_path):
     assert saved_path.name.startswith("unit_")
     assert load_pickle(saved_path) == data
     assert load_pickle(latest_path) == data
+
+
+def test_search_ads_uses_cache_when_raw_dir_has_latest(tmp_path, monkeypatch):
+    """search_ads returns cached pickle when raw_dir has a latest file."""
+    from ads_bib._utils.io import save_pickle
+
+    expected = (["b1"], [["r1"]], [["ADS_PDF"]], ["url"])
+    save_pickle(expected, tmp_path / "search_results_latest.pkl")
+
+    # API should NOT be called
+    monkeypatch.setattr(
+        search, "create_session",
+        lambda t: (_ for _ in ()).throw(AssertionError("API should not be called")),
+    )
+
+    result = search.search_ads("q", "tok", raw_dir=tmp_path, force_refresh=False)
+    assert result == expected
+
+
+def test_search_ads_force_refresh_ignores_cache(tmp_path, monkeypatch):
+    """force_refresh=True bypasses the cached latest file."""
+    from ads_bib._utils.io import save_pickle
+
+    stale = (["old"], [[]], [[]], [None])
+    save_pickle(stale, tmp_path / "search_results_latest.pkl")
+
+    session = _FakeSession()
+    payloads = iter([{
+        "response": {"docs": [
+            {"bibcode": "b1", "reference": ["r1"], "esources": ["ADS_PDF"]},
+        ]},
+        "nextCursorMark": "*",
+    }])
+    monkeypatch.setattr(search, "create_session", lambda t: session)
+    monkeypatch.setattr(search, "retry_request", lambda s, m, u, params: _FakeResponse(next(payloads)))
+
+    bibcodes, *_ = search.search_ads("q", "tok", raw_dir=tmp_path, force_refresh=True)
+    assert bibcodes == ["b1"]
+
+
+def test_search_ads_auto_saves_when_raw_dir_given(tmp_path, monkeypatch):
+    """search_ads persists results to raw_dir after a fresh API call."""
+    session = _FakeSession()
+    payloads = iter([{
+        "response": {"docs": [
+            {"bibcode": "b1", "reference": ["r1"], "esources": ["ADS_PDF"]},
+        ]},
+        "nextCursorMark": "*",
+    }])
+    monkeypatch.setattr(search, "create_session", lambda t: session)
+    monkeypatch.setattr(search, "retry_request", lambda s, m, u, params: _FakeResponse(next(payloads)))
+
+    search.search_ads("q", "tok", raw_dir=tmp_path, force_refresh=False)
+    assert (tmp_path / "search_results_latest.pkl").exists()

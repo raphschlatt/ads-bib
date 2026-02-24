@@ -381,6 +381,14 @@ def translate_dataframe(
         ``(translated_df, cost_info)`` where *cost_info* has keys
         ``prompt_tokens``, ``completion_tokens``, ``provider``, ``model``.
     """
+    from .config import validate_provider
+    validate_provider(
+        provider,
+        valid={"openrouter", "huggingface"},
+        api_key=api_key,
+        requires_key={"openrouter"},
+        requires_import={"huggingface": "transformers"},
+    )
     df = df.copy()
     if max_translation_tokens <= 0:
         raise ValueError("max_translation_tokens must be > 0.")

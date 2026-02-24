@@ -149,6 +149,18 @@ def compute_embeddings(
     openrouter_cost_mode : str
         ``"hybrid"`` (default), ``"strict"``, or ``"fast"``.
     """
+    from .config import validate_provider
+    validate_provider(
+        provider,
+        valid={"local", "huggingface_api", "openrouter"},
+        api_key=api_key,
+        requires_key={"openrouter"},
+        requires_import={
+            "local": "sentence_transformers",
+            "openrouter": "litellm",
+            "huggingface_api": "litellm",
+        },
+    )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     model_safe = model.replace("/", "_")
     cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
@@ -235,6 +247,9 @@ def compute_embeddings(
         )
         logger.info("  Saved: %s", cache_file.name)
 
+    logger.info("  Embeddings: %s", emb.shape)
+    if cost_tracker is not None:
+        cost_tracker.log_step_summary("embeddings")
     return emb
 
 
@@ -516,6 +531,7 @@ def reduce_dimensions(
     random_state: int = DEFAULT_DIM_REDUCTION_RANDOM_STATE,
     cache_dir: Path | None = None,
     cache_suffix: str = "",
+    embedding_id: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute 5-D (for clustering) and 2-D (for visualisation) projections.
 
@@ -532,12 +548,25 @@ def reduce_dimensions(
         Directory for ``.npz`` caches.
     cache_suffix : str
         Appended to cache filenames for uniqueness.
+    embedding_id : str, optional
+        Provider/model identifier (e.g. ``"openrouter/model-name"``).
+        When *cache_suffix* is empty and *embedding_id* is given, a suffix is
+        built automatically from the embedding id, method, and 5-D params.
 
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
         ``(reduced_5d, reduced_2d)``.
     """
+    if not cache_suffix and embedding_id:
+        p5 = params_5d or {}
+        cache_suffix = (
+            f"{embedding_id.replace('/', '_')}_{method}"
+            f"_nn{p5.get('n_neighbors', 'def')}"
+            f"_mind{p5.get('min_dist', 'def')}"
+            f"_metric{p5.get('metric', 'def')}"
+            f"_rs{random_state}"
+        )
     r5 = _reduce(
         embeddings,
         5,
@@ -813,6 +842,18 @@ def fit_bertopic(
     BERTopic
         Fitted topic model.
     """
+    from .config import validate_provider
+    validate_provider(
+        llm_provider,
+        valid={"local", "huggingface_api", "openrouter"},
+        api_key=api_key,
+        requires_key={"openrouter"},
+        requires_import={
+            "local": "transformers",
+            "openrouter": "litellm",
+            "huggingface_api": "litellm",
+        },
+    )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     from bertopic import BERTopic
     from bertopic.dimensionality import BaseDimensionalityReduction

@@ -89,3 +89,40 @@ def save_phase3_checkpoint(
 
     logger.info("Phase 3 checkpoint saved (publications tokenized; refs retained without tokenization).")
     return pub_path, ref_path
+
+
+def load_phase3_checkpoint(
+    *,
+    cache_dir: Path | str,
+    run_data_dir: Path | str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load Phase-3 outputs (tokenized pubs + translated refs) from global cache.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the expected cache files are missing.
+    """
+    cache_dir = Path(cache_dir)
+    pub_path = cache_dir / "publications_translated_tokenized.json"
+    ref_path = cache_dir / "references_translated.json"
+
+    if not pub_path.exists() or not ref_path.exists():
+        raise FileNotFoundError(
+            f"Missing Phase 3 cache files: {pub_path} and/or {ref_path}"
+        )
+
+    pubs = load_json_lines(pub_path)
+    refs = load_json_lines(ref_path)
+    logger.info(
+        "Loaded Phase 3 checkpoint: %s publications, %s references",
+        f"{len(pubs):,}", f"{len(refs):,}",
+    )
+
+    if run_data_dir is not None:
+        run_data_dir = Path(run_data_dir)
+        run_data_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(pub_path, run_data_dir / pub_path.name)
+        shutil.copy(ref_path, run_data_dir / ref_path.name)
+
+    return pubs, refs

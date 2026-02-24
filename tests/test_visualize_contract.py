@@ -105,3 +105,25 @@ def test_create_topic_map_saves_plot_when_output_path_provided(monkeypatch, tmp_
     )
 
     assert plot.saved_path == output_path
+
+
+def test_create_topic_map_auto_detects_topic_layer_columns(monkeypatch):
+    viz, calls = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    df["Topic_Layer_0"] = ["Layer0_A", "Layer0_B"]
+    df["Topic_Layer_1"] = ["Layer1_A", "Layer1_B"]
+
+    plot = viz.create_topic_map(df, word_cloud=False)
+
+    assert len(calls["label_layers"]) == 2
+    assert plot is not None
+
+
+def test_create_topic_map_auto_detects_name_when_no_layers(monkeypatch):
+    viz, calls = _load_visualize_module(monkeypatch)
+    df = _build_df()
+
+    plot = viz.create_topic_map(df, word_cloud=False)
+
+    assert len(calls["label_layers"]) == 1
+    assert plot is not None
