@@ -8,6 +8,7 @@ import types
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
+import pytest
 
 import ads_bib.citations as cit
 import ads_bib.export as ex
@@ -421,6 +422,7 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
     }
 
 
+@pytest.mark.slow
 def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
     out = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run")
 
@@ -445,6 +447,7 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
     assert (out["run_dir"] / "citations_out" / "direct_csv" / "nodes.csv").exists()
 
 
+@pytest.mark.slow
 def test_offline_mocked_pipeline_reproducible_with_same_inputs_and_config(monkeypatch, tmp_path):
     run1 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run1")
     run2 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run2")

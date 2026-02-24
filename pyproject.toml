@@ -43,3 +43,9 @@ all = ["ads-bib[topic,translate-local,translate-api]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ads_bib"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: slower integration or dependency-heavy tests",
+]
+addopts = "--strict-markers"

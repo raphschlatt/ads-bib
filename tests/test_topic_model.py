@@ -9,6 +9,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 import ads_bib.topic_model as tm
 
@@ -562,6 +563,7 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
     assert calls["kwargs"]["llm_provider"] == "local"
 
 
+@pytest.mark.slow
 def test_fit_toponymy_local_requires_hf_dependencies(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch, include_hf_namer=False)
     monkeypatch.delitem(sys.modules, "sentence_transformers", raising=False)
@@ -970,3 +972,95 @@ def test_reduce_recomputes_on_embedding_fingerprint_mismatch(monkeypatch, tmp_pa
     assert calls["n"] == 1
     assert np.allclose(reduced, 4.0)
     assert "Reduction cache mismatch" in caplog.text
+
+
+def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    calls = {"n": 0}
+
+    def _fake_embed_local(documents, model_name, batch_size, dtype):
+        del model_name, batch_size, dtype
+        calls["n"] += 1
+        return np.arange(len(documents) * 2, dtype=np.float32).reshape(len(documents), 2)
+
+    monkeypatch.setattr(tm, "_embed_local", _fake_embed_local)
+    docs = ["doc-a", "doc-b", "doc-c"]
+
+    first = tm.compute_embeddings(
+        docs,
+        provider="local",
+        model="local/test-model",
+        cache_dir=tmp_path,
+    )
+    second = tm.compute_embeddings(
+        docs,
+        provider="local",
+        model="local/test-model",
+        cache_dir=tmp_path,
+    )
+
+    assert calls["n"] == 1
+    assert np.array_equal(first, second)
+    assert "Loaded embeddings from cache" in caplog.text
+
+
+def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    calls = {"fit_transform": 0}
+
+    class _FakePaCMAP:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fit_transform(self, embeddings):
+            calls["fit_transform"] += 1
+            n_components = int(self.kwargs["n_components"])
+            marker = float(self.kwargs.get("n_neighbors", 0) + n_components)
+            return np.full((len(embeddings), n_components), fill_value=marker, dtype=np.float32)
+
+    fake_pacmap = types.ModuleType("pacmap")
+    fake_pacmap.PaCMAP = _FakePaCMAP
+    monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
+
+    embeddings = np.ones((6, 4), dtype=np.float32)
+
+    r5_first, r2_first = tm.reduce_dimensions(
+        embeddings,
+        method="pacmap",
+        params_5d={"n_neighbors": 15},
+        params_2d={"n_neighbors": 15},
+        random_state=42,
+        cache_dir=tmp_path,
+        cache_suffix="cache_hit",
+        show_progress=False,
+    )
+    r5_cached, r2_cached = tm.reduce_dimensions(
+        embeddings,
+        method="pacmap",
+        params_5d={"n_neighbors": 15},
+        params_2d={"n_neighbors": 15},
+        random_state=42,
+        cache_dir=tmp_path,
+        cache_suffix="cache_hit",
+        show_progress=False,
+    )
+    r5_changed, r2_changed = tm.reduce_dimensions(
+        embeddings,
+        method="pacmap",
+        params_5d={"n_neighbors": 16},
+        params_2d={"n_neighbors": 15},
+        random_state=42,
+        cache_dir=tmp_path,
+        cache_suffix="cache_hit",
+        show_progress=False,
+    )
+
+    # First run computes both projections (5D + 2D), second run reuses cache, third run
+    # recomputes only 5D because only params_5d changed.
+    assert calls["fit_transform"] == 3
+    assert np.array_equal(r5_first, r5_cached)
+    assert np.array_equal(r2_first, r2_cached)
+    assert not np.array_equal(r5_first, r5_changed)
+    assert np.array_equal(r2_first, r2_changed)
+    assert "Loaded 5d_cache_hit from cache" in caplog.text
+    assert "Loaded 2d_cache_hit from cache" in caplog.text

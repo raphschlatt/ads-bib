@@ -39,13 +39,32 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 - [ ] Bestehende Contract-Tests gruen halten (Notebook + Schema).
 - [ ] Fuer jeden echten Bugfix mindestens einen Regressionstest schreiben.
-- [ ] Test-Suite in schnell/langsam aufteilen, damit lokales Feedback flott bleibt.
+- [x] Test-Suite in schnell/langsam aufteilen, damit lokales Feedback flott bleibt.
 - [ ] Netz- und Modellabhaengige Teile weiterhin mocken, damit Tests stabil und reproduzierbar bleiben.
 
 ### D) Performance mit realistischem Anspruch
 
-- [ ] Kleine Baseline messen (z. B. 1k und 10k Dokumente): Laufzeit pro Hauptschritt + grober RAM-Footprint. Ist es RAM sparsam auch für große Datasets?
-- [ ] Caching-Verhalten pruefen: zweiter Lauf muss sichtbar schneller sein, ohne falsche Wiederverwendung.
+- [x] Kleine Baseline messen (z. B. 1k und 10k Dokumente): Laufzeit pro Hauptschritt + grober RAM-Footprint. Ist es RAM sparsam auch für große Datasets?
+  - Benchmark-Runner: `scripts/benchmark_pipeline_baseline.py`
+  - Kommando: `PYTHONPATH=src /mnt/c/Users/rapha/anaconda3/envs/ADS_env/python.exe scripts/benchmark_pipeline_baseline.py --sizes 1000 10000`
+  - Snapshot (2026-02-24, offline/mocked full pipeline inkl. citations metrics=`direct,co_citation,bibliographic_coupling,author_co_citation`):
+    - 1k docs: total `3.28s`, peak RAM `303.4 MB`
+      - search `0.01s`, export `0.09s`, translate `0.08s`, tokenize `0.01s`, topics `0.01s`, visualize `1.36s`, citations `1.72s`
+    - 10k docs: total `10.22s`, peak RAM `347.9 MB`
+      - search `0.03s`, export `0.88s`, translate `0.91s`, tokenize `0.20s`, topics `0.04s`, visualize `1.53s`, citations `6.62s`
+  - Einordnung: fuer diese Baseline wirkt der Speicherbedarf fuer 10k weiterhin moderat (Peak +44.5 MB ggü. 1k); Hauptkostentreiber ist `citations`.
+- [x] Caching-Verhalten pruefen: zweiter Lauf muss sichtbar schneller sein, ohne falsche Wiederverwendung.
+  - Benchmark-Runner: `scripts/benchmark_cache_behavior.py`
+  - Kommando: `PYTHONPATH=src /mnt/c/Users/rapha/anaconda3/envs/ADS_env/python.exe scripts/benchmark_cache_behavior.py --docs 10000 --delay 0.15`
+  - Snapshot (2026-02-24):
+    - Embeddings cache: cold `0.188s` -> warm `0.008s` (`22.46x` schneller)
+    - Reduction cache: cold `0.352s` -> warm `0.006s` (`56.75x` schneller)
+    - Invalidation geprueft:
+      - Input-Aenderung bei Embeddings triggert Recompute (`backend_calls=2`, kein falscher Cache-Hit)
+      - Parameter-Aenderung bei Reduction triggert 5D-Recompute, 2D bleibt korrekt im Cache (`backend_fit_calls=3`)
+  - Automated Guardrails:
+    - `tests/test_topic_model.py::test_compute_embeddings_uses_cache_on_second_call`
+    - `tests/test_topic_model.py::test_reduce_dimensions_uses_cache_then_recomputes_on_param_change`
 - [ ] Nur datenbasierte Optimierungen umsetzen (keine "vorsorglichen" Mikro-Optimierungen).
 
 ### E) Doku fuer reale Nutzer
