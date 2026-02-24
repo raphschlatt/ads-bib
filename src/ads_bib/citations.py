@@ -491,8 +491,15 @@ def process_all_citations(
         "author_co_citation": ["source", "target", "source_citation"],
     }
 
+    _metric_labels = {
+        "direct": "Direct citation",
+        "co_citation": "Co-citation",
+        "bibliographic_coupling": "Bibliographic coupling",
+        "author_co_citation": "Author co-citation",
+    }
+
     for metric in metrics:
-        desc = metric.replace("_", " ").title()
+        desc = _metric_labels.get(metric, metric.replace("_", " ").title())
         mc = min_counts.get(metric, 1)
 
         with tqdm(total=2, desc=desc, leave=True,
@@ -748,7 +755,7 @@ def _bibliographic_coupling_fast(
     year_map = pubs.set_index("Bibcode")["Year"].to_dict()
 
     rows: list[dict] = []
-    for ref, sources in tqdm(ref_source_map.items(), desc="Bib. coupling detail", leave=False):
+    for ref, sources in tqdm(ref_source_map.items(), desc="Bibliographic coupling detail", leave=False):
         if len(sources) < 2:
             continue
         for s1, s2 in itertools.combinations(sources, 2):
@@ -816,7 +823,7 @@ def _author_co_citation_fast(
 
     # Reconstruct detail rows
     rows: list[dict] = []
-    for _, bibcode, year, authors_set in tqdm(valid_rows, desc="Author co-cit. detail", leave=False):
+    for _, bibcode, year, authors_set in tqdm(valid_rows, desc="Author co-citation detail", leave=False):
         aidxs = [author_to_idx[a] for a in authors_set]
         for i in range(len(aidxs)):
             for j in range(i + 1, len(aidxs)):

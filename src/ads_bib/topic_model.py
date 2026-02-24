@@ -12,7 +12,6 @@ import hashlib
 import logging
 import inspect
 import json
-import os
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -39,41 +38,6 @@ from ads_bib._utils.openrouter_costs import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _suppress_noisy_third_party_logs() -> None:
-    """Suppress repetitive third-party transport logs while keeping pipeline logs."""
-    for noisy_logger_name in ("httpx", "httpcore", "LiteLLM", "litellm"):
-        logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
-
-    os.environ.setdefault("LITELLM_LOG", "WARNING")
-    os.environ.setdefault("LITELLM_VERBOSE", "False")
-
-    try:
-        import litellm
-    except Exception:
-        return
-
-    set_verbose_attr = getattr(litellm, "set_verbose", None)
-    if callable(set_verbose_attr):
-        try:
-            set_verbose_attr(False)
-        except Exception:
-            pass
-    elif set_verbose_attr is not None:
-        try:
-            setattr(litellm, "set_verbose", False)
-        except Exception:
-            pass
-
-    if hasattr(litellm, "suppress_debug_info"):
-        try:
-            litellm.suppress_debug_info = True
-        except Exception:
-            pass
-
-
-_suppress_noisy_third_party_logs()
 
 # ---------------------------------------------------------------------------
 # Module defaults
