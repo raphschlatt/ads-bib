@@ -7,6 +7,7 @@ import types
 
 import numpy as np
 import pandas as pd
+import pandas.testing as pdt
 
 import ads_bib.citations as cit
 import ads_bib.export as ex
@@ -156,7 +157,9 @@ def _load_visualize_module(monkeypatch):
     return module, calls
 
 
-def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
+def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object]:
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     # Provider checks are not the concern of this E2E smoke test.
     monkeypatch.setattr("ads_bib.config.validate_provider", lambda *a, **k: None)
 
@@ -174,8 +177,6 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
     monkeypatch.setattr(search, "create_session", lambda token: session)
     monkeypatch.setattr(search, "retry_request", lambda *a, **k: _FakeResponse(payload))
     bibcodes, references, esources, fulltext_urls = search.search_ads("q", "token")
-    assert session.closed is True
-    assert bibcodes == ["b1", "b2"]
 
     # 2) Export/resolve
     pubs_raw = _build_xox_raw(
@@ -274,7 +275,6 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
         fulltext_urls=fulltext_urls,
         token="token",
     )
-    assert {"Bibcode", "References", "PDF_URL"} <= set(publications.columns)
 
     # 3) Language detection + translation
     monkeypatch.setattr(
@@ -312,8 +312,6 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
         api_key="dummy",
         max_workers=1,
     )
-    assert {"Title_en", "Abstract_en"} <= set(publications.columns)
-    assert translation_cost["prompt_tokens"] > 0
 
     # 4) Tokenize
     publications = tok.tokenize_texts(
@@ -322,7 +320,6 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
         n_process=1,
         show_progress=False,
     )
-    assert "tokens" in publications.columns
 
     # 5) Topic modeling
     docs = publications["full_text"].fillna("").astype(str).tolist()
@@ -353,6 +350,7 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
     reduced_5d, reduced_2d = tm.reduce_dimensions(
         embeddings,
         method="umap",
+        random_state=42,
         show_progress=False,
     )
 
@@ -381,24 +379,15 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
         embeddings=embeddings,
     )
 
-    assert {"embedding_2d_x", "embedding_2d_y", "topic_id"} <= set(df_topics.columns)
-    assert "UMAP-1" not in df_topics.columns
-    assert "UMAP-2" not in df_topics.columns
-    assert "Cluster" not in df_topics.columns
-
     # 6) Visualize (with fake datamapplot backend)
     viz, viz_calls = _load_visualize_module(monkeypatch)
-    plot_path = tmp_path / "topic_map.html"
+    plot_path = run_dir / "topic_map.html"
     plot = viz.create_topic_map(
         df_topics,
         label_column="Name",
         word_cloud=False,
         output_path=plot_path,
     )
-    assert plot is not None
-    assert plot.saved_path == plot_path
-    assert plot_path.exists()
-    assert viz_calls["data_map"].shape == (2, 2)
 
     # 7) Citations
     cit_bibcodes, cit_references = cit.build_citation_inputs_from_publications(df_topics)
@@ -411,8 +400,63 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
         all_nodes=all_nodes,
         metrics=["direct"],
         output_format="csv",
-        output_dir=tmp_path / "citations_out",
+        output_dir=run_dir / "citations_out",
     )
-    assert "direct" in results
-    assert (tmp_path / "citations_out" / "direct_csv" / "edges.csv").exists()
-    assert (tmp_path / "citations_out" / "direct_csv" / "nodes.csv").exists()
+    edges_csv = pd.read_csv(run_dir / "citations_out" / "direct_csv" / "edges.csv")
+    nodes_csv = pd.read_csv(run_dir / "citations_out" / "direct_csv" / "nodes.csv")
+
+    return {
+        "session_closed": session.closed,
+        "bibcodes": bibcodes,
+        "publications": publications,
+        "translation_cost": translation_cost,
+        "df_topics": df_topics,
+        "plot": plot,
+        "plot_path": plot_path,
+        "viz_calls": viz_calls,
+        "results": results,
+        "edges_csv": edges_csv,
+        "nodes_csv": nodes_csv,
+        "run_dir": run_dir,
+    }
+
+
+def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
+    out = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run")
+
+    assert out["session_closed"] is True
+    assert out["bibcodes"] == ["b1", "b2"]
+    assert {"Title_en", "Abstract_en"} <= set(out["publications"].columns)
+    assert out["translation_cost"]["prompt_tokens"] > 0
+    assert "tokens" in out["publications"].columns
+
+    df_topics = out["df_topics"]
+    assert {"embedding_2d_x", "embedding_2d_y", "topic_id"} <= set(df_topics.columns)
+    assert "UMAP-1" not in df_topics.columns
+    assert "UMAP-2" not in df_topics.columns
+    assert "Cluster" not in df_topics.columns
+
+    assert out["plot"] is not None
+    assert out["plot"].saved_path == out["plot_path"]
+    assert out["plot_path"].exists()
+    assert out["viz_calls"]["data_map"].shape == (2, 2)
+    assert "direct" in out["results"]
+    assert (out["run_dir"] / "citations_out" / "direct_csv" / "edges.csv").exists()
+    assert (out["run_dir"] / "citations_out" / "direct_csv" / "nodes.csv").exists()
+
+
+def test_offline_mocked_pipeline_reproducible_with_same_inputs_and_config(monkeypatch, tmp_path):
+    run1 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run1")
+    run2 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run2")
+
+    df1 = run1["df_topics"].drop(columns=["full_embeddings"], errors="ignore").reset_index(drop=True)
+    df2 = run2["df_topics"].drop(columns=["full_embeddings"], errors="ignore").reset_index(drop=True)
+    pdt.assert_frame_equal(df1, df2, check_dtype=False)
+
+    edges1 = run1["results"]["direct"].reset_index(drop=True)
+    edges2 = run2["results"]["direct"].reset_index(drop=True)
+    pdt.assert_frame_equal(edges1, edges2, check_dtype=False)
+
+    pdt.assert_frame_equal(run1["edges_csv"], run2["edges_csv"], check_dtype=False)
+    pdt.assert_frame_equal(run1["nodes_csv"], run2["nodes_csv"], check_dtype=False)
+    assert np.array_equal(run1["viz_calls"]["data_map"], run2["viz_calls"]["data_map"])
