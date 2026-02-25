@@ -21,6 +21,11 @@ Technical colleagues who want to reuse selected `ads_bib` modules as a Python li
 - Runtime logic: `src/ads_bib/`
 - Philosophy: KISS, DRY, YAGNI, consolidation-first
 
+## Review Status
+
+- Consolidation review backlog completed on `2026-02-25`.
+- Ongoing quality is enforced via `AGENTS.md` rules plus `ads-bib check`.
+
 ## Happy Path (Minimal)
 
 1. Activate environment:
@@ -136,6 +141,12 @@ Fix:
 ## Quality Checks (Local/CI)
 
 Run both checks in `ADS_env`:
+
+```bash
+ads-bib check
+```
+
+Equivalent explicit commands:
 
 ```bash
 ruff check src tests scripts

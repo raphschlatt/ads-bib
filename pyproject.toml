@@ -19,6 +19,9 @@ dependencies = [
     "scipy>=1.10",
 ]
 
+[project.scripts]
+ads-bib = "ads_bib.cli:main"
+
 [project.optional-dependencies]
 topic = [
     "bertopic",

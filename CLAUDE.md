@@ -21,6 +21,7 @@ All commands and expected behavior in this repository assume the `ADS_env` conda
 ## Engineering Rules
 
 Repository-wide implementation and review rules are defined in `AGENTS.md`.
+Review consolidation backlog was completed on `2026-02-25`; ongoing obligations are maintained as operating rules.
 
 ## Pipeline Phases
 
@@ -34,7 +35,7 @@ Repository-wide implementation and review rules are defined in `AGENTS.md`.
 ## Key Design Decisions
 
 - ONE notebook, not multiple — downstream params depend on upstream results
-- No CLI — interactive exploration requires notebook context
+- Notebook is the primary entrypoint; optional `ads-bib check` exists only for local quality gates
 - AND is an external package, just imported when ready
 - Translation backends: OpenRouter (any LLM) + HuggingFace local (TranslateGemma 4B)
 - All paths relative to notebook location via `config.init_paths()`
@@ -48,7 +49,7 @@ Repository-wide implementation and review rules are defined in `AGENTS.md`.
 | `export.py` | Concurrent chunked bibcode export + parsing |
 | `translate.py` | Language detection + 2 translation backends |
 | `tokenize.py` | spaCy tokenization (replaced semanticlayertools) |
-| `topic_model.py` | BERTopic + Toponymy backends: embeddings, dim reduction, clustering, LLM labeling |
+| `topic_model/` | BERTopic + Toponymy backends: embeddings, dim reduction, clustering, LLM labeling |
 | `visualize.py` | datamapplot with custom legend, tooltips, word cloud |
 | `curate.py` | Cluster removal, dataset filtering |
 | `citations.py` | 4 citation network types + SQLite/CSV/WOS export |

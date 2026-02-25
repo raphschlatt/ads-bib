@@ -8,10 +8,16 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ## Kurzstatus (Reality-Check, 2026-02-25)
 
-- Tests aktuell gruen: `147 passed` (Vollsuite, lokal in `ADS_env`).
+- Tests aktuell gruen: `150 passed` (Vollsuite, lokal in `ADS_env`).
 - Public API ist markiert (`__all__` in `src/ads_bib/__init__.py` und `src/ads_bib/topic_model/__init__.py`) und nun zusaetzlich in `README.md` als supported imports dokumentiert.
 - Nutzerdoku ist als ein zentraler Einstiegspunkt vorhanden: `README.md` (Happy Path, Troubleshooting, Stabil-vs-Experimentell, Konfig-Konvention).
 - Leichtgewichtige Gates sind etabliert: `ruff check` + `pytest -q`.
+
+## Abschlussstatus (2026-02-25)
+
+- Der Umsetzungs-Backlog dieser Review-Liste ist abgeschlossen.
+- Die zuvor offenen Dauerpunkte wurden als verbindliche Betriebsregeln konsolidiert.
+- Ab jetzt gilt: neue `[ ]` nur bei neu identifizierten Luecken, nicht fuer laufende Routinepflichten.
 
 ## Arbeitsmodus (gilt fuer alle Punkte)
 
@@ -23,12 +29,16 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ## Naechste 3 konkreten Schritte (ab jetzt)
 
-- [ ] **Regressionstest-DoD im Alltag strikt anwenden (Must-Have-Betrieb):** pro Bugfix mindestens ein Regressionstest im selben Change-Set.
+- [x] **Regressionstest-DoD im Alltag strikt anwenden (Must-Have-Betrieb):** pro Bugfix mindestens ein Regressionstest im selben Change-Set.
   - Warum jetzt: verhindert stille Rueckschritte trotz schnellem Iterationstempo.
-- [ ] **Einfachen CLI-Einstieg fuer zentrale Flows pruefen (optional):** nur wenn klarer Mehrwert gegenueber Notebook-Orchestrierung sichtbar ist.
+  - Evidenz (2026-02-25): in `AGENTS.md` als verbindliche Regel fixiert (`Every bugfix must include at least one regression test in the same change set`) und in dieser Liste als Betriebsregel konsolidiert.
+- [x] **Einfachen CLI-Einstieg fuer zentrale Flows pruefen (optional):** nur wenn klarer Mehrwert gegenueber Notebook-Orchestrierung sichtbar ist.
   - Warum jetzt: kann repetitive lokale Checks vereinfachen, ist aber kein Pflichtblocker.
-- [ ] **Architektur-Notizen fortlaufend nutzen (Should-Have-Betrieb):** bei jeder wichtigen Richtungsentscheidung einen kompakten Eintrag pflegen.
+  - Evidenz (2026-02-25): `ads-bib check` als schlanker Wrapper fuer `ruff` + `pytest` eingefuehrt (`src/ads_bib/cli.py`, `[project.scripts]` in `pyproject.toml`, `tests/test_cli.py`).
+  - Verifikation (2026-02-25): `conda run -n ADS_env python -c "import sys; sys.path.insert(0, 'src'); import ads_bib.cli as cli; raise SystemExit(cli.main(['check']))"` -> `All checks passed`, `150 passed`.
+- [x] **Architektur-Notizen fortlaufend nutzen (Should-Have-Betrieb):** bei jeder wichtigen Richtungsentscheidung einen kompakten Eintrag pflegen.
   - Warum jetzt: haelt Designentscheidungen nachvollziehbar ohne neue Dokumentationsinseln.
+  - Evidenz (2026-02-25): `AGENTS.md` Abschnitt `2.2) Architecture Notes (Lightweight)` wird aktiv genutzt (Seed-Entries + laufende Entscheidungen).
 
 ## 0) Fuer wen ist das Package?
 
@@ -69,11 +79,11 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 ### C) Tests, die wirklich helfen
 
 - [x] Bestehende Contract-Tests gruen halten (Notebook + Schema).
-  - Status (2026-02-25): Vollsuite inkl. Contract-Gates gruen (`147 passed`).
+  - Status (2026-02-25): Vollsuite inkl. Contract-Gates gruen (`150 passed`).
 - [x] Regressionstest-Regel als DoD verbindlich festhalten.
   - Evidenz (2026-02-25): explizite Regel in `AGENTS.md` (Bugfix -> mindestens ein Regressionstest im selben Change-Set).
-- [ ] Fuer jeden echten Bugfix mindestens einen Regressionstest schreiben.
-  - Status (2026-02-25): laufende Arbeitsregel; wird pro Bugfix im jeweiligen Change-Set evidenziert.
+- [x] Fuer jeden echten Bugfix mindestens einen Regressionstest schreiben.
+  - Status (2026-02-25): als laufende Arbeitsregel konsolidiert; Nachweis erfolgt pro Bugfix im jeweiligen Change-Set (kein separater offener Einmal-Task mehr).
 - [x] Test-Suite in schnell/langsam aufteilen, damit lokales Feedback flott bleibt.
 - [x] Netz- und Modellabhaengige Teile weiterhin mocken, damit Tests stabil und reproduzierbar bleiben.
   - Status (2026-02-25): Offline/mocked E2E-Smoke (`tests/test_pipeline_smoke_e2e.py`) plus breite Monkeypatch/Mock-Abdeckung in Unit-Tests (`topic_model`, `translate`, `visualize`, `search`, `export`, `tokenize`, `openrouter_*`).
@@ -116,7 +126,8 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ## 3) Nice-to-Have ToDos (wenn Zeit da ist)
 
-- [ ] Einfachen CLI-Einstieg fuer zentrale Flows pruefen (optional).
+- [x] Einfachen CLI-Einstieg fuer zentrale Flows pruefen (optional).
+  - Evidenz (2026-02-25): `ads-bib check` vorhanden und per CLI-Tests abgesichert.
 - [x] Mehr Typannotationen in stark genutzten Kernfunktionen.
   - Evidenz (2026-02-25): Public-Hotspots typisiert (`translate_dataframe` mit `TranslationCostInfo`, `process_all_citations` mit `MetricName`, `build_topic_dataframe` mit Protocol, `fit_bertopic`/`fit_toponymy` mit Literal-Typealiases).
 - [x] Erweiterte Benchmark-Szenarien fuer sehr grosse Datensaetze.

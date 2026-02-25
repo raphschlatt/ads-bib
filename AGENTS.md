@@ -48,6 +48,8 @@ Engineering rules and operating conventions for this repository.
   - verification is run (tests/benchmark/contract checks as applicable)
   - a short evidence note is added (what was validated and when)
 - Partial progress stays `[ ]` with a status note; never close items based on intent alone.
+- `Review_ToDo.md` consolidation backlog was completed on `2026-02-25`.
+  Treat recurring quality obligations as operating rules, not as permanently open one-off tasks.
 
 ## 2.2) Architecture Notes (Lightweight)
 
