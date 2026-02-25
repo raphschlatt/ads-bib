@@ -45,7 +45,7 @@ conda activate ADS_env
 pip install -e ".[all,test]"
 ```
 
-3. Create `.env` in project root (minimum), for example from `.env.example`:
+3. Create `.env` in project root (minimum):
 
 ```env
 ADS_TOKEN=...

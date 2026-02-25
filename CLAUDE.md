@@ -69,7 +69,7 @@ pip install -e ".[all]"
 python -m spacy download en_core_web_lg
 ```
 
-Copy `.env.example` to `.env` and fill in API keys. Place `lid.176.bin` in `data/models/`.
+Create `.env` in the project root and fill in API keys. Place `lid.176.bin` in `data/models/`.
 
 ## Dependencies
 

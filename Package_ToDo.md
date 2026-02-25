@@ -39,7 +39,7 @@ Ziel: Aktiver Release/RC-Backlog fuer einen internen, reproduzierbaren Release C
   - `PyYAML` als Core-Dependency aufgenommen (Runtime-Import in `run_manager.py`).
   - `plotly` aus Core entfernt (kein aktiver Runtime-Import).
 - [x] Doku-Konsistenz fuer Env-Vorlage hergestellt.
-  - Evidenz (2026-02-25): `.env.example` angelegt und Doku-Hinweise konsolidiert.
+  - Evidenz (2026-02-25): Doku auf direkten `.env`-Workflow konsolidiert (ohne separate `.env.example`-Datei).
 
 ## 3) PR3 - Release-Gates und RC-Verifikation
 
@@ -86,3 +86,12 @@ Ziel: Aktiver Release/RC-Backlog fuer einen internen, reproduzierbaren Release C
 - [ ] Security/Compliance vor externem Release:
   - Secrets-Check
   - Dependency-Audit (z. B. `pip-audit`)
+
+## 6) Zusaetzliche Punkte vor erstem externen Release (neu)
+
+- [ ] PyPI-Namenscheck und Release-Ziel pruefen.
+  - Ist `ads-bib` auf (Test)PyPI verfuegbar/belegbar und passt der Name zur gewuenschten Sichtbarkeit?
+- [ ] SDist-Install-Smoke ergaenzen (nicht nur Wheel).
+  - Akzeptanz: Installation aus `dist/*.tar.gz` in frischer venv + Core-Import-Smoke gruen.
+- [ ] Third-party Attribution sichtbar dokumentieren.
+  - Akzeptanz: kompakter Abschnitt in der Doku, der zentrale externe Pakete/Modelle und deren Lizenzen nennt.
