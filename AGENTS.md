@@ -28,6 +28,8 @@ Engineering rules and operating conventions for this repository.
 - `KISS`: prefer the simplest implementation that satisfies requirements.
 - `DRY`: centralize shared logic; avoid copy-pasted behavior across modules.
 - `YAGNI`: do not add abstractions or compatibility layers unless they are actively needed.
+- Consolidation-first: when behavior changes, first prefer simplifying/replacing existing code over adding new layers on top.
+- Net-complexity check: avoid additive wrappers/duplicate paths by default; if code size/complexity must grow, document why removal or unification was not viable.
 - Fit-for-purpose over enterprise patterns:
   - This project is notebook-first research software for small teams.
   - Prefer clean, lean, understandable solutions over production-platform complexity.

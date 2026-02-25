@@ -91,9 +91,27 @@ def export_bibcodes(
     max_retries: int = 5,
     backoff_factor: int = 2,
 ) -> str:
-    """Export bibcodes via the ADS custom export API using concurrent chunked requests.
+    """Export bibcodes via ADS custom export API in concurrent chunks.
 
-    Returns the concatenated raw export string.
+    Parameters
+    ----------
+    bibcodes : list[str]
+        ADS bibcodes to export.
+    token : str
+        ADS API bearer token.
+    custom_format : str
+        ADS custom export format string.
+    max_workers : int
+        Concurrent worker count for chunked requests.
+    max_retries : int
+        Maximum retries per chunk request.
+    backoff_factor : int
+        Retry backoff multiplier.
+
+    Returns
+    -------
+    str
+        Concatenated raw export payload in ADS custom format.
     """
     if not bibcodes:
         return ""

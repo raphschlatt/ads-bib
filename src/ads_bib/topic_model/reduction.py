@@ -186,7 +186,35 @@ def reduce_dimensions(
     embedding_id: str | None = None,
     show_progress: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute 5-D (for clustering) and 2-D (for visualization) projections."""
+    """Compute 5D (clustering) and 2D (visualization) projections.
+
+    Parameters
+    ----------
+    embeddings : np.ndarray
+        Input embedding matrix ``(n_docs, embedding_dim)``.
+    method : str
+        Reduction backend: ``"pacmap"`` or ``"umap"``.
+    params_5d : dict, optional
+        Method parameters for 5D reduction.
+    params_2d : dict, optional
+        Method parameters for 2D reduction.
+    random_state : int
+        Seed used for deterministic reduction behavior where supported.
+    cache_dir : Path, optional
+        Cache directory for ``reduced_5d_*`` and ``reduced_2d_*`` files.
+    cache_suffix : str
+        Explicit suffix for cache filenames.
+    embedding_id : str, optional
+        High-level identifier used to auto-build *cache_suffix* when omitted.
+    show_progress : bool
+        Show tqdm progress bar.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        ``(reduced_5d, reduced_2d)`` with shapes ``(n_docs, 5)`` and
+        ``(n_docs, 2)``.
+    """
     if not cache_suffix and embedding_id:
         p5 = params_5d or {}
         cache_suffix = (

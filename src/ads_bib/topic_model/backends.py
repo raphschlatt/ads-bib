@@ -697,7 +697,35 @@ def fit_bertopic(
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> "BERTopic":
-    """Fit a BERTopic model with pre-computed reduced embeddings."""
+    """Fit BERTopic on pre-reduced document vectors.
+
+    Parameters
+    ----------
+    documents : list[str]
+        Input corpus; order must match *reduced_5d*.
+    reduced_5d : np.ndarray
+        Five-dimensional vectors used directly for clustering.
+    llm_provider : str
+        Labeling backend: ``"local"``, ``"huggingface_api"``, ``"openrouter"``.
+    llm_model : str
+        LLM model used for topic naming.
+    clustering_method : str
+        Clustering backend passed into BERTopic (``"fast_hdbscan"`` or
+        ``"hdbscan"``).
+    clustering_params : dict, optional
+        Parameters forwarded to the selected clustering backend.
+    api_key : str, optional
+        Required for ``llm_provider="openrouter"``.
+    openrouter_cost_mode : str
+        Cost resolution mode for OpenRouter usage.
+    cost_tracker : CostTracker, optional
+        Optional cost accumulator for LLM labeling calls.
+
+    Returns
+    -------
+    BERTopic
+        Fitted BERTopic instance.
+    """
     validate_provider(
         llm_provider,
         valid={"local", "huggingface_api", "openrouter"},
@@ -810,7 +838,41 @@ def fit_toponymy(
     verbose: bool = True,
     cost_tracker: "CostTracker | None" = None,
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
-    """Fit a Toponymy topic model with configurable cluster backend."""
+    """Fit Toponymy (or Toponymy+EVoC) and return topic assignments.
+
+    Parameters
+    ----------
+    documents : list[str]
+        Input corpus; order must match *embeddings* and *clusterable_vectors*.
+    embeddings : np.ndarray
+        Full embedding matrix used for naming/context.
+    clusterable_vectors : np.ndarray
+        Vectors used for clustering (5D reduced vectors for ``backend="toponymy"``;
+        raw high-dimensional vectors for ``backend="toponymy_evoc"``).
+    backend : str
+        ``"toponymy"`` or ``"toponymy_evoc"``.
+    layer_index : int
+        Hierarchical layer index selected as primary output topic_id.
+    llm_provider : str
+        Currently supported Toponymy naming provider.
+    llm_model : str
+        LLM model identifier for topic naming.
+    embedding_model : str
+        Text embedding model for Toponymy internals.
+    api_key : str, optional
+        Provider key where required.
+    clusterer_params : dict, optional
+        Backend-specific clustering parameters.
+    cost_tracker : CostTracker, optional
+        Optional usage/cost tracker.
+
+    Returns
+    -------
+    tuple[Any, np.ndarray, pd.DataFrame]
+        ``(topic_model, topics, topic_info)`` where *topics* is the selected
+        layer assignment vector and *topic_info* contains ``Topic``/``Name``
+        metadata.
+    """
     provider_norm, backend_norm = _normalize_toponymy_inputs(
         llm_provider=llm_provider,
         backend=backend,
@@ -910,7 +972,37 @@ def reduce_outliers(
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> np.ndarray:
-    """Reduce outliers by re-assigning them to the nearest cluster."""
+    """Reassign BERTopic outliers and refresh topic representations.
+
+    Parameters
+    ----------
+    topic_model : BERTopic
+        Fitted BERTopic model to update in-place.
+    documents : list[str]
+        Corpus used during BERTopic fitting.
+    topics : np.ndarray
+        Current topic assignments (including ``-1`` outliers).
+    reduced_5d : np.ndarray
+        Five-dimensional vectors used by BERTopic outlier reassignment.
+    threshold : float
+        Confidence threshold passed to ``topic_model.reduce_outliers``.
+    llm_provider : str
+        Labeling provider used by the representation model.
+    llm_model : str
+        Model name recorded for cost tracking.
+    cost_tracker : CostTracker, optional
+        Optional tracker for refresh-time LLM usage.
+
+    Returns
+    -------
+    np.ndarray
+        Updated topic assignment vector after outlier reassignment.
+
+    Notes
+    -----
+    This function always calls ``update_topics`` after reassignment so topic
+    labels/representations reflect the new assignments.
+    """
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     before = int((topics == -1).sum())
     new_topics = topic_model.reduce_outliers(

@@ -16,7 +16,34 @@ def build_topic_dataframe(
     embeddings: np.ndarray | None = None,
     topic_info: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Augment *df* with topic modeling results."""
+    """Return a topic-enriched copy of *df*.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input rows to enrich. Row count must match *topics* and *reduced_2d*.
+    topic_model : Any
+        Fitted BERTopic/Toponymy-like model. Used for topic info and optional
+        label refresh hooks.
+    topics : np.ndarray
+        Topic assignment vector (outliers as ``-1``).
+    reduced_2d : np.ndarray
+        Two-dimensional projection with shape ``(n_docs, 2)``.
+    embeddings : np.ndarray, optional
+        Full embedding matrix; when provided, persisted to ``full_embeddings``.
+    topic_info : pd.DataFrame, optional
+        Optional topic info table with at least ``Topic`` and ``Name``.
+        If omitted, ``topic_model.get_topic_info()`` is used.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of *df* with added columns:
+        ``embedding_2d_x``, ``embedding_2d_y``, ``topic_id``,
+        topic label columns (for example ``Name``/``Main``/``MMR``/``POS``/``KeyBERT``),
+        optional ``full_embeddings``, and optional ``Topic_Layer_X`` columns
+        for hierarchical Toponymy outputs.
+    """
     df = df.copy()
     df["embedding_2d_x"] = reduced_2d[:, 0]
     df["embedding_2d_y"] = reduced_2d[:, 1]

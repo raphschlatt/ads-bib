@@ -70,6 +70,11 @@ def build_all_nodes(
 ) -> pd.DataFrame:
     """Concatenate publications and references into a single node DataFrame.
 
+    Required columns
+    ----------------
+    publications : ``Bibcode`` (plus optional metadata columns)
+    references : ``Bibcode`` (plus optional metadata columns)
+
     Publications take priority when a bibcode appears in both frames.
     The resulting frame has an ``id`` column (renamed from ``Bibcode``).
     """
@@ -452,17 +457,37 @@ def process_all_citations(
     output_format: str = "gexf",
     output_dir: Path | str = "data/output",
 ) -> dict[str, pd.DataFrame]:
-    """Compute selected citation metrics and export.
+    """Compute selected citation metrics and export edge/node files.
 
     Parameters
     ----------
+    bibcodes : list[str]
+        Publication bibcodes aligned with *references*.
+    references : list[list[str]]
+        Per-publication cited bibcodes aligned with *bibcodes*.
+    publications : pd.DataFrame
+        Required columns: ``Bibcode``, ``Year``, ``Author``, ``References``.
+    ref_df : pd.DataFrame
+        Reference metadata table (used by ``author_co_citation``).
+    all_nodes : pd.DataFrame
+        Node table containing at least ``id`` and metadata columns to export.
+    metrics : list[str]
+        Any subset of ``direct``, ``co_citation``, ``bibliographic_coupling``,
+        ``author_co_citation``.
+    min_counts : dict[str, int], optional
+        Per-metric minimum threshold (for example ``{"co_citation": 2}``).
+    authors_filter : list[str], optional
+        If set, only include papers whose serialized author text matches.
     output_format : str
         ``"gexf"``, ``"graphology"``, ``"csv"``, or ``"all"``.
+    output_dir : Path | str
+        Target directory for exported artifacts.
 
     Returns
     -------
     dict[str, pd.DataFrame]
-        Mapping from metric name to edge DataFrame.
+        Mapping from metric name to computed edge DataFrame for non-empty
+        metrics.
     """
     output_dir = Path(output_dir)
     min_counts = min_counts or {}

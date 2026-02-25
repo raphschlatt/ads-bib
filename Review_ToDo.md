@@ -59,11 +59,12 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
   - Status (2026-02-25, Hard-Cleanup): Relikte entfernt (`translate._fetch_generation_cost`, `tokenize._default_n_process`, Legacy-Embedding-Cache-Fallback `embeddings_{model}.npz`), AGENTS-Architekturpfad auf `topic_model/` aktualisiert.
 - [x] Logging vereinheitlichen: weniger unkontrollierte `print()`, stattdessen kontrollierbare Ausgabe (`verbose`/`quiet`).
   - Status (2026-02-25): Logging-Contract geschärft (AGENTS-Regeln + `tests/test_logging_contract.py`), Runtime-Module unter `src/ads_bib` ohne `print()`, `topic_model`-Logger-Ausnahme dokumentiert.
-- [ ] Public-Funktionen mit klaren Docstrings pflegen:
+- [x] Public-Funktionen mit klaren Docstrings pflegen:
   - required columns
   - wichtige Parameter
   - Rueckgabeformat
-  - Status (2026-02-25): grosser Teil bereits vorhanden; verbleibende Luecken sind vor allem uneinheitliche Detailtiefe (z. B. bei einzelnen Public APIs wie `build_topic_dataframe`, `compute_embeddings`, `export_bibcodes`).
+  - Status (2026-02-25): vereinheitlicht fuer zentrale Public APIs (u. a. `build_topic_dataframe`, `compute_embeddings`, `reduce_dimensions`, `fit_bertopic`, `fit_toponymy`, `reduce_outliers`, `process_all_citations`, `export_bibcodes`) mit expliziten Inputs/Returns und Required-Columns-Hinweisen bei DataFrame-Funktionen.
+  - Evidenz (2026-02-25): gezielte Contract-Checks gruen (`tests/test_topic_model_api_contract.py`, `tests/test_logging_contract.py` -> `8 passed`).
 
 ### C) Tests, die wirklich helfen
 

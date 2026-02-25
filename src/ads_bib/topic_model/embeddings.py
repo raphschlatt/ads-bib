@@ -50,7 +50,39 @@ def compute_embeddings(
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> np.ndarray:
-    """Compute or load cached document embeddings."""
+    """Compute document embeddings with optional cache reuse.
+
+    Parameters
+    ----------
+    documents : list[str]
+        Ordered document texts to embed.
+    provider : str
+        Embedding backend: ``"local"``, ``"huggingface_api"``, or
+        ``"openrouter"``.
+    model : str
+        Provider-specific embedding model identifier.
+    cache_dir : Path, optional
+        Cache directory. When set, embeddings are loaded from/saved to
+        ``embeddings_{provider}_{model}.npz`` with fingerprint validation.
+    batch_size : int
+        Per-call batch size for embedding requests.
+    max_workers : int
+        Worker count used by concurrent providers (OpenRouter).
+    dtype : Any
+        Target numpy dtype for returned array.
+    api_key : str, optional
+        Required for ``provider="openrouter"``.
+    openrouter_cost_mode : str
+        Cost resolution mode for OpenRouter (``"hybrid"``, ``"strict"``,
+        ``"fast"``).
+    cost_tracker : CostTracker, optional
+        When provided, records embedding token/cost summaries.
+
+    Returns
+    -------
+    np.ndarray
+        Embedding matrix with shape ``(n_documents, embedding_dim)``.
+    """
     validate_provider(
         provider,
         valid={"local", "huggingface_api", "openrouter"},
