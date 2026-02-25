@@ -69,6 +69,11 @@ Engineering rules and operating conventions for this repository.
 ## 5) Logging and Console Output
 
 - Keep logs compact and informative.
+- Runtime code under `src/ads_bib/` must use the `logging` module; do not use `print()` in package modules.
+- Benchmark and utility scripts under `scripts/` may use `print()` for CLI-style summaries.
+- Logger naming convention:
+  - Default: `logging.getLogger(__name__)`
+  - Explicit exception: topic-model internals may use `logging.getLogger("ads_bib.topic_model")` to keep contract tests stable.
 - Prefer one-line summaries for cost reporting:
   - `step | model | tokens(total,prompt,completion) | calls | cost`
 - Avoid large raw DataFrame dumps in notebook output where concise summaries are sufficient.

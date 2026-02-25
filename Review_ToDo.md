@@ -32,7 +32,8 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 - [x] Tote Pfade entfernen: unused Imports, ungenutzte Parameter, alte Alias-Namen.
   - Status (2026-02-25): Altpfade geloescht (`src/ads_bib/topic_model.py`, `src/ads_bib/_topic_model_*.py`), Tests auf modulnahe Seams migriert, Public-API-Contract-Test hinzugefuegt.
   - Status (2026-02-25, Hard-Cleanup): Relikte entfernt (`translate._fetch_generation_cost`, `tokenize._default_n_process`, Legacy-Embedding-Cache-Fallback `embeddings_{model}.npz`), AGENTS-Architekturpfad auf `topic_model/` aktualisiert.
-- [ ] Logging vereinheitlichen: weniger unkontrollierte `print()`, stattdessen kontrollierbare Ausgabe (`verbose`/`quiet`).
+- [x] Logging vereinheitlichen: weniger unkontrollierte `print()`, stattdessen kontrollierbare Ausgabe (`verbose`/`quiet`).
+  - Status (2026-02-25): Logging-Contract geschärft (AGENTS-Regeln + `tests/test_logging_contract.py`), Runtime-Module unter `src/ads_bib` ohne `print()`, `topic_model`-Logger-Ausnahme dokumentiert.
 - [ ] Public-Funktionen mit klaren Docstrings pflegen:
   - required columns
   - wichtige Parameter
@@ -44,7 +45,8 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
   - Status (2026-02-25): Vollsuite inkl. Contract-Gates gruen (`146 passed`).
 - [ ] Fuer jeden echten Bugfix mindestens einen Regressionstest schreiben.
 - [x] Test-Suite in schnell/langsam aufteilen, damit lokales Feedback flott bleibt.
-- [ ] Netz- und Modellabhaengige Teile weiterhin mocken, damit Tests stabil und reproduzierbar bleiben.
+- [x] Netz- und Modellabhaengige Teile weiterhin mocken, damit Tests stabil und reproduzierbar bleiben.
+  - Status (2026-02-25): Offline/mocked E2E-Smoke (`tests/test_pipeline_smoke_e2e.py`) plus breite Monkeypatch/Mock-Abdeckung in Unit-Tests (`topic_model`, `translate`, `visualize`, `search`, `export`, `tokenize`, `openrouter_*`).
 
 ### D) Performance mit realistischem Anspruch
 
