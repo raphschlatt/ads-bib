@@ -1,0 +1,145 @@
+# ADS Pipeline (`ads-bib`)
+
+Notebook-first research pipeline for NASA ADS bibliometric analysis.
+
+## Audience and Scope
+
+### Primary audience
+Researchers and PhD students running local, reproducible ADS workflows in small teams.
+
+### Secondary audience
+Technical colleagues who want to reuse selected `ads_bib` modules as a Python library.
+
+### Non-goals
+- No always-on SaaS platform.
+- No 24/7 operations target.
+- No enterprise MLOps stack.
+
+## Project Context
+
+- Orchestrator: `pipeline.ipynb`
+- Runtime logic: `src/ads_bib/`
+- Philosophy: KISS, DRY, YAGNI, consolidation-first
+
+## Happy Path (Minimal)
+
+1. Activate environment:
+
+```bash
+conda activate ADS_env
+```
+
+2. Install package and extras (editable):
+
+```bash
+pip install -e ".[all,test]"
+```
+
+3. Add `.env` in project root (minimum):
+
+```env
+ADS_TOKEN=...
+OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
+```
+
+4. Run `pipeline.ipynb` top-to-bottom for the standard flow:
+   Search -> Export -> Translate -> Tokenize -> Topics -> Visualize -> Citations.
+
+## Configuration Convention (Notebook vs Modules)
+
+- Notebook stays orchestration-only.
+- Modules in `src/ads_bib/` own retries, caching, validation, and summaries.
+- Functions touching API/disk should accept `cache_dir: Path | None` and `force_refresh: bool`.
+- Notebook passes high-level identifiers/paths, not low-level cache keys.
+
+## Supported Public Imports
+
+Use top-level `ads_bib` exports as stable imports:
+
+```python
+from ads_bib import (
+    RunManager,
+    build_all_nodes,
+    build_topic_dataframe,
+    compute_embeddings,
+    detect_languages,
+    fit_bertopic,
+    fit_toponymy,
+    get_cluster_summary,
+    init_paths,
+    load_env,
+    process_all_citations,
+    reduce_dimensions,
+    reduce_outliers,
+    remove_clusters,
+    resolve_dataset,
+    search_ads,
+    tokenize_texts,
+    translate_dataframe,
+)
+```
+
+Topic-model imports are also stable via:
+
+```python
+from ads_bib.topic_model import (
+    OpenRouterEmbedder,
+    build_topic_dataframe,
+    compute_embeddings,
+    fit_bertopic,
+    fit_toponymy,
+    reduce_dimensions,
+    reduce_outliers,
+)
+```
+
+## Stability vs Experimental
+
+### Stable for regular pipeline use
+- `search`, `export`, `translate`, `tokenize`, `curate`, `citations`
+- Topic-model core path: embeddings -> reduction -> BERTopic/Toponymy -> outlier refresh
+- Schema contracts (`topic_id`, `embedding_2d_x`, `embedding_2d_y`)
+
+### More experimental / dependency-sensitive
+- `toponymy_evoc` backend (optional stack and higher variability)
+- interactive visualization polish details and optional UI dependencies
+
+## Troubleshooting
+
+### Missing ADS token
+Symptom: ADS API auth/request errors.
+
+Fix:
+- Ensure `.env` contains `ADS_TOKEN`.
+- Reload env in notebook/session (`load_env()` or kernel restart).
+
+### Missing optional dependency
+Symptom: import/provider errors for topic models, translation, or visualization.
+
+Fix:
+- Install required extras (`pip install -e ".[all,test]"`).
+- For minimal setups, install only needed extras and select matching providers.
+
+### OpenRouter provider errors
+Symptom: provider validation/auth/cost resolution failures.
+
+Fix:
+- Ensure `OPENROUTER_API_KEY` is set.
+- Use supported provider names and model identifiers.
+
+### spaCy model unavailable
+Symptom: tokenization model load error.
+
+Fix:
+- Install model explicitly (`python -m spacy download en_core_web_md`) or use fallback.
+
+## Quality Checks (Local/CI)
+
+Run both checks in `ADS_env`:
+
+```bash
+ruff check src tests scripts
+PYTHONPATH=src pytest -q
+```
+
+These are lint-only plus tests (no auto-format rewrite requirement).

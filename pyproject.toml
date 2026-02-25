@@ -38,7 +38,7 @@ umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
 translate-local = ["transformers", "torch", "accelerate"]
 translate-api = ["openai"]
-test = ["pytest>=7"]
+test = ["pytest>=7", "ruff>=0.6"]
 all = ["ads-bib[topic,translate-local,translate-api]"]
 
 [tool.hatch.build.targets.wheel]
@@ -49,3 +49,11 @@ markers = [
     "slow: slower integration or dependency-heavy tests",
 ]
 addopts = "--strict-markers"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+ignore = ["F821"]

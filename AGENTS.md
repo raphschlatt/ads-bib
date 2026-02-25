@@ -106,6 +106,8 @@ Engineering rules and operating conventions for this repository.
 - Every pipeline behavior change should include:
   - unit tests for core function behavior
   - edge cases (missing/None costs, outliers, absent columns)
+- Every bugfix must include at least one regression test in the same
+  change set.
 - Keep tests independent of optional heavy runtime services by mocking external providers and UI libraries.
 
 ## 7) Dependency and Interface Hygiene
