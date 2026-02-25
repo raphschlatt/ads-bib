@@ -16,7 +16,6 @@ from ads_bib._utils.openrouter_client import (
 )
 from ads_bib._utils.openrouter_costs import (
     DEFAULT_OPENROUTER_API_BASE,
-    fetch_generation_cost,
     normalize_openrouter_api_base,
     normalize_openrouter_cost_mode,
     resolve_openrouter_costs,
@@ -102,23 +101,6 @@ SYSTEM_PROMPT = (
     "additional information."
 )
 DEFAULT_TRANSLATION_MAX_TOKENS = 2048
-
-
-def _fetch_generation_cost(
-    generation_id: str,
-    api_key: str,
-    api_base: str = DEFAULT_OPENROUTER_API_BASE,
-    retries: int = 3,
-    delay: float = 1.0,
-) -> float | None:
-    """Backward-compatible wrapper around OpenRouter generation cost lookup."""
-    return fetch_generation_cost(
-        generation_id,
-        api_key,
-        api_base=api_base,
-        retries=retries,
-        delay=delay,
-    )
 
 
 _thread_local = threading.local()

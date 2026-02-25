@@ -31,6 +31,7 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
   - Status (2026-02-25): Final auf echtes Subpackage `src/ads_bib/topic_model/` umgestellt (`embeddings.py`, `reduction.py`, `backends.py`, `output.py`, `__init__.py`), Public API unter `ads_bib.topic_model` unveraendert.
 - [x] Tote Pfade entfernen: unused Imports, ungenutzte Parameter, alte Alias-Namen.
   - Status (2026-02-25): Altpfade geloescht (`src/ads_bib/topic_model.py`, `src/ads_bib/_topic_model_*.py`), Tests auf modulnahe Seams migriert, Public-API-Contract-Test hinzugefuegt.
+  - Status (2026-02-25, Hard-Cleanup): Relikte entfernt (`translate._fetch_generation_cost`, `tokenize._default_n_process`, Legacy-Embedding-Cache-Fallback `embeddings_{model}.npz`), AGENTS-Architekturpfad auf `topic_model/` aktualisiert.
 - [ ] Logging vereinheitlichen: weniger unkontrollierte `print()`, stattdessen kontrollierbare Ausgabe (`verbose`/`quiet`).
 - [ ] Public-Funktionen mit klaren Docstrings pflegen:
   - required columns

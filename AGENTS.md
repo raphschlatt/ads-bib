@@ -17,7 +17,7 @@ Engineering rules and operating conventions for this repository.
   - `export.py`: metadata export/parsing
   - `translate.py`: language detection + translation
   - `tokenize.py`: text normalization/tokenization
-  - `topic_model.py`: embeddings, dimensionality reduction, clustering, BERTopic + Toponymy labeling
+  - `topic_model/`: embeddings, dimensionality reduction, clustering, BERTopic + Toponymy labeling
   - `visualize.py`: interactive topic map rendering
   - `curate.py`: topic-level dataset filtering
   - `citations.py`: network construction/export

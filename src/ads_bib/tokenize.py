@@ -207,8 +207,3 @@ def tokenize_texts(
     else:
         logger.info("  Done.")
     return df
-
-
-def _default_n_process() -> int:
-    """Backward-compatible alias for previous private helper name."""
-    return default_n_process()

@@ -68,12 +68,6 @@ def compute_embeddings(
     cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
     doc_fingerprint = _documents_fingerprint(documents)
 
-    if cache_file and not cache_file.exists():
-        legacy = cache_dir / f"embeddings_{model_safe}.npz"
-        if legacy.exists():
-            logger.info("  Using legacy cache: %s", legacy.name)
-            cache_file = legacy
-
     if cache_file and cache_file.exists():
         data = np.load(cache_file, allow_pickle=True)
         cached = data["embeddings"]
