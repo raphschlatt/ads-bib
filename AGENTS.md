@@ -48,7 +48,9 @@ Engineering rules and operating conventions for this repository.
   - verification is run (tests/benchmark/contract checks as applicable)
   - a short evidence note is added (what was validated and when)
 - Partial progress stays `[ ]` with a status note; never close items based on intent alone.
-- `Review_ToDo.md` consolidation backlog was completed on `2026-02-25`.
+- `Review_ToDo.md` consolidation backlog was completed on `2026-02-25`
+  and archived to `archive/Review_ToDo_2026-02-25_closed.md`.
+  `Package_ToDo.md` is the active release/RC backlog.
   Treat recurring quality obligations as operating rules, not as permanently open one-off tasks.
 
 ## 2.2) Architecture Notes (Lightweight)
@@ -62,6 +64,8 @@ Seed entries:
 - `2026-02-25 | README as single user entrypoint | avoid split docs/README drift in notebook-first workflow | one source for happy path + troubleshooting + stability scope | no parallel docs tree to maintain`
 - `2026-02-25 | Conservative quality gate (ruff + pytest) | enforce baseline quality without large cleanup churn | deterministic local/CI check command with low friction | tighten rules later only with explicit payoff`
 - `2026-02-25 | Consolidated topic_model subpackage path | removed legacy aliases/wrappers after migration | one active implementation path under src/ads_bib/topic_model/ | fewer compatibility leftovers to carry`
+- `2026-02-25 | AND stays placeholder for RC | external package is not yet a stable dependency target | avoid premature integration hooks in runtime modules | revisit only when external API/dependency is stable`
+- `2026-02-25 | No BERTopic+EVoC path | EVoC already covered by toponymy_evoc; avoid duplicate backend behavior | lower maintenance and test matrix complexity | require explicit benchmark evidence before reconsidering`
 
 ## 3) DataFrame Schema Conventions
 

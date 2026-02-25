@@ -1,133 +1,88 @@
 # ADS Pipeline (`ads-bib`) - Package ToDo
 
-Stand: 2026-02-20  
-Ziel: Eine reale, projektspezifische Release-Checkliste fuer dieses Repo (nicht generisch).
+Stand: 2026-02-25
+Ziel: Aktiver Release/RC-Backlog fuer einen internen, reproduzierbaren Release Candidate.
 
-## Ist-Stand (bereits gut)
+## Backlog-Governance
 
-- [x] `src`-Layout vorhanden (`src/ads_bib`).
-- [x] Tests fuer zentrale Contracts vorhanden (u. a. Notebook- und Schema-Checks).
-- [x] Daten-/Run-Skelett mit `.gitignore`-Regeln ist sauber angelegt (`data/`, `runs/`).
+- Diese Datei ist der aktive Release-Backlog.
+- Abgeschlossener Review-Backlog liegt in:
+  - `archive/Review_ToDo_2026-02-25_closed.md`
 
-## 1) Release-Blocker (vor erstem offiziellen Release)
+## 0) Festgelegte Entscheidungen (verbindlich)
 
-- [ ] **PEP-621 Metadaten in `pyproject.toml` vervollstaendigen**
-  - Aktuell fehlen u. a. `readme`, `license`, `authors`, `classifiers`, `project.urls`.
-  - Done when: `pyproject.toml` ist vollstaendig und konsistent gepflegt.
+- [x] Fokus: Release-Fundament vor neuen Forschungsfeatures.
+- [x] Zielstand: interner RC (kein Public Tag in dieser Welle).
+- [x] AND bleibt Placeholder bis externe Abhaengigkeit stabil ist.
+  - Evidenz (2026-02-25): Dokumentiert in `AGENTS.md` Architecture Notes und in `README.md`/`CLAUDE.md`.
+- [x] Kein BERTopic+EVoC-Pfad (EVoC nur via `toponymy_evoc`).
+  - Evidenz (2026-02-25): Dokumentiert in `AGENTS.md` Architecture Notes und in `README.md`/`CLAUDE.md`.
+- [x] Lizenz: MIT.
+- [x] Dependency-Policy: kein Bloat; nur echte Core-Imports.
 
-- [ ] **Lizenz festlegen und Datei hinzufuegen**
-  - Aktuell keine `LICENSE`-Datei im Repo.
-  - Done when: `LICENSE` vorhanden und `project.license` dazu passend gesetzt.
+## 1) PR1 - Backlog und Artefakt-Klarheit
 
-- [ ] **Root-`README.md` anlegen (PyPI/GitHub-tauglich)**
-  - Aktuell gibt es keine README im Repo-Root.
-  - Muss enthalten: Install, Quickstart, Extras, minimale API-Beispiele, externe API-Keys als Voraussetzungen.
-  - Done when: README rendert sauber in `twine check`.
+- [x] `Review_ToDo.md` aus Root entfernt und archiviert.
+  - Evidenz (2026-02-25): Datei verschoben nach `archive/Review_ToDo_2026-02-25_closed.md`.
+- [x] Active-vs-archived Backlog in Repo-Doku klargezogen.
+  - Evidenz (2026-02-25): Hinweise in `AGENTS.md`, `README.md`, `CLAUDE.md`.
+- [x] Roadmap-Grenzen fuer AND/EVoC explizit gemacht.
+  - Evidenz (2026-02-25): neue Architecture Notes in `AGENTS.md` (`AND stays placeholder`, `No BERTopic+EVoC path`).
 
-- [ ] **`CHANGELOG.md` einfuehren**
-  - Done when: mindestens erster Eintrag fuer die naechste Release-Version vorhanden.
+## 2) PR2 - Packaging und Dependency-Fundament
 
-- [ ] **Abhaengigkeiten gegen echte Imports abgleichen**
-  - Aktueller Befund:
-  - `yaml` wird importiert (`src/ads_bib/run_manager.py`), `PyYAML` ist nicht deklariert.
-  - `networkx` wird genutzt (`src/ads_bib/citations.py`), aber nicht deklariert.
-  - `plotly` ist in `dependencies`, wird in `src/`/`tests/` derzeit nicht referenziert.
-  - Done when:
-  - direkte Imports sind in `dependencies` oder klar in Extras verankert.
-  - optionale Teile haben entweder Lazy-Imports + klare Fehlermeldungen oder passende Extras.
+- [x] PEP-621 Metadaten in `pyproject.toml` vervollstaendigt.
+  - Evidenz (2026-02-25): `readme`, `license`, `authors`, `classifiers`, `project.urls` gesetzt.
+- [x] `LICENSE` (MIT) angelegt.
+- [x] `CHANGELOG.md` angelegt.
+- [x] Dependency-Liste konsolidiert:
+  - `PyYAML` als Core-Dependency aufgenommen (Runtime-Import in `run_manager.py`).
+  - `plotly` aus Core entfernt (kein aktiver Runtime-Import).
+- [x] Doku-Konsistenz fuer Env-Vorlage hergestellt.
+  - Evidenz (2026-02-25): `.env.example` angelegt und Doku-Hinweise konsolidiert.
 
-- [ ] **CI Workflow mit Python-Matrix aufsetzen**
-  - Aktuell keine Workflow-Datei unter `.github/workflows/`.
-  - Minimum in CI:
+## 3) PR3 - Release-Gates und RC-Verifikation
+
+- [x] CI-Workflow mit Python-Matrix angelegt.
+  - Evidenz (2026-02-25): `.github/workflows/ci.yml` mit `3.10` und `3.12`.
+- [x] CI-Gates definiert:
+  - `ruff check src tests scripts`
   - `pytest -q`
   - `python -m build`
-  - `twine check dist/*`
-  - Done when: Matrix deckt mind. `min`/`max` Python aus `requires-python` ab (z. B. 3.10 + 3.12).
+  - `python -m twine check dist/*`
+  - Wheel-Smokes (Core + Topic-Extras)
 
-- [ ] **Wheel/sdist Installations-Smoketest ohne Repo-Pfad**
-  - Warum: `tests/conftest.py` fuegt `src/` direkt zum `sys.path` hinzu; das ersetzt keinen echten Install-Test.
-  - Done when: Build + frische venv + Import-Smoke laufen ohne `PYTHONPATH`-Tricks.
+### Evidenzlauf (lokal in `ADS_env`)
 
-```bash
-conda activate ADS_env
-python -m build
-python -m venv /tmp/ads_pkg_smoke
-source /tmp/ads_pkg_smoke/bin/activate
-WHEEL=$(ls dist/*.whl | head -n 1)
-pip install "$WHEEL"
-python -c "import ads_bib; print(ads_bib.__version__)"
-python -c "import ads_bib.search, ads_bib.export, ads_bib.tokenize, ads_bib.translate, ads_bib.citations"
-```
+- [x] `ruff check src tests scripts`
+  - Ergebnis (2026-02-25): `All checks passed!`
+- [ ] `pytest -q` (Vollsuite inkl. Notebook-Contract)
+  - Ergebnis (2026-02-25): `1 failed, 149 passed` (Fail: `tests/test_pipeline_notebook_contract.py::test_pipeline_notebook_is_output_clean`)
+  - Befund: `pipeline.ipynb` ist lokal nicht output-clean (`execution_count = 1` in mindestens einer Code-Zelle).
+- [x] `pytest -q -k "not pipeline_notebook_contract"`
+  - Ergebnis (2026-02-25): `147 passed, 3 deselected`.
+- [ ] `pytest -q tests/test_pipeline_notebook_contract.py`
+  - Ergebnis (2026-02-25): `1 failed, 2 passed` (gleicher Output-Cleanliness-Blocker).
+- [x] `python -m build`
+  - Ergebnis (2026-02-25): `Successfully built ads_bib-0.1.0.tar.gz and ads_bib-0.1.0-py3-none-any.whl`.
+- [x] `python -m twine check dist/*`
+  - Ergebnis (2026-02-25): Wheel + sdist `PASSED`.
+  - Hinweis: dafuer war in `ADS_env` ein Upgrade auf `packaging==26.0` noetig.
+- [x] Wheel-Smoke Core (frische venv, Import-Smoke)
+  - Ergebnis (2026-02-25): `core_version 0.1.0`, `core_import_smoke_ok`.
+- [x] Wheel-Smoke Topic-Extras (frische venv, Import-Smoke)
+  - Ergebnis (2026-02-25): `topic_import_smoke_ok`.
 
-- [ ] **Extras-Smoketest fuer Topic/Visualisierung**
-  - Done when: Topic-Stack installierbar und importierbar ueber Wheel-Extras.
+## 4) Offener RC-Blocker
 
-```bash
-source /tmp/ads_pkg_smoke/bin/activate
-WHEEL=$(ls dist/*.whl | head -n 1)
-pip install "$WHEEL[topic,umap,hdbscan]"
-python -c "import ads_bib.topic_model, ads_bib.visualize"
-```
+- [ ] Notebook output-clean halten und Contract gruen ziehen.
+  - Konkreter Fix: `pipeline.ipynb` execution counts/outputs bereinigen und Contract erneut laufen lassen.
+  - Akzeptanz: `pytest -q` und `pytest -q tests/test_pipeline_notebook_contract.py` ohne Failures.
 
-## 2) Projekt-spezifische Release-Gates (aus AGENTS.md abgeleitet)
+## 5) Nach internem RC (nicht Teil dieser Welle)
 
-- [ ] **Notebook-Contract gruen halten**
-  - `tests/test_pipeline_notebook_contract.py` muss gruen bleiben.
-  - `pipeline.ipynb` ohne stale Outputs committen.
-
-- [ ] **Schema-Kontrakte absichern**
-  - `topic_id` statt `Cluster`.
-  - `embedding_2d_x`/`embedding_2d_y` statt algorithmenspezifischer Namen.
-  - Bei Schema-Aenderung: Tests fuer neue Spalten + alte Spalten-Nichtvorhandensein.
-
-- [ ] **Toponymy/BERTopic Cost-Tracking-Namen stabil halten**
-  - Erwartete Steps: `llm_labeling`, `llm_labeling_post_outliers`, `llm_labeling_toponymy`, `llm_labeling_toponymy_evoc`.
-  - Compact Summary-Format in Kostenreports nicht aufbrechen.
-
-- [ ] **Outlier-Refresh-Verhalten absichern**
-  - Nach `reduce_outliers` muss `update_topics` weiterhin explizit passieren.
-
-## 3) API und Kompatibilitaet (vor 1.0 festziehen)
-
-- [ ] **Public API bewusst definieren**
-  - Dokumentieren, welche Module/Funktionen stabil sind.
-  - Optional: `__all__` und/oder API-Referenz entsprechend setzen.
-
-- [ ] **Version als Single Source of Truth festlegen**
-  - Aktuell doppelt gepflegt (`pyproject.toml` und `src/ads_bib/__init__.py`).
-  - Done when: Drift ist ausgeschlossen (z. B. dynamisch aus Paketmetadaten oder klarer Release-Schritt).
-
-## 4) Sicherheits- und Hygiene-Checks
-
-- [ ] **Secrets-Check vor Tag/Release**
-  - Keine Tokens/Keys im Repo, Notebook-Outputs oder Config-Snapshots.
-  - `.env` bleibt ungetrackt.
-
-- [ ] **Artefakt-Hygiene**
-  - Keine grossen lokalen Outputs im Commit.
-  - `data/` und `runs/` nur als Struktur, nicht mit Inhalten versionieren.
-
-- [ ] **Dependency-Audit (pragmatisch)**
-  - Mindestens einmal vor Release: `pip-audit` (oder CI-Scanner) laufen lassen und Ergebnis dokumentieren.
-
-## 5) Finaler Release-Ablauf (fuer dieses Projekt)
-
-- [ ] **Frischen Clone statt `git clean -xfd` verwenden**
-  - Vermeidet versehentlichen Datenverlust bei lokalen Artefakten.
-
-- [ ] **Release-Sequenz**
-  - Version bump.
-  - `python -m build`
-  - Wheel/sdist Smoke + `pytest -q` + `twine check dist/*`
-  - Git Tag `vX.Y.Z`
-  - Release Notes aus `CHANGELOG.md`
-
-- [ ] **Optional, aber stark empfohlen: TestPyPI**
-  - Upload nach TestPyPI, dann Install + Smoke gegen TestPyPI-Paket.
-
-## 6) Entscheidungen, die wir kurzfristig treffen muessen
-
-- [ ] Lizenztyp (z. B. MIT/BSD-3-Clause/Apache-2.0).
-- [ ] Offiziell unterstuetzte Python-Range (`>=3.10` beibehalten oder anpassen).
-- [ ] Ob `networkx` Core-Dependency oder `citations`-Extra sein soll.
-- [ ] Ob `plotly` entfernt wird oder in geplante Features klar eingeht.
+- [ ] Public Release-Sequenz (Version bump, tag `vX.Y.Z`, Release Notes finalisieren).
+- [ ] Optional: TestPyPI Upload + Install-Smoke gegen TestPyPI.
+- [ ] Security/Compliance vor externem Release:
+  - Secrets-Check
+  - Dependency-Audit (z. B. `pip-audit`)

@@ -26,6 +26,11 @@ Technical colleagues who want to reuse selected `ads_bib` modules as a Python li
 - Consolidation review backlog completed on `2026-02-25`.
 - Ongoing quality is enforced via `AGENTS.md` rules plus `ads-bib check`.
 
+## Backlog Status
+
+- Active release backlog: `Package_ToDo.md`.
+- Closed review backlog archive: `archive/Review_ToDo_2026-02-25_closed.md`.
+
 ## Happy Path (Minimal)
 
 1. Activate environment:
@@ -40,7 +45,7 @@ conda activate ADS_env
 pip install -e ".[all,test]"
 ```
 
-3. Add `.env` in project root (minimum):
+3. Create `.env` in project root (minimum), for example from `.env.example`:
 
 ```env
 ADS_TOKEN=...
@@ -108,6 +113,8 @@ from ads_bib.topic_model import (
 ### More experimental / dependency-sensitive
 - `toponymy_evoc` backend (optional stack and higher variability)
 - interactive visualization polish details and optional UI dependencies
+- AND remains a notebook placeholder until a stable external package is adopted.
+- BERTopic+EVoC is intentionally out of scope; EVoC is only supported via `toponymy_evoc`.
 
 ## Troubleshooting
 

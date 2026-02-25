@@ -6,8 +6,24 @@ build-backend = "hatchling.build"
 name = "ads-bib"
 version = "0.1.0"
 description = "NASA ADS bibliometric analysis pipeline for citation networks, topic modeling, and dataset curation."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "ADS Pipeline contributors" },
+]
 requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = [
+    "PyYAML",
     "pandas>=2.0",
     "numpy>=1.24",
     "requests",
@@ -15,9 +31,13 @@ dependencies = [
     "fasttext-wheel",
     "spacy>=3.7",
     "tqdm",
-    "plotly",
     "scipy>=1.10",
 ]
+
+[project.urls]
+Homepage = "https://github.com/raphschlatt/ADS_Pipeline"
+Repository = "https://github.com/raphschlatt/ADS_Pipeline"
+Issues = "https://github.com/raphschlatt/ADS_Pipeline/issues"
 
 [project.scripts]
 ads-bib = "ads_bib.cli:main"

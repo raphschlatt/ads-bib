@@ -22,6 +22,7 @@ All commands and expected behavior in this repository assume the `ADS_env` conda
 
 Repository-wide implementation and review rules are defined in `AGENTS.md`.
 Review consolidation backlog was completed on `2026-02-25`; ongoing obligations are maintained as operating rules.
+Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Review_ToDo_2026-02-25_closed.md`.
 
 ## Pipeline Phases
 
@@ -37,7 +38,9 @@ Review consolidation backlog was completed on `2026-02-25`; ongoing obligations 
 - ONE notebook, not multiple — downstream params depend on upstream results
 - Notebook is the primary entrypoint; optional `ads-bib check` exists only for local quality gates
 - AND is an external package, just imported when ready
+- AND integration is deferred for the internal RC until the external package API is stable
 - Translation backends: OpenRouter (any LLM) + HuggingFace local (TranslateGemma 4B)
+- No BERTopic+EVoC path for now; EVoC support remains `toponymy_evoc` only
 - All paths relative to notebook location via `config.init_paths()`
 - Static config in `.env` (API keys), dynamic config in notebook cells
 
@@ -70,7 +73,7 @@ Copy `.env.example` to `.env` and fill in API keys. Place `lid.176.bin` in `data
 
 ## Dependencies
 
-Required: pandas, numpy, requests, python-dotenv, fasttext-wheel, spacy, tqdm, plotly
+Required: pandas, numpy, requests, python-dotenv, fasttext-wheel, spacy, tqdm, scipy, PyYAML
 
 Optional groups: `[topic]`, `[translate-local]`, `[translate-api]`, `[all]`
 
