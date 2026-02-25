@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import ads_bib._utils.openrouter_costs as oc
@@ -93,3 +94,33 @@ def test_summarize_openrouter_cost_modes(monkeypatch):
     )
     assert fast["total_cost_usd"] == 4.0
     assert fast["fetch_attempted_calls"] == 0
+
+
+def test_resolve_openrouter_costs_returns_total_and_logs(caplog, monkeypatch):
+    summary = {
+        "mode": "hybrid",
+        "total_calls": 2,
+        "priced_calls": 2,
+        "missing_cost_calls": 0,
+        "direct_priced_calls": 1,
+        "fetched_priced_calls": 1,
+        "fetch_attempted_calls": 1,
+        "fetch_attempted_ids": 1,
+        "fetch_skipped_no_api_key": False,
+        "total_cost_usd": 0.77,
+    }
+    monkeypatch.setattr(oc, "summarize_openrouter_costs", lambda *args, **kwargs: summary)
+
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    total_cost, out = oc.resolve_openrouter_costs(
+        [{"generation_id": "gid"}],
+        mode="hybrid",
+        logger_obj=logging.getLogger("ads_bib.topic_model"),
+        total_label="OpenRouter cost",
+        log_fetch_resolution=True,
+    )
+
+    assert total_cost == 0.77
+    assert out is summary
+    assert "Resolved USD costs via /generation for 1 calls" in caplog.text
+    assert "OpenRouter cost: $0.7700 (2/2 priced; direct=1, fetched=1, mode=hybrid)" in caplog.text

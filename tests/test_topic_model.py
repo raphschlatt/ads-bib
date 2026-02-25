@@ -12,6 +12,9 @@ import pandas as pd
 import pytest
 
 import ads_bib.topic_model as tm
+from ads_bib.topic_model import backends as tm_backends
+from ads_bib.topic_model import embeddings as tm_embeddings
+from ads_bib.topic_model import reduction as tm_reduction
 
 
 class _FakeTopicModel:
@@ -131,8 +134,8 @@ def test_reduce_outliers_tracks_post_outlier_llm_usage(monkeypatch):
         calls["step"] = kwargs["step"]
         calls["llm_provider"] = kwargs["llm_provider"]
 
-    monkeypatch.setattr(tm, "_track_litellm_usage", _fake_track_litellm_usage)
-    monkeypatch.setattr(tm, "_record_llm_usage", _fake_record_llm_usage)
+    monkeypatch.setattr(tm_backends, "_track_litellm_usage", _fake_track_litellm_usage)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
 
     tm.reduce_outliers(
         model,
@@ -260,8 +263,8 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
     def _fake_record_llm_usage(usage, **kwargs):
         calls["record"] = {"usage": usage, **kwargs}
 
-    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
-    monkeypatch.setattr(tm, "_record_llm_usage", _fake_record_llm_usage)
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
 
     model, topics, topic_info = tm.fit_toponymy(
         documents=["d1", "d2", "d3"],
@@ -313,17 +316,25 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         topic_info = pd.DataFrame({"Topic": [0], "Name": ["Alpha"], "Main": ["Alpha"]})
         return object(), np.array([0], dtype=int), topic_info
 
-    def _fake_fetch_openrouter_costs(call_records, api_key, *, openrouter_cost_mode, max_workers=5):
+    def _fake_resolve_openrouter_costs(
+        call_records,
+        *,
+        mode,
+        api_key=None,
+        max_workers=5,
+        **kwargs,
+    ):
+        del kwargs
         calls["call_records"] = list(call_records)
         calls["api_key"] = api_key
-        calls["mode"] = openrouter_cost_mode
+        calls["mode"] = mode
         calls["max_workers"] = max_workers
-        return 0.0042
+        return 0.0042, {"total_cost_usd": 0.0042}
 
-    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
-    monkeypatch.setattr(tm, "_fit_and_extract_toponymy_outputs", _fake_fit_outputs)
-    monkeypatch.setattr(tm, "_record_llm_usage", lambda usage, **kwargs: None)
-    monkeypatch.setattr(tm, "_fetch_openrouter_costs", _fake_fetch_openrouter_costs)
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_fit_and_extract_toponymy_outputs", _fake_fit_outputs)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+    monkeypatch.setattr(tm_backends, "resolve_openrouter_costs", _fake_resolve_openrouter_costs)
 
     tracker = _Tracker()
     tm.fit_toponymy(
@@ -370,9 +381,9 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
         calls["namer_workers"] = max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
-    monkeypatch.setattr(tm, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
-    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
-    monkeypatch.setattr(tm, "_record_llm_usage", lambda usage, **kwargs: None)
+    monkeypatch.setattr(tm_backends, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
 
     tm.fit_toponymy(
         documents=["d1", "d2"],
@@ -413,9 +424,9 @@ def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeyp
             del show_progress_bar, kwargs
             return np.ones((len(texts), 3), dtype=np.float32)
 
-    monkeypatch.setattr(tm, "_build_toponymy_models", lambda **kwargs: (object(), None, _EmbedderWithUsage()))
+    monkeypatch.setattr(tm_backends, "_build_toponymy_models", lambda **kwargs: (object(), None, _EmbedderWithUsage()))
     monkeypatch.setattr(
-        tm,
+        tm_backends,
         "_fit_and_extract_toponymy_outputs",
         lambda **kwargs: (
             object(),
@@ -423,12 +434,8 @@ def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeyp
             pd.DataFrame({"Topic": [0], "Name": ["Alpha"], "Main": ["Alpha"]}),
         ),
     )
-    monkeypatch.setattr(tm, "_record_llm_usage", lambda usage, **kwargs: None)
-    monkeypatch.setattr(
-        tm,
-        "_fetch_openrouter_costs",
-        lambda call_records, api_key, *, openrouter_cost_mode, max_workers=5: 99.0,
-    )
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+    monkeypatch.setattr(tm_backends, "resolve_openrouter_costs", lambda call_records, **kwargs: (99.0, {"total_cost_usd": 99.0}))
 
     tracker = _Tracker()
     tm.fit_toponymy(
@@ -458,7 +465,7 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch):
         del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
-    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -499,7 +506,7 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch):
         del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
-    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -541,7 +548,7 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
         calls["usage"] = usage
         calls["kwargs"] = kwargs
 
-    monkeypatch.setattr(tm, "_record_llm_usage", _fake_record_llm_usage)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
 
     model, topics, _ = tm.fit_toponymy(
         documents=["d1", "d2", "d3"],
@@ -590,7 +597,7 @@ def test_fit_toponymy_validates_layer_index(monkeypatch):
         del model, api_key, base_url, max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
-    monkeypatch.setattr(tm, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
 
     try:
         tm.fit_toponymy(
@@ -626,12 +633,12 @@ def test_fit_toponymy_rejects_invalid_backend():
 def test_record_llm_usage_fetches_openrouter_cost(monkeypatch):
     calls: dict = {}
 
-    def _fake_fetch_openrouter_costs(call_records, api_key, *, openrouter_cost_mode, max_workers=5):
-        del max_workers
+    def _fake_resolve_openrouter_costs(call_records, *, mode, api_key=None, max_workers=5, **kwargs):
+        del max_workers, kwargs
         calls["call_records"] = call_records
         calls["api_key"] = api_key
-        calls["mode"] = openrouter_cost_mode
-        return 0.0123
+        calls["mode"] = mode
+        return 0.0123, {"total_cost_usd": 0.0123}
 
     class _Tracker:
         def __init__(self):
@@ -640,10 +647,10 @@ def test_record_llm_usage_fetches_openrouter_cost(monkeypatch):
         def add(self, **kwargs):
             self.entries.append(kwargs)
 
-    monkeypatch.setattr(tm, "_fetch_openrouter_costs", _fake_fetch_openrouter_costs)
+    monkeypatch.setattr(tm_backends, "resolve_openrouter_costs", _fake_resolve_openrouter_costs)
     tracker = _Tracker()
 
-    tm._record_llm_usage(
+    tm_backends._record_llm_usage(
         {"prompt_tokens": 9, "completion_tokens": 3, "call_records": [{"generation_id": "gen_1"}]},
         step="llm_labeling_toponymy",
         llm_provider="openrouter",
@@ -677,7 +684,7 @@ def test_patch_clusterer_for_toponymy_kwargs_drops_unsupported_kwargs():
             return "ok"
 
     clusterer = _StrictClusterer()
-    tm._patch_clusterer_for_toponymy_kwargs(clusterer)
+    tm_backends._patch_clusterer_for_toponymy_kwargs(clusterer)
 
     out = clusterer.fit_predict(
         np.ones((3, 2), dtype=np.float32),
@@ -707,7 +714,7 @@ def test_compute_embeddings_passes_max_workers_to_openrouter(monkeypatch):
             calls["show_progress_bar"] = show_progress_bar
             return np.ones((len(texts), 2), dtype=np.float32)
 
-    monkeypatch.setattr(tm, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+    monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
 
     emb = tm.compute_embeddings(
         ["d1", "d2", "d3"],
@@ -741,11 +748,11 @@ def test_openrouter_embedder_parallel_keeps_document_order(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
     fake_litellm.embedding = _fake_embedding
-    monkeypatch.setattr(tm, "extract_usage_stats", lambda resp: resp["usage"])
-    monkeypatch.setattr(tm, "extract_generation_id", lambda resp: resp["id"])
-    monkeypatch.setattr(tm, "extract_response_cost", lambda **kwargs: None)
+    monkeypatch.setattr(tm_embeddings, "extract_usage_stats", lambda resp: resp["usage"])
+    monkeypatch.setattr(tm_embeddings, "extract_generation_id", lambda resp: resp["id"])
+    monkeypatch.setattr(tm_embeddings, "extract_response_cost", lambda **kwargs: None)
 
-    embedder = tm.OpenRouterEmbedder(
+    embedder = tm_embeddings.OpenRouterEmbedder(
         api_key="key",
         model="google/gemini-embedding-001",
         batch_size=2,
@@ -791,12 +798,12 @@ def test_openrouter_embedder_retries_when_data_is_none(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
     fake_litellm.embedding = _fake_embedding
-    monkeypatch.setattr(tm, "retry_call", _fake_retry_call)
-    monkeypatch.setattr(tm, "extract_usage_stats", lambda resp: resp["usage"])
-    monkeypatch.setattr(tm, "extract_generation_id", lambda resp: resp["id"])
-    monkeypatch.setattr(tm, "extract_response_cost", lambda **kwargs: None)
+    monkeypatch.setattr(tm_embeddings, "retry_call", _fake_retry_call)
+    monkeypatch.setattr(tm_embeddings, "extract_usage_stats", lambda resp: resp["usage"])
+    monkeypatch.setattr(tm_embeddings, "extract_generation_id", lambda resp: resp["id"])
+    monkeypatch.setattr(tm_embeddings, "extract_response_cost", lambda **kwargs: None)
 
-    embedder = tm.OpenRouterEmbedder(
+    embedder = tm_embeddings.OpenRouterEmbedder(
         api_key="key",
         model="google/gemini-embedding-001",
         batch_size=2,
@@ -830,7 +837,7 @@ def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp
         calls["n"] += 1
         return np.ones((len(documents), 3), dtype=np.float32)
 
-    monkeypatch.setattr(tm, "_embed_local", _fake_embed_local)
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     out = tm.compute_embeddings(
         ["doc-a", "doc-b"],
         provider="local",
@@ -862,7 +869,7 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
         calls["n"] += 1
         return np.full((len(documents), 2), fill_value=7.0, dtype=np.float32)
 
-    monkeypatch.setattr(tm, "_embed_local", _fake_embed_local)
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     out = tm.compute_embeddings(
         ["doc-a", "doc-b"],
         provider="local",
@@ -884,7 +891,7 @@ def test_reduce_recomputes_on_params_hash_mismatch(monkeypatch, tmp_path, caplog
         cache_path,
         reduced=np.zeros((4, 2), dtype=np.float32),
         n_docs=4,
-        embedding_fingerprint=tm._array_fingerprint(embeddings),
+        embedding_fingerprint=tm_reduction._array_fingerprint(embeddings),
         method="pacmap",
         n_components=2,
         random_state=42,
@@ -906,7 +913,7 @@ def test_reduce_recomputes_on_params_hash_mismatch(monkeypatch, tmp_path, caplog
     fake_pacmap.PaCMAP = _FakePaCMAP
     monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
 
-    reduced = tm._reduce(
+    reduced = tm_reduction._reduce(
         embeddings=embeddings,
         n_components=2,
         method="pacmap",
@@ -925,7 +932,7 @@ def test_reduce_recomputes_on_embedding_fingerprint_mismatch(monkeypatch, tmp_pa
     caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
     embeddings = np.ones((3, 2), dtype=np.float32)
     params = {"n_neighbors": 12}
-    params_hash = tm._stable_hash(
+    params_hash = tm_reduction._stable_hash(
         {
             "method": "pacmap",
             "n_components": 2,
@@ -959,7 +966,7 @@ def test_reduce_recomputes_on_embedding_fingerprint_mismatch(monkeypatch, tmp_pa
     fake_pacmap.PaCMAP = _FakePaCMAP
     monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
 
-    reduced = tm._reduce(
+    reduced = tm_reduction._reduce(
         embeddings=embeddings,
         n_components=2,
         method="pacmap",
@@ -983,7 +990,7 @@ def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, cap
         calls["n"] += 1
         return np.arange(len(documents) * 2, dtype=np.float32).reshape(len(documents), 2)
 
-    monkeypatch.setattr(tm, "_embed_local", _fake_embed_local)
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     docs = ["doc-a", "doc-b", "doc-c"]
 
     first = tm.compute_embeddings(

@@ -382,3 +382,52 @@ def summarize_openrouter_costs(
         fetch_attempted_ids=fetch_attempted_ids,
         fetch_skipped_no_api_key=fetch_skipped_no_api_key,
     )
+
+
+def resolve_openrouter_costs(
+    call_records: Iterable[Mapping[str, Any] | str],
+    *,
+    mode: str = "hybrid",
+    api_key: str | None = None,
+    api_base: str = DEFAULT_OPENROUTER_API_BASE,
+    max_workers: int = 5,
+    retries: int = 2,
+    delay: float = 0.5,
+    wait_before_fetch: float = 2.0,
+    logger_obj: logging.Logger | None = None,
+    total_label: str = "OpenRouter cost",
+    log_fetch_resolution: bool = False,
+) -> tuple[float | None, dict[str, Any]]:
+    """Resolve total OpenRouter cost and optionally emit a compact log summary."""
+    summary = summarize_openrouter_costs(
+        call_records,
+        mode=mode,
+        api_key=api_key,
+        api_base=api_base,
+        max_workers=max_workers,
+        retries=retries,
+        delay=delay,
+        wait_before_fetch=wait_before_fetch,
+    )
+    total_cost_usd = summary["total_cost_usd"]
+
+    if logger_obj is not None:
+        if log_fetch_resolution and summary["fetch_attempted_calls"] > 0 and not summary["fetch_skipped_no_api_key"]:
+            logger_obj.info(
+                "  Resolved USD costs via /generation for %s calls (mode=%s) ...",
+                summary["fetch_attempted_calls"],
+                summary["mode"],
+            )
+        if total_cost_usd is not None:
+            logger_obj.info(
+                "  %s: $%.4f (%s/%s priced; direct=%s, fetched=%s, mode=%s)",
+                total_label,
+                total_cost_usd,
+                summary["priced_calls"],
+                summary["total_calls"],
+                summary["direct_priced_calls"],
+                summary["fetched_priced_calls"],
+                summary["mode"],
+            )
+
+    return total_cost_usd, summary

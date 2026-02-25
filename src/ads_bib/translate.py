@@ -19,7 +19,7 @@ from ads_bib._utils.openrouter_costs import (
     fetch_generation_cost,
     normalize_openrouter_api_base,
     normalize_openrouter_cost_mode,
-    summarize_openrouter_costs,
+    resolve_openrouter_costs,
 )
 
 logger = logging.getLogger(__name__)
@@ -316,7 +316,7 @@ def _summarize_translation_cost(
     if provider != "openrouter" or not call_records:
         return None, None
 
-    cost_summary = summarize_openrouter_costs(
+    total_cost_usd, cost_summary = resolve_openrouter_costs(
         call_records,
         mode=openrouter_cost_mode,
         api_key=api_key,
@@ -325,25 +325,10 @@ def _summarize_translation_cost(
         retries=2,
         delay=0.5,
         wait_before_fetch=2.0,
+        logger_obj=logger,
+        total_label="Total translation cost",
+        log_fetch_resolution=True,
     )
-    total_cost_usd = cost_summary["total_cost_usd"]
-
-    if cost_summary["fetch_attempted_calls"] > 0 and not cost_summary["fetch_skipped_no_api_key"]:
-        logger.info(
-            "  Resolved USD costs via /generation for %s calls (mode=%s) ...",
-            cost_summary["fetch_attempted_calls"],
-            openrouter_cost_mode,
-        )
-    if total_cost_usd is not None:
-        logger.info(
-            "  Total translation cost: $%.4f (%s/%s priced; direct=%s, fetched=%s, mode=%s)",
-            total_cost_usd,
-            cost_summary["priced_calls"],
-            cost_summary["total_calls"],
-            cost_summary["direct_priced_calls"],
-            cost_summary["fetched_priced_calls"],
-            openrouter_cost_mode,
-        )
     return total_cost_usd, cost_summary
 
 

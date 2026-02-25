@@ -12,6 +12,7 @@ from unittest.mock import patch
 import numpy as np
 
 import ads_bib.topic_model as tm
+from ads_bib.topic_model import embeddings as tm_embeddings
 
 
 def _measure(fn) -> tuple[float, Any]:
@@ -57,7 +58,7 @@ def benchmark_cache_behavior(*, n_docs: int, artificial_delay: float) -> dict[st
         fake_pacmap.PaCMAP = _FakePaCMAP
 
         with patch("ads_bib.config.validate_provider", lambda *a, **k: None), patch.object(
-            tm, "_embed_local", _fake_embed_local
+            tm_embeddings, "_embed_local", _fake_embed_local
         ), patch.dict("sys.modules", {"pacmap": fake_pacmap}):
             emb_cold_s, emb_cold = _measure(
                 lambda: tm.compute_embeddings(

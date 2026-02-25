@@ -33,10 +33,10 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
         calls["max_tokens"] = max_tokens
         return f"{text}-EN", 3, 2, "gid-1", 0.01
 
-    def _fake_summarize_openrouter_costs(call_records, **kwargs):
+    def _fake_resolve_openrouter_costs(call_records, **kwargs):
         calls["records"] = list(call_records)
         calls["kwargs"] = kwargs
-        return {
+        return 0.01, {
             "total_cost_usd": 0.01,
             "total_calls": 1,
             "priced_calls": 1,
@@ -54,7 +54,7 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
             self.entries.append(kwargs)
 
     monkeypatch.setattr(tr, "_translate_openrouter", _fake_translate_openrouter)
-    monkeypatch.setattr(tr, "summarize_openrouter_costs", _fake_summarize_openrouter_costs)
+    monkeypatch.setattr(tr, "resolve_openrouter_costs", _fake_resolve_openrouter_costs)
 
     tracker = _Tracker()
     out_df, cost_info = tr.translate_dataframe(

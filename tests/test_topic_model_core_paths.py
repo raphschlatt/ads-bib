@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 
 import ads_bib.topic_model as tm
+from ads_bib.topic_model import backends as tm_backends
+from ads_bib.topic_model import reduction as tm_reduction
 
 
 def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
@@ -18,7 +20,7 @@ def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
         calls.append((n_components, method, dict(params), random_state, name))
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
-    monkeypatch.setattr(tm, "_reduce", _fake_reduce)
+    monkeypatch.setattr(tm_reduction, "_reduce", _fake_reduce)
 
     r5, r2 = tm.reduce_dimensions(
         np.ones((4, 3), dtype=np.float32),
@@ -51,7 +53,7 @@ def test_reduce_pacmap_normalizes_metric_and_ignores_min_dist(monkeypatch):
     fake_pacmap.PaCMAP = _FakePaCMAP
     monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
 
-    out = tm._reduce(
+    out = tm_reduction._reduce(
         embeddings=np.ones((3, 4), dtype=np.float32),
         n_components=5,
         method="pacmap",
@@ -81,9 +83,9 @@ def test_cluster_documents_uses_selected_cluster_model(monkeypatch):
         calls["params"] = params
         return _FakeClusterModel()
 
-    monkeypatch.setattr(tm, "_create_cluster_model", _fake_create_cluster_model)
+    monkeypatch.setattr(tm_backends, "_create_cluster_model", _fake_create_cluster_model)
 
-    out = tm.cluster_documents(
+    out = tm_backends.cluster_documents(
         np.ones((3, 5), dtype=np.float32),
         method="hdbscan",
         params={"min_cluster_size": 10},
@@ -141,8 +143,8 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
         calls["rep_kwargs"] = kwargs
         return {"rep": kwargs}
 
-    monkeypatch.setattr(tm, "_build_representation_model", _fake_build_representation_model)
-    monkeypatch.setattr(tm, "_create_cluster_model", lambda method, params: cluster_model)
+    monkeypatch.setattr(tm_backends, "_build_representation_model", _fake_build_representation_model)
+    monkeypatch.setattr(tm_backends, "_create_cluster_model", lambda method, params: cluster_model)
 
     @contextmanager
     def _fake_track_litellm_usage(*, enabled: bool):
@@ -153,8 +155,8 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
         calls["usage"] = usage
         calls["record_kwargs"] = kwargs
 
-    monkeypatch.setattr(tm, "_track_litellm_usage", _fake_track_litellm_usage)
-    monkeypatch.setattr(tm, "_record_llm_usage", _fake_record_llm_usage)
+    monkeypatch.setattr(tm_backends, "_track_litellm_usage", _fake_track_litellm_usage)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
 
     model = tm.fit_bertopic(
         documents=["d1", "d2"],
@@ -206,7 +208,7 @@ def test_reduce_dimensions_auto_builds_suffix_from_embedding_id(monkeypatch):
         calls.append((n_components, method, dict(params), random_state, name))
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
-    monkeypatch.setattr(tm, "_reduce", _fake_reduce)
+    monkeypatch.setattr(tm_reduction, "_reduce", _fake_reduce)
 
     tm.reduce_dimensions(
         np.ones((4, 3), dtype=np.float32),
@@ -229,7 +231,7 @@ def test_reduce_dimensions_explicit_suffix_takes_precedence(monkeypatch):
         calls.append(name)
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
-    monkeypatch.setattr(tm, "_reduce", _fake_reduce)
+    monkeypatch.setattr(tm_reduction, "_reduce", _fake_reduce)
 
     tm.reduce_dimensions(
         np.ones((4, 3), dtype=np.float32),

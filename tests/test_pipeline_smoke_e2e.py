@@ -16,6 +16,8 @@ import ads_bib.search as search
 import ads_bib.tokenize as tok
 import ads_bib.topic_model as tm
 import ads_bib.translate as tr
+from ads_bib.topic_model import embeddings as tm_embeddings
+from ads_bib.topic_model import reduction as tm_reduction
 
 
 def _build_xox_raw(rows: list[list[str]]) -> str:
@@ -291,17 +293,20 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
     monkeypatch.setattr(tr, "_translate_openrouter", _fake_translate_openrouter)
     monkeypatch.setattr(
         tr,
-        "summarize_openrouter_costs",
-        lambda call_records, **kwargs: {
-            "total_cost_usd": 0.01 if call_records else 0.0,
-            "total_calls": len(call_records),
-            "priced_calls": len(call_records),
-            "direct_priced_calls": len(call_records),
-            "fetched_priced_calls": 0,
-            "fetch_attempted_calls": 0,
-            "fetch_skipped_no_api_key": False,
-            "mode": kwargs.get("mode", "hybrid"),
-        },
+        "resolve_openrouter_costs",
+        lambda call_records, **kwargs: (
+            0.01 if call_records else 0.0,
+            {
+                "total_cost_usd": 0.01 if call_records else 0.0,
+                "total_calls": len(call_records),
+                "priced_calls": len(call_records),
+                "direct_priced_calls": len(call_records),
+                "fetched_priced_calls": 0,
+                "fetch_attempted_calls": 0,
+                "fetch_skipped_no_api_key": False,
+                "mode": kwargs.get("mode", "hybrid"),
+            },
+        ),
     )
 
     publications = tr.detect_languages(publications, ["Title", "Abstract"])
@@ -326,7 +331,7 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
     docs = publications["full_text"].fillna("").astype(str).tolist()
 
     monkeypatch.setattr(
-        tm,
+        tm_embeddings,
         "_embed_local",
         lambda documents, model, batch_size, dtype: np.arange(
             len(documents) * 3,
@@ -340,7 +345,7 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
     )
 
     monkeypatch.setattr(
-        tm,
+        tm_reduction,
         "_reduce",
         lambda embeddings, n_components, method, params, random_state, cache_dir, name: np.full(
             (len(embeddings), n_components),

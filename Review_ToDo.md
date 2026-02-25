@@ -27,8 +27,10 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ### B) Lesbarkeit und Wartbarkeit
 
-- [ ] Grosses Modul `src/ads_bib/topic_model.py` schrittweise aufteilen (nur entlang klarer Fachgrenzen, keine Mega-Refactors auf einmal).
-- [ ] Tote Pfade entfernen: unused Imports, ungenutzte Parameter, alte Alias-Namen.
+- [x] Grosses Modul `src/ads_bib/topic_model.py` schrittweise aufteilen (nur entlang klarer Fachgrenzen, keine Mega-Refactors auf einmal).
+  - Status (2026-02-25): Final auf echtes Subpackage `src/ads_bib/topic_model/` umgestellt (`embeddings.py`, `reduction.py`, `backends.py`, `output.py`, `__init__.py`), Public API unter `ads_bib.topic_model` unveraendert.
+- [x] Tote Pfade entfernen: unused Imports, ungenutzte Parameter, alte Alias-Namen.
+  - Status (2026-02-25): Altpfade geloescht (`src/ads_bib/topic_model.py`, `src/ads_bib/_topic_model_*.py`), Tests auf modulnahe Seams migriert, Public-API-Contract-Test hinzugefuegt.
 - [ ] Logging vereinheitlichen: weniger unkontrollierte `print()`, stattdessen kontrollierbare Ausgabe (`verbose`/`quiet`).
 - [ ] Public-Funktionen mit klaren Docstrings pflegen:
   - required columns
@@ -37,7 +39,8 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ### C) Tests, die wirklich helfen
 
-- [ ] Bestehende Contract-Tests gruen halten (Notebook + Schema).
+- [x] Bestehende Contract-Tests gruen halten (Notebook + Schema).
+  - Status (2026-02-25): Vollsuite inkl. Contract-Gates gruen (`146 passed`).
 - [ ] Fuer jeden echten Bugfix mindestens einen Regressionstest schreiben.
 - [x] Test-Suite in schnell/langsam aufteilen, damit lokales Feedback flott bleibt.
 - [ ] Netz- und Modellabhaengige Teile weiterhin mocken, damit Tests stabil und reproduzierbar bleiben.
@@ -53,6 +56,10 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
     - 10k docs: total `10.22s`, peak RAM `347.9 MB`
       - search `0.03s`, export `0.88s`, translate `0.91s`, tokenize `0.20s`, topics `0.04s`, visualize `1.53s`, citations `6.62s`
   - Einordnung: fuer diese Baseline wirkt der Speicherbedarf fuer 10k weiterhin moderat (Peak +44.5 MB ggü. 1k); Hauptkostentreiber ist `citations`.
+  - Snapshot (2026-02-25, nach Topic-Model-Reset):
+    - 1k docs: total `2.73s`, peak RAM `302.2 MB`
+    - 10k docs: total `9.11s`, peak RAM `349.9 MB`
+  - Vergleich zur Pre-Reset-Baseline (2026-02-25, `2.59s`/`8.17s`): leichte Mehrzeit (`+0.14s` bei 1k, `+0.94s` bei 10k), RAM praktisch unveraendert; keine grobe Regression.
 - [x] Caching-Verhalten pruefen: zweiter Lauf muss sichtbar schneller sein, ohne falsche Wiederverwendung.
   - Benchmark-Runner: `scripts/benchmark_cache_behavior.py`
   - Kommando: `PYTHONPATH=src /mnt/c/Users/rapha/anaconda3/envs/ADS_env/python.exe scripts/benchmark_cache_behavior.py --docs 10000 --delay 0.15`
