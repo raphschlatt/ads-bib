@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
 import threading
+from typing import Literal, TypeAlias, TypedDict
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -22,6 +23,20 @@ from ads_bib._utils.openrouter_costs import (
 )
 
 logger = logging.getLogger(__name__)
+
+TranslationProvider: TypeAlias = Literal["openrouter", "huggingface"]
+
+
+class TranslationCostInfo(TypedDict):
+    """Structured cost summary returned by :func:`translate_dataframe`."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    provider: TranslationProvider
+    model: str
+    cost_usd: float | None
+    cost_mode: str | None
+    cost_summary: dict[str, object] | None
 
 # ---------------------------------------------------------------------------
 # Language detection  (fasttext – fast & free)
@@ -287,13 +302,13 @@ def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -
 
 def _summarize_translation_cost(
     *,
-    provider: str,
+    provider: TranslationProvider,
     call_records: list[dict[str, str | float | None]],
     openrouter_cost_mode: str,
     api_key: str | None,
     api_base: str,
     max_workers: int,
-) -> tuple[float | None, dict | None]:
+) -> tuple[float | None, dict[str, object] | None]:
     """Resolve translation costs when OpenRouter metadata is available."""
     if provider != "openrouter" or not call_records:
         return None, None
@@ -322,7 +337,7 @@ def translate_dataframe(
     df: pd.DataFrame,
     columns: list[str],
     *,
-    provider: str,
+    provider: TranslationProvider,
     model: str,
     target_lang: str = "en",
     api_key: str | None = None,
@@ -331,7 +346,7 @@ def translate_dataframe(
     max_translation_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
-) -> tuple[pd.DataFrame, dict]:
+) -> tuple[pd.DataFrame, TranslationCostInfo]:
     """Translate non-English entries in *columns* and add ``{col}_en`` columns.
 
     Parameters
@@ -360,9 +375,10 @@ def translate_dataframe(
 
     Returns
     -------
-    tuple[pd.DataFrame, dict]
+    tuple[pd.DataFrame, TranslationCostInfo]
         ``(translated_df, cost_info)`` where *cost_info* has keys
-        ``prompt_tokens``, ``completion_tokens``, ``provider``, ``model``.
+        ``prompt_tokens``, ``completion_tokens``, ``provider``, ``model``,
+        ``cost_usd``, ``cost_mode``, ``cost_summary``.
     """
     from .config import validate_provider
     validate_provider(
@@ -444,7 +460,7 @@ def translate_dataframe(
         max_workers=max_workers,
     )
 
-    cost_info = {
+    cost_info: TranslationCostInfo = {
         "prompt_tokens": total_pt,
         "completion_tokens": total_ct,
         "provider": provider,

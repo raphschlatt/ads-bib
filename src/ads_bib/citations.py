@@ -11,10 +11,12 @@ Export formats: GEXF (Gephi), Graphology JSON (Sigma.js), CSV, Web of Science.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 import gc
 import itertools
 import logging
 from pathlib import Path
+from typing import Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -27,6 +29,20 @@ from ads_bib._utils.authors import (
 )
 
 logger = logging.getLogger(__name__)
+
+MetricName: TypeAlias = Literal[
+    "direct",
+    "co_citation",
+    "bibliographic_coupling",
+    "author_co_citation",
+]
+ExportFormat: TypeAlias = Literal["gexf", "graphology", "csv", "all"]
+DEFAULT_CITATION_METRICS: tuple[MetricName, ...] = (
+    "direct",
+    "co_citation",
+    "bibliographic_coupling",
+    "author_co_citation",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -451,12 +467,12 @@ def process_all_citations(
     ref_df: pd.DataFrame,
     all_nodes: pd.DataFrame,
     *,
-    metrics: list[str] = ("direct", "co_citation", "bibliographic_coupling", "author_co_citation"),
-    min_counts: dict[str, int] | None = None,
+    metrics: Sequence[MetricName] = DEFAULT_CITATION_METRICS,
+    min_counts: Mapping[MetricName, int] | None = None,
     authors_filter: list[str] | None = None,
-    output_format: str = "gexf",
+    output_format: ExportFormat = "gexf",
     output_dir: Path | str = "data/output",
-) -> dict[str, pd.DataFrame]:
+) -> dict[MetricName, pd.DataFrame]:
     """Compute selected citation metrics and export edge/node files.
 
     Parameters
@@ -471,30 +487,30 @@ def process_all_citations(
         Reference metadata table (used by ``author_co_citation``).
     all_nodes : pd.DataFrame
         Node table containing at least ``id`` and metadata columns to export.
-    metrics : list[str]
+    metrics : Sequence[MetricName]
         Any subset of ``direct``, ``co_citation``, ``bibliographic_coupling``,
         ``author_co_citation``.
-    min_counts : dict[str, int], optional
+    min_counts : Mapping[MetricName, int], optional
         Per-metric minimum threshold (for example ``{"co_citation": 2}``).
     authors_filter : list[str], optional
         If set, only include papers whose serialized author text matches.
-    output_format : str
+    output_format : ExportFormat
         ``"gexf"``, ``"graphology"``, ``"csv"``, or ``"all"``.
     output_dir : Path | str
         Target directory for exported artifacts.
 
     Returns
     -------
-    dict[str, pd.DataFrame]
+    dict[MetricName, pd.DataFrame]
         Mapping from metric name to computed edge DataFrame for non-empty
         metrics.
     """
     output_dir = Path(output_dir)
-    min_counts = min_counts or {}
+    min_counts_local: dict[MetricName, int] = dict(min_counts or {})
     suffix = "_filtered" if authors_filter else ""
-    results: dict[str, pd.DataFrame] = {}
+    results: dict[MetricName, pd.DataFrame] = {}
 
-    _funcs = {
+    _funcs: dict[MetricName, Callable[[int], pd.DataFrame]] = {
         "direct": lambda mc: create_direct_citations(
             bibcodes, references, publications, min_count=mc, authors_filter=authors_filter
         ),
@@ -509,14 +525,14 @@ def process_all_citations(
         ),
     }
 
-    _edge_cols = {
+    _edge_cols: dict[MetricName, list[str]] = {
         "direct": ["source", "target"],
         "co_citation": ["source", "target", "cocit_source"],
         "bibliographic_coupling": ["source", "target", "shared_ref"],
         "author_co_citation": ["source", "target", "source_citation"],
     }
 
-    _metric_labels = {
+    _metric_labels: dict[MetricName, str] = {
         "direct": "Direct citation",
         "co_citation": "Co-citation",
         "bibliographic_coupling": "Bibliographic coupling",
@@ -524,8 +540,8 @@ def process_all_citations(
     }
 
     for metric in metrics:
-        desc = _metric_labels.get(metric, metric.replace("_", " ").title())
-        mc = min_counts.get(metric, 1)
+        desc = _metric_labels.get(metric, str(metric).replace("_", " ").title())
+        mc = min_counts_local.get(metric, 1)
 
         with tqdm(total=2, desc=desc, leave=True,
                   bar_format="{desc}: {bar} {n}/{total} [{elapsed}]") as pbar:

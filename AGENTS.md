@@ -49,6 +49,18 @@ Engineering rules and operating conventions for this repository.
   - a short evidence note is added (what was validated and when)
 - Partial progress stays `[ ]` with a status note; never close items based on intent alone.
 
+## 2.2) Architecture Notes (Lightweight)
+
+- Keep architecture notes in this file (no separate ADR tree).
+- Use this fixed line format:
+  - `Date | Decision | Context | Consequence | Cleanup impact`
+- Add one line only for decisions that influence multiple modules or future refactors.
+
+Seed entries:
+- `2026-02-25 | README as single user entrypoint | avoid split docs/README drift in notebook-first workflow | one source for happy path + troubleshooting + stability scope | no parallel docs tree to maintain`
+- `2026-02-25 | Conservative quality gate (ruff + pytest) | enforce baseline quality without large cleanup churn | deterministic local/CI check command with low friction | tighten rules later only with explicit payoff`
+- `2026-02-25 | Consolidated topic_model subpackage path | removed legacy aliases/wrappers after migration | one active implementation path under src/ads_bib/topic_model/ | fewer compatibility leftovers to carry`
+
 ## 3) DataFrame Schema Conventions
 
 - Use `snake_case` for all pipeline-produced columns.

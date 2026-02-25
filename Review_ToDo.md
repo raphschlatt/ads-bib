@@ -23,12 +23,12 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 ## Naechste 3 konkreten Schritte (ab jetzt)
 
-- [ ] **Kleine Architektur-Notizen etablieren (Should-Have):** ein schlanker Entscheidungsbereich fuer wichtige technische Richtungsentscheide.
-  - Warum jetzt: verhindert implizite Design-Drift bei weiteren Refactors.
-- [ ] **Typannotationen in stark genutzten Kernfunktionen ausbauen (Nice-to-Have):** zuerst dort, wo sie Lesbarkeit und IDE-Feedback direkt verbessern.
-  - Warum jetzt: geringe Kosten, guter Nutzen fuer Wartbarkeit.
-- [ ] **Benchmark-Szenarien fuer sehr grosse Datensaetze erweitern (Nice-to-Have):** realistische obere Lastgrenzen sichtbarer machen.
-  - Warum jetzt: datenbasierte Entscheidungen bleiben auch bei Wachstum robust.
+- [ ] **Regressionstest-DoD im Alltag strikt anwenden (Must-Have-Betrieb):** pro Bugfix mindestens ein Regressionstest im selben Change-Set.
+  - Warum jetzt: verhindert stille Rueckschritte trotz schnellem Iterationstempo.
+- [ ] **Einfachen CLI-Einstieg fuer zentrale Flows pruefen (optional):** nur wenn klarer Mehrwert gegenueber Notebook-Orchestrierung sichtbar ist.
+  - Warum jetzt: kann repetitive lokale Checks vereinfachen, ist aber kein Pflichtblocker.
+- [ ] **Architektur-Notizen fortlaufend nutzen (Should-Have-Betrieb):** bei jeder wichtigen Richtungsentscheidung einen kompakten Eintrag pflegen.
+  - Warum jetzt: haelt Designentscheidungen nachvollziehbar ohne neue Dokumentationsinseln.
 
 ## 0) Fuer wen ist das Package?
 
@@ -82,6 +82,9 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
 - [x] Kleine Baseline messen (z. B. 1k und 10k Dokumente): Laufzeit pro Hauptschritt + grober RAM-Footprint.
   - Evidenz (2026-02-24/25): `scripts/benchmark_pipeline_baseline.py` mit dokumentierten 1k/10k-Snapshots.
+- [x] Erweiterte Baseline fuer grosse Datensaetze messen (50k, 100k).
+  - Kommando (2026-02-25): `/mnt/c/Users/rapha/anaconda3/Scripts/conda.exe run -n ADS_env python scripts/benchmark_pipeline_baseline.py --sizes 50000 100000 --json-out /tmp/ads_baseline_large.json`
+  - Snapshot (2026-02-25): 50k `43.28s`, peak RAM `525.1MB`; 100k `74.30s`, peak RAM `741.8MB`; Haupttreiber bleibt `citations`.
 - [x] Caching-Verhalten pruefen: zweiter Lauf muss sichtbar schneller sein, ohne falsche Wiederverwendung.
   - Evidenz (2026-02-24): `scripts/benchmark_cache_behavior.py` + zugehoerige Guardrail-Tests.
 - [x] Nur datenbasierte Optimierungen umsetzen (keine "vorsorglichen" Mikro-Optimierungen).
@@ -108,14 +111,16 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
   - Evidenz (2026-02-25): in AGENTS definiert und im README kompakt als Nutzungskonvention dokumentiert.
 - [x] Leichtgewichtige Code-Gates einfuehren (z. B. `ruff` + `pytest`) statt schwerem Tooling-Overkill.
   - Evidenz (2026-02-25): `pyproject.toml` um `ruff`-Konfiguration ergaenzt; Standard-Check-Befehl dokumentiert.
-- [ ] Kleine Architektur-Notizen pflegen, wenn wichtige Entscheidungen getroffen werden.
-  - Status (2026-02-25): noch offen; als naechster Schritt priorisiert.
+- [x] Kleine Architektur-Notizen pflegen, wenn wichtige Entscheidungen getroffen werden.
+  - Evidenz (2026-02-25): `AGENTS.md` um Abschnitt `2.2) Architecture Notes (Lightweight)` mit fixem Format und Seed-Entries erweitert.
 
 ## 3) Nice-to-Have ToDos (wenn Zeit da ist)
 
 - [ ] Einfachen CLI-Einstieg fuer zentrale Flows pruefen (optional).
-- [ ] Mehr Typannotationen in stark genutzten Kernfunktionen.
-- [ ] Erweiterte Benchmark-Szenarien fuer sehr grosse Datensaetze.
+- [x] Mehr Typannotationen in stark genutzten Kernfunktionen.
+  - Evidenz (2026-02-25): Public-Hotspots typisiert (`translate_dataframe` mit `TranslationCostInfo`, `process_all_citations` mit `MetricName`, `build_topic_dataframe` mit Protocol, `fit_bertopic`/`fit_toponymy` mit Literal-Typealiases).
+- [x] Erweiterte Benchmark-Szenarien fuer sehr grosse Datensaetze.
+  - Evidenz (2026-02-25): `50k`/`100k` Baseline dokumentiert in Abschnitt `1) D) Performance`.
 
 ## 4) Praktischer Review-Ablauf (pro groesserer Aenderung)
 

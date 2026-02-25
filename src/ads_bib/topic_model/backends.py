@@ -6,7 +6,7 @@ import asyncio
 from contextlib import contextmanager
 import inspect
 import logging
-from typing import Any
+from typing import Any, Literal, TypeAlias, cast
 import warnings
 
 import numpy as np
@@ -34,6 +34,9 @@ logger = logging.getLogger("ads_bib.topic_model")
 DEFAULT_CLUSTER_MIN_SIZE = 180
 DEFAULT_BERTOPIC_TOP_N_WORDS = 20
 DEFAULT_POS_SPACY_MODEL = "en_core_web_sm"
+BERTopicLLMProvider: TypeAlias = Literal["local", "huggingface_api", "openrouter"]
+ToponymyLLMProvider: TypeAlias = Literal["local", "openrouter"]
+ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
 
 
 # ---------------------------------------------------------------------------
@@ -509,10 +512,10 @@ def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
 
 def _normalize_toponymy_inputs(
     *,
-    llm_provider: str,
-    backend: str,
+    llm_provider: ToponymyLLMProvider | str,
+    backend: ToponymyBackend | str,
     api_key: str | None,
-) -> tuple[str, str]:
+) -> tuple[ToponymyLLMProvider, ToponymyBackend]:
     """Normalize and validate Toponymy backend/provider selections."""
     provider_norm = llm_provider.strip().lower()
     if provider_norm not in {"openrouter", "local"}:
@@ -524,7 +527,10 @@ def _normalize_toponymy_inputs(
     if backend_norm not in {"toponymy", "toponymy_evoc"}:
         raise ValueError(f"Invalid backend '{backend}'. Expected 'toponymy' or 'toponymy_evoc'.")
 
-    return provider_norm, backend_norm
+    return (
+        cast(ToponymyLLMProvider, provider_norm),
+        cast(ToponymyBackend, backend_norm),
+    )
 
 
 def _build_toponymy_clusterer(
@@ -676,7 +682,7 @@ def fit_bertopic(
     documents: list[str],
     reduced_5d: np.ndarray,
     *,
-    llm_provider: str = "local",
+    llm_provider: BERTopicLLMProvider = "local",
     llm_model: str = "google/gemma-3-1b-it",
     llm_prompt: str | None = None,
     pipeline_models: list[str] | None = None,
@@ -823,9 +829,9 @@ def fit_toponymy(
     embeddings: np.ndarray,
     clusterable_vectors: np.ndarray,
     *,
-    backend: str = "toponymy",
+    backend: ToponymyBackend = "toponymy",
     layer_index: int = 0,
-    llm_provider: str = "openrouter",
+    llm_provider: ToponymyLLMProvider = "openrouter",
     llm_model: str = "google/gemini-3-flash-preview",
     embedding_model: str = "google/gemini-embedding-001",
     api_key: str | None = None,

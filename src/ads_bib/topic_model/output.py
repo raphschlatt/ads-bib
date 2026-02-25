@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Protocol
 
 import numpy as np
 import pandas as pd
 
 
+class TopicModelInfoProvider(Protocol):
+    """Minimal topic-model contract required for DataFrame output shaping."""
+
+    def get_topic_info(self) -> pd.DataFrame:
+        """Return BERTopic-like topic info containing at least Topic/Name columns."""
+
+
 def build_topic_dataframe(
     df: pd.DataFrame,
-    topic_model: Any,
+    topic_model: TopicModelInfoProvider,
     topics: np.ndarray,
     reduced_2d: np.ndarray,
     embeddings: np.ndarray | None = None,
@@ -22,9 +29,9 @@ def build_topic_dataframe(
     ----------
     df : pd.DataFrame
         Input rows to enrich. Row count must match *topics* and *reduced_2d*.
-    topic_model : Any
-        Fitted BERTopic/Toponymy-like model. Used for topic info and optional
-        label refresh hooks.
+    topic_model : TopicModelInfoProvider
+        Fitted BERTopic/Toponymy-like model implementing ``get_topic_info()``.
+        Optional label/layer hooks are used when present.
     topics : np.ndarray
         Topic assignment vector (outliers as ``-1``).
     reduced_2d : np.ndarray
@@ -64,21 +71,21 @@ def build_topic_dataframe(
     if embeddings is not None:
         df["full_embeddings"] = list(embeddings)
 
-    if (
-        hasattr(topic_model, "topic_representations_")
-        and hasattr(topic_model, "set_topic_labels")
-        and topic_model.topic_representations_
-    ):
+    topic_representations = getattr(topic_model, "topic_representations_", None)
+    set_topic_labels = getattr(topic_model, "set_topic_labels", None)
+    if callable(set_topic_labels) and topic_representations:
         labels = {}
-        for tid, rep in topic_model.topic_representations_.items():
+        for tid, rep in topic_representations.items():
             if rep:
                 labels[tid] = " | ".join(w for w, _ in rep[:3])
         labels[-1] = "Outlier Topic"
-        topic_model.set_topic_labels(labels)
+        set_topic_labels(labels)
 
-    if hasattr(topic_model, "cluster_layers_"):
-        for i, layer in enumerate(topic_model.cluster_layers_):
-            df[f"Topic_Layer_{i}"] = layer.topic_name_vector
+    cluster_layers = getattr(topic_model, "cluster_layers_", None)
+    if cluster_layers is not None:
+        for i, layer in enumerate(cluster_layers):
+            if hasattr(layer, "topic_name_vector"):
+                df[f"Topic_Layer_{i}"] = layer.topic_name_vector
 
     return df
 
