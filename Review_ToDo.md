@@ -65,7 +65,8 @@ Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
   - Automated Guardrails:
     - `tests/test_topic_model.py::test_compute_embeddings_uses_cache_on_second_call`
     - `tests/test_topic_model.py::test_reduce_dimensions_uses_cache_then_recomputes_on_param_change`
-- [ ] Nur datenbasierte Optimierungen umsetzen (keine "vorsorglichen" Mikro-Optimierungen).
+- [x] Nur datenbasierte Optimierungen umsetzen (keine "vorsorglichen" Mikro-Optimierungen).
+  - Status (2026-02-25): Citations wurde als Bottleneck erst gemessen und dann gezielt optimiert (sparse Pfade). Re-Checks: Vollsuite `138 passed`; Baseline 10k weiterhin mit `citations` als Haupttreiber (~`8.9-9.1s`) und ohne unkontrollierte Seiteneffekte.
 
 ### E) Doku fuer reale Nutzer
 
