@@ -28,9 +28,24 @@ Engineering rules and operating conventions for this repository.
 - `KISS`: prefer the simplest implementation that satisfies requirements.
 - `DRY`: centralize shared logic; avoid copy-pasted behavior across modules.
 - `YAGNI`: do not add abstractions or compatibility layers unless they are actively needed.
+- Fit-for-purpose over enterprise patterns:
+  - This project is notebook-first research software for small teams.
+  - Prefer clean, lean, understandable solutions over production-platform complexity.
+  - Introduce "production-grade" mechanisms only when a concrete recurring problem requires them.
 - Uniformity-first: prefer one shared implementation path for equivalent provider operations (especially OpenRouter calls) unless a documented exception is justified.
 - Explicit over implicit: avoid hidden side effects and implicit schema coupling.
 - Deterministic outputs: prefer reproducible defaults (`random_state`, stable ordering).
+- No redundant paths:
+  - Keep one active implementation path per behavior.
+  - Remove transitional wrappers/aliases once migration is complete and verified.
+
+## 2.1) Review and Checklist Discipline
+
+- Checklist items are marked `[x]` only after:
+  - implementation is merged in active code paths
+  - verification is run (tests/benchmark/contract checks as applicable)
+  - a short evidence note is added (what was validated and when)
+- Partial progress stays `[ ]` with a status note; never close items based on intent alone.
 
 ## 3) DataFrame Schema Conventions
 

@@ -6,6 +6,14 @@ Ziel: Ein schlanker, aber gruendlicher Review-Plan fuer ein kleines Forschungste
 Abgrenzung: `Package_ToDo.md` bleibt das Release/Packaging-Gate.  
 Diese Datei ist fuer Codequalitaet, Stabilitaet und Wartbarkeit im Alltag.
 
+## Arbeitsmodus (gilt fuer alle Punkte)
+
+- Kontext: Notebook-first Forschungsworkflow, lokale Nutzung, kleine Teams.
+- Leitlinie: clean and lean vor "production platform"-Overengineering.
+- Keine Redundanzen: pro Verhalten genau ein aktiver Implementierungspfad; Uebergangs-/Kompatibilitaetsreste nach stabiler Migration entfernen.
+- Abhakregel: `[x]` nur nach realer Umsetzung plus Verifikation (Tests/Benchmark/Contract, je nach Punkt) mit kurzer Evidenznotiz.
+- Teilfortschritt bleibt `[ ]` mit Statuszeile; "geplant" oder "angesprochen" reicht nicht zum Abhaken.
+
 ## 0) Fuer wen ist das Package?
 
 - [ ] Primaere Zielgruppe klar festhalten: Forschende/Promovierende, die ADS-Daten analysieren (Notebook-first, lokal, kleine Teams).
