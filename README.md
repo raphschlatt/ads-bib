@@ -145,6 +145,20 @@ Symptom: tokenization model load error.
 Fix:
 - Install model explicitly (`python -m spacy download en_core_web_md`) or use fallback.
 
+## Third-Party Attribution
+
+Core runtime dependencies and licenses (from installed package metadata):
+- `pandas` (BSD-3-Clause), `numpy` (BSD-style), `scipy` (BSD-3-Clause)
+- `requests` (Apache-2.0), `python-dotenv` (BSD-3-Clause), `PyYAML` (MIT)
+- `fasttext-wheel` (MIT), `spacy` (MIT), `tqdm` (MPL-2.0/MIT)
+
+Optional topic/LLM stack includes projects such as `bertopic` (MIT),
+`sentence-transformers` (Apache-2.0), `scikit-learn` (BSD-3-Clause),
+`umap-learn` (BSD), `hdbscan` (BSD), `litellm` (MIT), `openai` (Apache-2.0),
+`toponymy` (MIT), and `evoc` (MIT).
+
+See `pyproject.toml` for the exact dependency list used by this package.
+
 ## Quality Checks (Local/CI)
 
 Run both checks in `ADS_env`:
