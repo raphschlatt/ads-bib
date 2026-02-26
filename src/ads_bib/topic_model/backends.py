@@ -258,12 +258,10 @@ def _build_representation_model(
     llm_nr_docs: int,
     llm_diversity: float,
     llm_delay: float,
-    keybert_model: str | None,
     api_key: str | None,
     pos_spacy_model: str,
 ) -> dict[str, Any]:
     """Build BERTopic representation models for sequential and parallel use."""
-    del keybert_model
     from bertopic.representation import MaximalMarginalRelevance, PartOfSpeech
 
     default_prompt = (
@@ -768,7 +766,6 @@ def fit_bertopic(
         llm_nr_docs=llm_nr_docs,
         llm_diversity=llm_diversity,
         llm_delay=llm_delay,
-        keybert_model=keybert_model,
         api_key=api_key,
         pos_spacy_model=pos_spacy_model,
     )

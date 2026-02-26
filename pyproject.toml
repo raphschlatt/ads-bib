@@ -62,7 +62,7 @@ hdbscan = ["hdbscan"]
 translate-local = ["transformers", "torch", "accelerate"]
 translate-api = ["openai"]
 test = ["pytest>=7", "ruff>=0.6"]
-all = ["ads-bib[topic,translate-local,translate-api]"]
+all = ["ads-bib[topic,translate-local,translate-api,umap,hdbscan]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ads_bib"]

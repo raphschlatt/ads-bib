@@ -346,7 +346,7 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
 
     monkeypatch.setattr(
         tm_reduction,
-        "_reduce",
+        "_reduce_with_cache",
         lambda embeddings, n_components, method, params, random_state, cache_dir, name: np.full(
             (len(embeddings), n_components),
             float(n_components),

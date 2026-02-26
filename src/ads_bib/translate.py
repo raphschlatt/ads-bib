@@ -11,6 +11,7 @@ from typing import Literal, TypeAlias, TypedDict
 import pandas as pd
 from tqdm.auto import tqdm
 
+from ads_bib._utils.cleaning import require_columns as _require_columns
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -43,17 +44,6 @@ class TranslationCostInfo(TypedDict):
 # ---------------------------------------------------------------------------
 
 _ft_model = None
-
-
-def _require_columns(df: pd.DataFrame, columns: list[str], *, function_name: str) -> None:
-    """Raise a clear error when required DataFrame columns are missing."""
-    missing = [col for col in columns if col not in df.columns]
-    if missing:
-        required_text = ", ".join(columns)
-        missing_text = ", ".join(missing)
-        raise ValueError(
-            f"{function_name} requires columns: {required_text}. Missing: {missing_text}."
-        )
 
 
 def _get_ft_model(model_path: str | Path | None = None):

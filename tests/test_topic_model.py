@@ -913,7 +913,7 @@ def test_reduce_recomputes_on_params_hash_mismatch(monkeypatch, tmp_path, caplog
     fake_pacmap.PaCMAP = _FakePaCMAP
     monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
 
-    reduced = tm_reduction._reduce(
+    reduced = tm_reduction._reduce_with_cache(
         embeddings=embeddings,
         n_components=2,
         method="pacmap",
@@ -966,7 +966,7 @@ def test_reduce_recomputes_on_embedding_fingerprint_mismatch(monkeypatch, tmp_pa
     fake_pacmap.PaCMAP = _FakePaCMAP
     monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
 
-    reduced = tm_reduction._reduce(
+    reduced = tm_reduction._reduce_with_cache(
         embeddings=embeddings,
         n_components=2,
         method="pacmap",

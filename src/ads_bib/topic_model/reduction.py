@@ -153,27 +153,6 @@ def _reduce_with_cache(
     return reduced
 
 
-def _reduce(
-    embeddings: np.ndarray,
-    n_components: int,
-    method: str,
-    params: dict[str, Any],
-    random_state: int,
-    cache_dir: Path | None,
-    name: str,
-) -> np.ndarray:
-    """Reduce embedding dimensionality with optional on-disk caching."""
-    return _reduce_with_cache(
-        embeddings=embeddings,
-        n_components=n_components,
-        method=method,
-        params=params,
-        random_state=random_state,
-        cache_dir=cache_dir,
-        name=name,
-    )
-
-
 def reduce_dimensions(
     embeddings: np.ndarray,
     *,
@@ -226,7 +205,7 @@ def reduce_dimensions(
         )
 
     with tqdm(total=2, desc=f"Reduction ({method.upper()})", disable=not show_progress) as pbar:
-        r5 = _reduce(
+        r5 = _reduce_with_cache(
             embeddings,
             5,
             method,
@@ -236,7 +215,7 @@ def reduce_dimensions(
             f"5d_{cache_suffix}",
         )
         pbar.update(1)
-        r2 = _reduce(
+        r2 = _reduce_with_cache(
             embeddings,
             2,
             method,

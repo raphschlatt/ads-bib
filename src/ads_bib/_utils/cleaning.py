@@ -9,6 +9,17 @@ import numpy as np
 import pandas as pd
 
 
+def require_columns(df: pd.DataFrame, columns: list[str], *, function_name: str) -> None:
+    """Raise a clear error when required DataFrame columns are missing."""
+    missing = [col for col in columns if col not in df.columns]
+    if missing:
+        required_text = ", ".join(columns)
+        missing_text = ", ".join(missing)
+        raise ValueError(
+            f"{function_name} requires columns: {required_text}. Missing: {missing_text}."
+        )
+
+
 def clean_html(text: str) -> str:
     """Unescape HTML entities and strip HTML tags."""
     if not isinstance(text, str):

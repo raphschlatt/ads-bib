@@ -11,18 +11,9 @@ import sys
 import pandas as pd
 from tqdm.auto import tqdm
 
+from ads_bib._utils.cleaning import require_columns as _require_columns
+
 logger = logging.getLogger(__name__)
-
-
-def _require_columns(df: pd.DataFrame, columns: list[str], *, function_name: str) -> None:
-    """Raise a clear error when required DataFrame columns are missing."""
-    missing = [col for col in columns if col not in df.columns]
-    if missing:
-        required_text = ", ".join(columns)
-        missing_text = ", ".join(missing)
-        raise ValueError(
-            f"{function_name} requires columns: {required_text}. Missing: {missing_text}."
-        )
 
 
 def default_n_process() -> int:

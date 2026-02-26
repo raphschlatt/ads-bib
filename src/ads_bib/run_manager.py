@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import logging
 import re
@@ -27,11 +29,14 @@ class RunManager:
     """
 
     def __init__(self, run_name: str = "default", project_root: str | Path | None = None):
-        """Initializes a new pipeline run.
-        
-        Args:
-            run_name (str): An identifier for the run (e.g., "Treder_KLD_Test").
-            project_root (str | Path | None): The root of the project. If None, uses CWD.
+        """Initialize a new pipeline run.
+
+        Parameters
+        ----------
+        run_name : str
+            An identifier for the run (e.g., ``"Treder_KLD_Test"``).
+        project_root : str, Path, or None
+            The root of the project. If ``None``, uses CWD.
         """
         self.run_name = run_name
         self.project_root = Path(project_root) if project_root else Path.cwd()
@@ -63,16 +68,18 @@ class RunManager:
             path.mkdir(parents=True, exist_ok=True)
 
     def save_config(self, globals_dict: dict[str, Any], prefix: str = "") -> None:
-        """Snapshots the configuration parameters directly from Notebook globals.
-        
-        It looks for variables that represent configuration (by convention, 
-        often ALL_CAPS, or defined under a specific prefix) and saves them 
-        as YAML to ensure the run is reproducible.
-        
-        Args:
-            globals_dict (dict[str, Any]): The globals() dictionary from the notebook.
-            prefix (str): Optional prefix to filter variables (e.g., if you prefix your params).
-                          If empty, it captures standard ALL_CAPS variables holding atomic types.
+        """Snapshot configuration parameters from notebook globals.
+
+        Captures ALL_CAPS variables (or those matching *prefix*) and saves
+        them as YAML to ensure the run is reproducible.
+
+        Parameters
+        ----------
+        globals_dict : dict[str, Any]
+            The ``globals()`` dictionary from the notebook.
+        prefix : str
+            Optional prefix to filter variables. If empty, captures
+            standard ALL_CAPS variables holding atomic types.
         """
         config = {}
         for key, value in globals_dict.items():
@@ -111,13 +118,17 @@ class RunManager:
         )
 
     def get_path(self, asset_type: str) -> Path:
-        """Retrieves the Path object for a specific type of asset in this run.
-        
-        Args:
-            asset_type (str): 'data', 'plots', or 'logs'.
-            
-        Returns:
-            Path: The directory path.
+        """Return the directory path for a specific asset type in this run.
+
+        Parameters
+        ----------
+        asset_type : str
+            One of ``"data"``, ``"plots"``, or ``"logs"``.
+
+        Returns
+        -------
+        Path
+            The directory path.
         """
         if asset_type not in self.paths:
             raise ValueError(f"Unknown asset type '{asset_type}'. Available: {list(self.paths.keys())}")

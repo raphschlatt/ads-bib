@@ -3,6 +3,8 @@ These paths handle global storage (raw data, cached embeddings, models) that per
 across multiple runs. Run-specific outputs (plots, subsets) are handled by the RunManager.
 """
 
+from __future__ import annotations
+
 from importlib.util import find_spec
 from pathlib import Path
 from dotenv import load_dotenv

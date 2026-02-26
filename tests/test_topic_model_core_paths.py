@@ -20,7 +20,7 @@ def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
         calls.append((n_components, method, dict(params), random_state, name))
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
-    monkeypatch.setattr(tm_reduction, "_reduce", _fake_reduce)
+    monkeypatch.setattr(tm_reduction, "_reduce_with_cache", _fake_reduce)
 
     r5, r2 = tm.reduce_dimensions(
         np.ones((4, 3), dtype=np.float32),
@@ -53,7 +53,7 @@ def test_reduce_pacmap_normalizes_metric_and_ignores_min_dist(monkeypatch):
     fake_pacmap.PaCMAP = _FakePaCMAP
     monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
 
-    out = tm_reduction._reduce(
+    out = tm_reduction._reduce_with_cache(
         embeddings=np.ones((3, 4), dtype=np.float32),
         n_components=5,
         method="pacmap",
@@ -208,7 +208,7 @@ def test_reduce_dimensions_auto_builds_suffix_from_embedding_id(monkeypatch):
         calls.append((n_components, method, dict(params), random_state, name))
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
-    monkeypatch.setattr(tm_reduction, "_reduce", _fake_reduce)
+    monkeypatch.setattr(tm_reduction, "_reduce_with_cache", _fake_reduce)
 
     tm.reduce_dimensions(
         np.ones((4, 3), dtype=np.float32),
@@ -231,7 +231,7 @@ def test_reduce_dimensions_explicit_suffix_takes_precedence(monkeypatch):
         calls.append(name)
         return np.full((len(embeddings), n_components), fill_value=n_components, dtype=np.float32)
 
-    monkeypatch.setattr(tm_reduction, "_reduce", _fake_reduce)
+    monkeypatch.setattr(tm_reduction, "_reduce_with_cache", _fake_reduce)
 
     tm.reduce_dimensions(
         np.ones((4, 3), dtype=np.float32),
