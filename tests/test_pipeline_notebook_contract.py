@@ -64,6 +64,16 @@ def test_pipeline_notebook_code_contract():
     assert "validate_provider" not in code
     assert "CACHE_SUFFIX" not in code
 
+    # Provider parity defaults (API vs local runbook baseline)
+    assert 'TRANSLATION_MODEL = "mradermacher/translategemma-4b-it-GGUF"' in code
+    assert 'EMBEDDING_MODEL = "google/embeddinggemma-300m"' in code
+    assert 'LLM_MODEL = "Qwen/Qwen3-0.6B"' in code
+    assert '"google/gemma-3-4b-it"' in code
+    assert "BERTOPIC_LABEL_MAX_TOKENS =" in code
+    assert "TOPONYMY_LOCAL_LABEL_MAX_TOKENS =" in code
+    assert "llm_max_new_tokens=BERTOPIC_LABEL_MAX_TOKENS" in code
+    assert "local_llm_max_new_tokens=TOPONYMY_LOCAL_LABEL_MAX_TOKENS" in code
+
 
 def test_pipeline_notebook_has_expected_config_sections():
     nb = _load_notebook()

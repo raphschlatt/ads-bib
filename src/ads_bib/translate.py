@@ -5,7 +5,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
-import threading
 from typing import Literal, TypeAlias, TypedDict
 
 import pandas as pd
@@ -25,7 +24,7 @@ from ads_bib._utils.openrouter_costs import (
 
 logger = logging.getLogger(__name__)
 
-TranslationProvider: TypeAlias = Literal["openrouter", "huggingface"]
+TranslationProvider: TypeAlias = Literal["openrouter", "gguf"]
 
 
 class TranslationCostInfo(TypedDict):
@@ -108,6 +107,8 @@ SYSTEM_PROMPT = (
 DEFAULT_TRANSLATION_MAX_TOKENS = 2048
 
 
+import threading
+
 _thread_local = threading.local()
 
 
@@ -153,36 +154,6 @@ def _translate_openrouter(
     gen_id = usage["call_record"]["generation_id"]
     direct_cost = usage["call_record"]["direct_cost"]
     return translated, pt, ct, gen_id, direct_cost
-
-
-def _translate_huggingface(
-    text: str,
-    target_lang: str,
-    *,
-    _pipeline=None,
-    max_new_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
-) -> str:
-    """Translate *text* using a local HuggingFace model (e.g. TranslateGemma)."""
-    prompt = f"Translate the following scientific text to {target_lang}:\n\n{text}"
-    result = _pipeline(prompt, max_new_tokens=max_new_tokens, do_sample=False)
-    generated = result[0]["generated_text"]
-    # TranslateGemma returns the full prompt + translation; strip the prompt
-    if generated.startswith(prompt):
-        generated = generated[len(prompt):].strip()
-    return generated
-
-
-def _load_hf_pipeline(model: str):
-    """Load a HuggingFace text-generation pipeline (cached)."""
-    from transformers import pipeline as hf_pipeline
-
-    logger.info("Loading local translation model: %s", model)
-    return hf_pipeline(
-        "text-generation",
-        model=model,
-        device_map="auto",
-        torch_dtype="auto",
-    )
 
 
 def _prepare_translation_targets(
@@ -256,25 +227,31 @@ def _translate_rows_openrouter(
     return total_pt, total_ct, call_records, failed
 
 
-def _translate_rows_huggingface(
+def _translate_rows_gguf(
     df: pd.DataFrame,
     *,
     source_col: str,
     target_col: str,
     to_translate: pd.DataFrame,
     target_lang: str,
-    hf_pipeline: object,
-    max_new_tokens: int,
+    model_path: str,
+    max_tokens: int,
 ) -> list[tuple[object, str]]:
-    """Translate selected rows with local HuggingFace pipeline."""
+    """Translate selected rows with a local GGUF model."""
+    from ads_bib._utils.gguf_backend import translate_gguf
+
     failed: list[tuple[object, str]] = []
-    for idx, text in tqdm(to_translate[source_col].items(), total=len(to_translate), desc=f"  {source_col}"):
+    for idx, text in tqdm(
+        to_translate[source_col].items(),
+        total=len(to_translate),
+        desc=f"  {source_col}",
+    ):
         try:
-            df.at[idx, target_col] = _translate_huggingface(
+            df.at[idx, target_col] = translate_gguf(
                 str(text),
                 target_lang,
-                _pipeline=hf_pipeline,
-                max_new_tokens=max_new_tokens,
+                model_path=model_path,
+                max_tokens=max_tokens,
             )
         except Exception as exc:
             failed.append((idx, f"{type(exc).__name__}: {exc}"))
@@ -346,9 +323,10 @@ def translate_dataframe(
     columns : list[str]
         Columns to translate (e.g. ``["Title", "Abstract"]``).
     provider : str
-        ``"openrouter"`` or ``"huggingface"``.
+        ``"openrouter"`` or ``"gguf"``.
     model : str
-        Model identifier (e.g. ``"gpt-4o"`` for OpenRouter, ``"google/translategemma-4b-it"`` for HF).
+        Model identifier (e.g. ``"gpt-4o"`` for OpenRouter,
+        ``"mradermacher/translategemma-4b-it-GGUF"`` for GGUF).
     target_lang : str
         Target language code.
     api_key : str, optional
@@ -358,8 +336,7 @@ def translate_dataframe(
     max_workers : int
         Concurrent workers for API-based translation.
     max_translation_tokens : int
-        Token limit per translation call (`max_tokens` for OpenRouter and
-        `max_new_tokens` for local HuggingFace pipelines).
+        Token limit per translation call.
     openrouter_cost_mode : str
         ``"hybrid"`` (default), ``"strict"``, or ``"fast"``.
 
@@ -373,10 +350,10 @@ def translate_dataframe(
     from .config import validate_provider
     validate_provider(
         provider,
-        valid={"openrouter", "huggingface"},
+        valid={"openrouter", "gguf"},
         api_key=api_key,
         requires_key={"openrouter"},
-        requires_import={"huggingface": "transformers"},
+        requires_import={"gguf": "llama_cpp"},
     )
     df = df.copy()
     if max_translation_tokens <= 0:
@@ -387,10 +364,12 @@ def translate_dataframe(
     total_ct = 0
     call_records: list[dict[str, str | float | None]] = []
 
-    # Pre-load HF pipeline once (not per-row)
-    hf_pipe: object | None = None
-    if provider == "huggingface":
-        hf_pipe = _load_hf_pipeline(model)
+    # Pre-resolve GGUF model path once (downloads on first call, then cached).
+    gguf_model_path: str | None = None
+    if provider == "gguf":
+        from ads_bib._utils.gguf_backend import resolve_gguf_model
+
+        gguf_model_path = resolve_gguf_model(model)
 
     for col in columns:
         en_col, to_translate = _prepare_translation_targets(
@@ -426,15 +405,16 @@ def translate_dataframe(
             total_pt += pt
             total_ct += ct
             call_records.extend(records)
-        elif provider == "huggingface":
-            failed = _translate_rows_huggingface(
+        elif provider == "gguf":
+            assert gguf_model_path is not None
+            failed = _translate_rows_gguf(
                 df,
                 source_col=col,
                 target_col=en_col,
                 to_translate=to_translate,
                 target_lang=target_lang,
-                hf_pipeline=hf_pipe,
-                max_new_tokens=max_translation_tokens,
+                model_path=gguf_model_path,
+                max_tokens=max_translation_tokens,
             )
         else:
             raise ValueError(f"Unknown translation provider: {provider}")

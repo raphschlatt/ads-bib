@@ -55,6 +55,26 @@ OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
 4. Run `pipeline.ipynb` top-to-bottom for the standard flow:
    Search -> Export -> Translate -> Tokenize -> Topics -> Visualize -> Citations.
 
+## Provider Parity Runbook
+
+For manual parity validation (`openrouter` vs `local`, both `bertopic` and `toponymy`),
+follow:
+
+- `docs/manual_provider_parity.md`
+
+Current local baseline models in `pipeline.ipynb`:
+
+- Translation (GGUF): `mradermacher/translategemma-4b-it-GGUF` (via llama-cpp-python)
+- Embeddings: `google/embeddinggemma-300m` (via sentence-transformers)
+- Topic labeling: `Qwen/Qwen3-0.6B` (via transformers)
+- Optional quality alternative: `google/gemma-3-4b-it`
+
+Local model notes:
+- Translation uses GGUF quantised models via `llama-cpp-python` for fast CPU inference.
+  Install with: `pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`
+- Embeddings and labeling require a recent HF stack in `ADS_env`:
+  `pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+
 ## Configuration Convention (Notebook vs Modules)
 
 - Notebook stays orchestration-only.
@@ -131,6 +151,14 @@ Symptom: import/provider errors for topic models, translation, or visualization.
 Fix:
 - Install required extras (`pip install -e ".[all,test]"`).
 - For minimal setups, install only needed extras and select matching providers.
+
+### Unsupported local HF architecture (`gemma3`, `qwen3`, `gemma3_text`)
+Symptom: errors such as `Transformers does not recognize this architecture`.
+
+Fix:
+- Upgrade the local HF stack in `ADS_env`:
+  `pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+- Restart kernel/session after upgrade.
 
 ### OpenRouter provider errors
 Symptom: provider validation/auth/cost resolution failures.

@@ -19,6 +19,11 @@ import ads_bib.translate as tr
 from ads_bib.topic_model import embeddings as tm_embeddings
 from ads_bib.topic_model import reduction as tm_reduction
 
+try:
+    from tests.provider_profiles import REQUIRED_PROVIDER_PROFILES, ProviderProfile
+except ModuleNotFoundError:  # pragma: no cover - fallback for direct test module execution
+    from provider_profiles import REQUIRED_PROVIDER_PROFILES, ProviderProfile
+
 
 def _build_xox_raw(rows: list[list[str]]) -> str:
     return "".join("xOx".join(row) + "xOx\n" for row in rows)
@@ -160,7 +165,12 @@ def _load_visualize_module(monkeypatch):
     return module, calls
 
 
-def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object]:
+def _run_offline_mocked_pipeline(
+    monkeypatch,
+    run_dir: Path,
+    *,
+    profile: ProviderProfile,
+) -> dict[str, object]:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Provider checks are not the concern of this E2E smoke test.
@@ -290,32 +300,42 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
         del target_lang, model, api_key, api_base, max_tokens
         return f"EN::{text}", 4, 2, "gid-1", 0.01
 
-    monkeypatch.setattr(tr, "_translate_openrouter", _fake_translate_openrouter)
-    monkeypatch.setattr(
-        tr,
-        "resolve_openrouter_costs",
-        lambda call_records, **kwargs: (
-            0.01 if call_records else 0.0,
-            {
-                "total_cost_usd": 0.01 if call_records else 0.0,
-                "total_calls": len(call_records),
-                "priced_calls": len(call_records),
-                "direct_priced_calls": len(call_records),
-                "fetched_priced_calls": 0,
-                "fetch_attempted_calls": 0,
-                "fetch_skipped_no_api_key": False,
-                "mode": kwargs.get("mode", "hybrid"),
-            },
-        ),
-    )
+    if profile.translation_provider == "openrouter":
+        monkeypatch.setattr(tr, "_translate_openrouter", _fake_translate_openrouter)
+        monkeypatch.setattr(
+            tr,
+            "resolve_openrouter_costs",
+            lambda call_records, **kwargs: (
+                0.01 if call_records else 0.0,
+                {
+                    "total_cost_usd": 0.01 if call_records else 0.0,
+                    "total_calls": len(call_records),
+                    "priced_calls": len(call_records),
+                    "direct_priced_calls": len(call_records),
+                    "fetched_priced_calls": 0,
+                    "fetch_attempted_calls": 0,
+                    "fetch_skipped_no_api_key": False,
+                    "mode": kwargs.get("mode", "hybrid"),
+                },
+            ),
+        )
+    else:
+        import ads_bib._utils.gguf_backend as gguf_mod
+
+        monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/path.gguf")
+        monkeypatch.setattr(
+            gguf_mod,
+            "translate_gguf",
+            lambda text, target_lang, **kw: f"EN::{text}",
+        )
 
     publications = tr.detect_languages(publications, ["Title", "Abstract"])
     publications, translation_cost = tr.translate_dataframe(
         publications,
         columns=["Title", "Abstract"],
-        provider="openrouter",
-        model="openrouter/test-model",
-        api_key="dummy",
+        provider=profile.translation_provider,
+        model=profile.translation_model,
+        api_key=profile.translation_api_key,
         max_workers=1,
     )
 
@@ -338,10 +358,30 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
             dtype=np.float32,
         ).reshape(len(documents), 3),
     )
+
+    class _FakeOpenRouterEmbedder:
+        def __init__(self, *, api_key, model, batch_size=64, max_workers=5, dtype=np.float32, api_base=None):
+            del api_key, model, batch_size, max_workers, api_base
+            self.dtype = dtype
+            self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, **kwargs):
+            del verbose, show_progress_bar, kwargs
+            n = len(texts)
+            self.usage = {
+                "prompt_tokens": n,
+                "total_tokens": n,
+                "call_records": [{"generation_id": "gid-embed", "direct_cost": 0.01}],
+            }
+            return np.arange(n * 3, dtype=self.dtype).reshape(n, 3)
+
+    monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+
     embeddings = tm.compute_embeddings(
         docs,
-        provider="local",
-        model="sentence-transformers/fake",
+        provider=profile.embedding_provider,
+        model=profile.embedding_model,
+        api_key=profile.embedding_api_key,
     )
 
     monkeypatch.setattr(
@@ -360,29 +400,60 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
         show_progress=False,
     )
 
-    fake_topic_model = _FakeTopicModel()
-    monkeypatch.setattr(tm, "fit_bertopic", lambda *a, **k: fake_topic_model)
-    topic_model = tm.fit_bertopic(
-        docs,
-        reduced_5d,
-        llm_provider="local",
-        llm_model="fake-llm",
-    )
-    initial_topics = np.array([-1, 1], dtype=int)
-    topics = tm.reduce_outliers(
-        topic_model,
-        documents=docs,
-        topics=initial_topics,
-        reduced_5d=reduced_5d,
-        threshold=0.8,
-        show_progress=False,
-    )
+    if profile.topic_backend == "bertopic":
+        fake_topic_model = _FakeTopicModel()
+        monkeypatch.setattr(tm, "fit_bertopic", lambda *a, **k: fake_topic_model)
+        topic_model = tm.fit_bertopic(
+            docs,
+            reduced_5d,
+            llm_provider=profile.llm_provider,
+            llm_model=profile.llm_model,
+            api_key=profile.llm_api_key,
+        )
+        initial_topics = np.array([-1, 1], dtype=int)
+        topics = tm.reduce_outliers(
+            topic_model,
+            documents=docs,
+            topics=initial_topics,
+            reduced_5d=reduced_5d,
+            threshold=0.8,
+            llm_provider=profile.llm_provider,
+            llm_model=profile.llm_model,
+            api_key=profile.llm_api_key,
+            show_progress=False,
+        )
+        topic_info = topic_model.get_topic_info()
+    else:
+        topic_info = pd.DataFrame(
+            {
+                "Topic": [0, 1],
+                "Name": ["Topic Zero", "Topic One"],
+                "Main": ["topic zero", "topic one"],
+            }
+        )
+        monkeypatch.setattr(
+            tm,
+            "fit_toponymy",
+            lambda *a, **k: (object(), np.array([0, 1], dtype=int), topic_info),
+        )
+        topic_model, topics, topic_info = tm.fit_toponymy(
+            docs,
+            embeddings,
+            reduced_5d,
+            backend=profile.topic_backend,
+            llm_provider=profile.llm_provider,
+            llm_model=profile.llm_model,
+            embedding_model=profile.embedding_model,
+            api_key=profile.llm_api_key,
+        )
+
     df_topics = tm.build_topic_dataframe(
         publications,
         topic_model=topic_model,
         topics=topics,
         reduced_2d=reduced_2d,
         embeddings=embeddings,
+        topic_info=topic_info,
     )
 
     # 6) Visualize (with fake datamapplot backend)
@@ -412,6 +483,7 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
     nodes_csv = pd.read_csv(run_dir / "citations_out" / "direct_csv" / "nodes.csv")
 
     return {
+        "profile_id": profile.profile_id,
         "session_closed": session.closed,
         "bibcodes": bibcodes,
         "publications": publications,
@@ -428,13 +500,25 @@ def _run_offline_mocked_pipeline(monkeypatch, run_dir: Path) -> dict[str, object
 
 
 @pytest.mark.slow
-def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
-    out = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run")
+@pytest.mark.parametrize(
+    "profile",
+    REQUIRED_PROVIDER_PROFILES,
+    ids=[profile.profile_id for profile in REQUIRED_PROVIDER_PROFILES],
+)
+def test_offline_mocked_pipeline_smoke_e2e_provider_profile(monkeypatch, tmp_path, profile):
+    out = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run", profile=profile)
 
+    assert out["profile_id"] == profile.profile_id
     assert out["session_closed"] is True
     assert out["bibcodes"] == ["b1", "b2"]
     assert {"Title_en", "Abstract_en"} <= set(out["publications"].columns)
-    assert out["translation_cost"]["prompt_tokens"] > 0
+    if profile.expects_openrouter_costs:
+        assert out["translation_cost"]["prompt_tokens"] > 0
+        assert out["translation_cost"]["cost_usd"] == pytest.approx(0.01)
+    else:
+        assert out["translation_cost"]["prompt_tokens"] == 0
+        assert out["translation_cost"]["completion_tokens"] == 0
+        assert out["translation_cost"]["cost_usd"] is None
     assert "tokens" in out["publications"].columns
 
     df_topics = out["df_topics"]
@@ -454,8 +538,9 @@ def test_offline_mocked_pipeline_smoke_e2e(monkeypatch, tmp_path):
 
 @pytest.mark.slow
 def test_offline_mocked_pipeline_reproducible_with_same_inputs_and_config(monkeypatch, tmp_path):
-    run1 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run1")
-    run2 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run2")
+    profile = next(p for p in REQUIRED_PROVIDER_PROFILES if p.profile_id == "local_bertopic")
+    run1 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run1", profile=profile)
+    run2 = _run_offline_mocked_pipeline(monkeypatch, tmp_path / "run2", profile=profile)
 
     df1 = run1["df_topics"].drop(columns=["full_embeddings"], errors="ignore").reset_index(drop=True)
     df2 = run2["df_topics"].drop(columns=["full_embeddings"], errors="ignore").reset_index(drop=True)

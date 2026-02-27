@@ -155,6 +155,84 @@ def test_reduce_outliers_tracks_post_outlier_llm_usage(monkeypatch):
     assert calls["usage"]["prompt_tokens"] == 12
 
 
+def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch):
+    calls: dict = {}
+
+    class _FakeTextGeneration:
+        def __init__(self, generator, *, prompt, pipeline_kwargs):
+            calls["generator"] = generator
+            calls["prompt"] = prompt
+            calls["pipeline_kwargs"] = pipeline_kwargs
+
+    fake_representation = types.ModuleType("bertopic.representation")
+    fake_representation.TextGeneration = _FakeTextGeneration
+    monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
+
+    fake_transformers = types.ModuleType("transformers")
+
+    def _fake_pipeline(task, *, model, device_map, dtype=None, torch_dtype=None):
+        calls["task"] = task
+        calls["model"] = model
+        calls["device_map"] = device_map
+        calls["dtype"] = dtype
+        calls["torch_dtype"] = torch_dtype
+        return "fake-generator"
+
+    fake_transformers.pipeline = _fake_pipeline
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    llm = tm_backends._create_llm(
+        provider="local",
+        model="Qwen/Qwen3-0.6B",
+        prompt="topic: <label>",
+        nr_docs=8,
+        diversity=0.2,
+        delay=0.3,
+        llm_max_new_tokens=64,
+        api_key=None,
+    )
+
+    assert isinstance(llm, _FakeTextGeneration)
+    assert calls["task"] == "text-generation"
+    assert calls["model"] == "Qwen/Qwen3-0.6B"
+    assert calls["device_map"] == "auto"
+    assert calls["dtype"] == "auto"
+    assert calls["torch_dtype"] is None
+    assert calls["generator"] == "fake-generator"
+    assert calls["prompt"] == "topic: <label>"
+    assert calls["pipeline_kwargs"] == {"do_sample": False, "max_new_tokens": 64, "num_return_sequences": 1}
+
+
+def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
+    fake_representation = types.ModuleType("bertopic.representation")
+    fake_representation.TextGeneration = object
+    monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
+
+    fake_transformers = types.ModuleType("transformers")
+
+    def _fake_pipeline(*args, **kwargs):
+        del args, kwargs
+        raise ValueError(
+            "The checkpoint you are trying to load has model type `qwen3` "
+            "but Transformers does not recognize this architecture."
+        )
+
+    fake_transformers.pipeline = _fake_pipeline
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    with pytest.raises(RuntimeError, match="Local topic labeling model 'Qwen/Qwen3-0.6B'"):
+        tm_backends._create_llm(
+            provider="local",
+            model="Qwen/Qwen3-0.6B",
+            prompt="topic: <label>",
+            nr_docs=8,
+            diversity=0.2,
+            delay=0.3,
+            llm_max_new_tokens=64,
+            api_key=None,
+        )
+
+
 class _FakeLayer:
     def __init__(self, labels):
         self.cluster_labels = np.asarray(labels, dtype=int)
@@ -559,10 +637,13 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
         llm_provider="local",
         llm_model="local-llm",
         embedding_model="local-embedder",
+        local_llm_max_new_tokens=77,
     )
 
     assert isinstance(model.llm_wrapper, _FakeHuggingFaceNamer)
     assert model.llm_wrapper.model == "local-llm"
+    assert model.llm_wrapper._local_max_new_tokens == 77
+    assert model.llm_wrapper._max_tokens(128) == 77
     assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
     assert model.text_embedding_model.model_name == "local-embedder"
     assert topics.tolist() == [-1, 0, 1]
@@ -727,6 +808,52 @@ def test_compute_embeddings_passes_max_workers_to_openrouter(monkeypatch):
     assert emb.shape == (3, 2)
     assert calls["max_workers"] == 7
     assert calls["show_progress_bar"] is True
+
+
+def test_embed_local_raises_actionable_error_for_unknown_arch(monkeypatch):
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+
+    class _BrokenSentenceTransformer:
+        def __init__(self, model):
+            del model
+            raise ValueError(
+                "The checkpoint you are trying to load has model type `gemma3_text` "
+                "but Transformers does not recognize this architecture."
+            )
+
+    fake_sentence_transformers.SentenceTransformer = _BrokenSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    with pytest.raises(RuntimeError, match="Local embeddings model 'google/embeddinggemma-300m'"):
+        tm_embeddings._embed_local(
+            ["doc-a"],
+            model="google/embeddinggemma-300m",
+            batch_size=8,
+            dtype=np.float32,
+        )
+
+
+def test_embed_local_raises_actionable_error_for_torch_runtime_requirement(monkeypatch):
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+
+    class _BrokenSentenceTransformer:
+        def __init__(self, model):
+            del model
+
+        def encode(self, documents, show_progress_bar=None, batch_size=64):
+            del documents, show_progress_bar, batch_size
+            raise ValueError("Using `or_mask_function` or `and_mask_function` arguments require torch>=2.6")
+
+    fake_sentence_transformers.SentenceTransformer = _BrokenSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    with pytest.raises(RuntimeError, match="requires torch>=2.6"):
+        tm_embeddings._embed_local(
+            ["doc-a"],
+            model="google/embeddinggemma-300m",
+            batch_size=8,
+            dtype=np.float32,
+        )
 
 
 def test_openrouter_embedder_parallel_keeps_document_order(monkeypatch):
@@ -1071,3 +1198,97 @@ def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatc
     assert np.array_equal(r2_first, r2_changed)
     assert "Loaded 5d_cache_hit from cache" in caplog.text
     assert "Loaded 2d_cache_hit from cache" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# GGUF provider tests
+# ---------------------------------------------------------------------------
+
+
+def test_create_llm_gguf_creates_llamacpp_text_generation(monkeypatch):
+    calls: dict = {}
+
+    class _FakeTextGeneration:
+        def __init__(self, generator, *, prompt, pipeline_kwargs):
+            calls["generator"] = generator
+            calls["prompt"] = prompt
+            calls["pipeline_kwargs"] = pipeline_kwargs
+
+    fake_representation = types.ModuleType("bertopic.representation")
+    fake_representation.TextGeneration = _FakeTextGeneration
+    monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
+
+    class _FakeLlamaCppTextGeneration:
+        def __init__(self, model_path, *, max_new_tokens=128):
+            self.model_path = model_path
+            self.max_new_tokens = max_new_tokens
+
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
+    monkeypatch.setattr(gguf_mod, "LlamaCppTextGeneration", _FakeLlamaCppTextGeneration)
+
+    llm = tm_backends._create_llm(
+        provider="gguf",
+        model="mradermacher/Qwen3-0.6B-GGUF",
+        prompt="topic: <label>",
+        nr_docs=8,
+        diversity=0.2,
+        delay=0.3,
+        llm_max_new_tokens=64,
+        api_key=None,
+    )
+
+    assert isinstance(llm, _FakeTextGeneration)
+    gen = calls["generator"]
+    assert isinstance(gen, _FakeLlamaCppTextGeneration)
+    assert gen.model_path == "/fake/gguf.gguf"
+    assert gen.max_new_tokens == 64
+    assert calls["pipeline_kwargs"] == {"max_new_tokens": 64}
+
+
+def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
+
+    class _FakeNamer:
+        pass
+
+    monkeypatch.setattr(
+        gguf_mod,
+        "_build_llama_cpp_namer",
+        lambda model_path, **kw: _FakeNamer(),
+    )
+
+    calls: dict = {}
+
+    def _fake_record_llm_usage(usage, **kwargs):
+        calls["usage"] = usage
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
+
+    model, topics, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="gguf",
+        llm_model="mradermacher/Qwen3-0.6B-GGUF",
+        embedding_model="local-embedder",
+        local_llm_max_new_tokens=77,
+    )
+
+    assert isinstance(model.llm_wrapper, _FakeNamer)
+    assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
+    assert topics.tolist() == [-1, 0, 1]
+    assert calls["usage"] is None
+    assert calls["kwargs"]["llm_provider"] == "gguf"

@@ -12,7 +12,12 @@
       "Bash(source activate:*)",
       "Bash(grep:*)",
       "Bash(jupyter nbconvert:*)",
-      "Bash(pytest tests/test_citations_additional.py tests/test_citations_author_list.py -v)"
+      "Bash(pytest tests/test_citations_additional.py tests/test_citations_author_list.py -v)",
+      "Bash(git status -u)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c \":*)",
+      "WebFetch(domain:abetlen.github.io)",
+      "Bash(find . -name \"*.md\" -type f -exec grep -l \"GGUF\\\\|llama-cpp\\\\|llama_cpp\\\\|llamacpp\" {} ;)",
+      "Bash(python -m ruff check src/ tests/)"
     ]
   }
 }

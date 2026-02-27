@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
+from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -34,8 +35,10 @@ logger = logging.getLogger("ads_bib.topic_model")
 DEFAULT_CLUSTER_MIN_SIZE = 180
 DEFAULT_BERTOPIC_TOP_N_WORDS = 20
 DEFAULT_POS_SPACY_MODEL = "en_core_web_sm"
-BERTopicLLMProvider: TypeAlias = Literal["local", "huggingface_api", "openrouter"]
-ToponymyLLMProvider: TypeAlias = Literal["local", "openrouter"]
+DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128
+DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256
+BERTopicLLMProvider: TypeAlias = Literal["local", "gguf", "huggingface_api", "openrouter"]
+ToponymyLLMProvider: TypeAlias = Literal["local", "gguf", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
 
 
@@ -211,19 +214,55 @@ def _create_llm(
     nr_docs: int,
     diversity: float,
     delay: float,
+    llm_max_new_tokens: int,
     api_key: str | None,
 ) -> Any:
     """Create configured BERTopic LLM representation backend."""
+    llm_max_new_tokens = max(1, int(llm_max_new_tokens))
+
     if provider == "local":
         from bertopic.representation import TextGeneration
         from transformers import pipeline as hf_pipeline
 
         logger.info("  Loading local LLM: %s", model)
-        gen = hf_pipeline("text-generation", model=model, device_map="auto", torch_dtype="auto")
+        try:
+            try:
+                gen = hf_pipeline(
+                    "text-generation",
+                    model=model,
+                    device_map="auto",
+                    dtype="auto",
+                )
+            except TypeError:
+                gen = hf_pipeline(
+                    "text-generation",
+                    model=model,
+                    device_map="auto",
+                    torch_dtype="auto",
+                )
+        except Exception as exc:
+            raise_with_local_hf_compat_hint(model=model, use_case="topic labeling", exc=exc)
         return TextGeneration(
             gen,
             prompt=prompt,
-            pipeline_kwargs={"do_sample": False, "max_new_tokens": 16, "num_return_sequences": 1},
+            pipeline_kwargs={
+                "do_sample": False,
+                "max_new_tokens": llm_max_new_tokens,
+                "num_return_sequences": 1,
+            },
+        )
+
+    if provider == "gguf":
+        from bertopic.representation import TextGeneration
+
+        from ads_bib._utils.gguf_backend import LlamaCppTextGeneration, resolve_gguf_model
+
+        model_path = resolve_gguf_model(model)
+        gen = LlamaCppTextGeneration(model_path, max_new_tokens=llm_max_new_tokens)
+        return TextGeneration(
+            gen,
+            prompt=prompt,
+            pipeline_kwargs={"max_new_tokens": llm_max_new_tokens},
         )
 
     if provider in ("huggingface_api", "openrouter"):
@@ -235,7 +274,11 @@ def _create_llm(
             "nr_docs": nr_docs,
             "diversity": diversity,
             "delay_in_seconds": delay,
-            "generator_kwargs": {"max_tokens": 16, "temperature": 0.0, "stop": ["\n"]},
+            "generator_kwargs": {
+                "max_tokens": llm_max_new_tokens,
+                "temperature": 0.0,
+                "stop": ["\n"],
+            },
         }
         if provider == "openrouter":
             if not model.startswith("openrouter/"):
@@ -258,6 +301,7 @@ def _build_representation_model(
     llm_nr_docs: int,
     llm_diversity: float,
     llm_delay: float,
+    llm_max_new_tokens: int,
     api_key: str | None,
     pos_spacy_model: str,
 ) -> dict[str, Any]:
@@ -295,6 +339,7 @@ def _build_representation_model(
             llm_nr_docs,
             llm_diversity,
             llm_delay,
+            llm_max_new_tokens,
             api_key,
         )
     )
@@ -516,8 +561,8 @@ def _normalize_toponymy_inputs(
 ) -> tuple[ToponymyLLMProvider, ToponymyBackend]:
     """Normalize and validate Toponymy backend/provider selections."""
     provider_norm = llm_provider.strip().lower()
-    if provider_norm not in {"openrouter", "local"}:
-        raise ValueError(f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter' or 'local'.")
+    if provider_norm not in {"openrouter", "local", "gguf"}:
+        raise ValueError(f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter', 'local', or 'gguf'.")
     if provider_norm == "openrouter" and not api_key:
         raise ValueError("api_key is required for Toponymy with OpenRouter.")
 
@@ -576,6 +621,7 @@ def _build_toponymy_models(
     api_key: str | None,
     openrouter_api_base: str,
     max_workers: int,
+    local_llm_max_new_tokens: int,
     cost_tracker: "CostTracker | None",
 ) -> tuple[Any, dict[str, Any] | None, Any]:
     """Build Toponymy naming and text-embedding components."""
@@ -594,6 +640,25 @@ def _build_toponymy_models(
         )
         return llm_wrapper, llm_usage, text_embedding_model
 
+    if provider_norm == "gguf":
+        from sentence_transformers import SentenceTransformer
+
+        from ads_bib._utils.gguf_backend import _build_llama_cpp_namer, resolve_gguf_model
+
+        model_path = resolve_gguf_model(llm_model)
+        llm_wrapper = _build_llama_cpp_namer(
+            model_path, max_new_tokens=local_llm_max_new_tokens,
+        )
+        try:
+            text_embedding_model = SentenceTransformer(embedding_model)
+        except Exception as exc:
+            raise_with_local_hf_compat_hint(
+                model=embedding_model, use_case="toponymy embeddings", exc=exc,
+            )
+        if cost_tracker is not None:
+            logger.info("  GGUF Toponymy LLM selected; token/cost tracking is unavailable for this step.")
+        return llm_wrapper, None, text_embedding_model
+
     try:
         from sentence_transformers import SentenceTransformer
         from toponymy.llm_wrappers import HuggingFaceNamer
@@ -604,14 +669,79 @@ def _build_toponymy_models(
             "Toponymy's HuggingFaceNamer wrapper."
         ) from exc
 
-    llm_wrapper = HuggingFaceNamer(
-        model=llm_model,
-        device_map="auto",
-        torch_dtype="auto",
-    )
+    local_llm_max_new_tokens = max(1, int(local_llm_max_new_tokens))
+
+    class _CappedDeterministicHuggingFaceNamer(HuggingFaceNamer):
+        """Toponymy local namer with deterministic decoding and bounded output length."""
+
+        def __init__(self, model: str, *, max_new_tokens: int, **kwargs):
+            self._local_max_new_tokens = max(1, int(max_new_tokens))
+            super().__init__(model=model, **kwargs)
+
+        def _max_tokens(self, requested: int) -> int:
+            return min(max(1, int(requested)), self._local_max_new_tokens)
+
+        def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
+            del temperature
+            response = self.llm(
+                [{"role": "user", "content": prompt + self.extra_prompting}],
+                return_full_text=False,
+                max_new_tokens=self._max_tokens(max_tokens),
+                do_sample=False,
+                pad_token_id=self.llm.tokenizer.eos_token_id,
+            )
+            return response[0]["generated_text"]
+
+        def _call_llm_with_system_prompt(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            temperature: float,
+            max_tokens: int,
+        ) -> str:
+            del temperature
+            response = self.llm(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt + self.extra_prompting},
+                ],
+                return_full_text=False,
+                max_new_tokens=self._max_tokens(max_tokens),
+                do_sample=False,
+                pad_token_id=self.llm.tokenizer.eos_token_id,
+            )
+            return response[0]["generated_text"]
+
+    try:
+        try:
+            llm_wrapper = _CappedDeterministicHuggingFaceNamer(
+                model=llm_model,
+                max_new_tokens=local_llm_max_new_tokens,
+                device_map="auto",
+                dtype="auto",
+            )
+        except TypeError:
+            llm_wrapper = _CappedDeterministicHuggingFaceNamer(
+                model=llm_model,
+                max_new_tokens=local_llm_max_new_tokens,
+                device_map="auto",
+                torch_dtype="auto",
+            )
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=llm_model, use_case="toponymy labeling", exc=exc)
+
+    try:
+        text_embedding_model = SentenceTransformer(embedding_model)
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=embedding_model, use_case="toponymy embeddings", exc=exc)
+
     if cost_tracker is not None:
         logger.info("  Local Toponymy LLM selected; token/cost tracking is unavailable for this step.")
-    return llm_wrapper, None, SentenceTransformer(embedding_model)
+    logger.info(
+        "  Local Toponymy LLM max_new_tokens capped at %s per naming call.",
+        local_llm_max_new_tokens,
+    )
+    return llm_wrapper, None, text_embedding_model
 
 
 def _fit_and_extract_toponymy_outputs(
@@ -689,6 +819,7 @@ def fit_bertopic(
     llm_nr_docs: int = 8,
     llm_diversity: float = 0.2,
     llm_delay: float = 0.3,
+    llm_max_new_tokens: int = DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS,
     embedding_model_name: str | None = None,
     keybert_model: str = "sentence-transformers/all-MiniLM-L6-v2",
     min_df: int = 2,
@@ -710,9 +841,11 @@ def fit_bertopic(
     reduced_5d : np.ndarray
         Five-dimensional vectors used directly for clustering.
     llm_provider : str
-        Labeling backend: ``"local"``, ``"huggingface_api"``, ``"openrouter"``.
+        Labeling backend: ``"local"``, ``"gguf"``, ``"huggingface_api"``, ``"openrouter"``.
     llm_model : str
         LLM model used for topic naming.
+    llm_max_new_tokens : int
+        Maximum generated tokens per topic-label request.
     clustering_method : str
         Clustering backend passed into BERTopic (``"fast_hdbscan"`` or
         ``"hdbscan"``).
@@ -732,11 +865,12 @@ def fit_bertopic(
     """
     validate_provider(
         llm_provider,
-        valid={"local", "huggingface_api", "openrouter"},
+        valid={"local", "gguf", "huggingface_api", "openrouter"},
         api_key=api_key,
         requires_key={"openrouter"},
         requires_import={
             "local": "transformers",
+            "gguf": "llama_cpp",
             "openrouter": "litellm",
             "huggingface_api": "litellm",
         },
@@ -766,6 +900,7 @@ def fit_bertopic(
         llm_nr_docs=llm_nr_docs,
         llm_diversity=llm_diversity,
         llm_delay=llm_delay,
+        llm_max_new_tokens=llm_max_new_tokens,
         api_key=api_key,
         pos_spacy_model=pos_spacy_model,
     )
@@ -835,6 +970,7 @@ def fit_toponymy(
     openrouter_api_base: str = DEFAULT_OPENROUTER_API_BASE,
     openrouter_cost_mode: str = "hybrid",
     max_workers: int = 5,
+    local_llm_max_new_tokens: int = DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS,
     clusterer_params: dict | None = None,
     object_description: str = "research papers",
     corpus_description: str = "collection of research papers",
@@ -860,6 +996,8 @@ def fit_toponymy(
         Currently supported Toponymy naming provider.
     llm_model : str
         LLM model identifier for topic naming.
+    local_llm_max_new_tokens : int
+        Max generated tokens per local Toponymy naming call.
     embedding_model : str
         Text embedding model for Toponymy internals.
     api_key : str, optional
@@ -902,6 +1040,7 @@ def fit_toponymy(
         api_key=api_key,
         openrouter_api_base=openrouter_api_base,
         max_workers=max_workers,
+        local_llm_max_new_tokens=local_llm_max_new_tokens,
         cost_tracker=cost_tracker,
     )
     topic_model, topics, topic_info = _fit_and_extract_toponymy_outputs(

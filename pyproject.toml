@@ -45,7 +45,7 @@ ads-bib = "ads_bib.cli:main"
 [project.optional-dependencies]
 topic = [
     "bertopic",
-    "sentence-transformers",
+    "sentence-transformers>=5.1",
     "scikit-learn",
     "datamapplot",
     "pacmap",
@@ -59,8 +59,9 @@ topic = [
 ]
 umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
-translate-local = ["transformers", "torch", "accelerate"]
+translate-local = ["llama-cpp-python", "huggingface-hub"]
 translate-api = ["openai"]
+gguf = ["llama-cpp-python", "huggingface-hub"]
 test = ["pytest>=7", "ruff>=0.6"]
 all = ["ads-bib[topic,translate-local,translate-api,umap,hdbscan]"]
 
