@@ -7,7 +7,11 @@ for fast CPU inference.
 
 from __future__ import annotations
 
+import io
 import logging
+import os
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +65,42 @@ def resolve_gguf_model(model: str) -> str:
 # Low-level loading
 # ---------------------------------------------------------------------------
 
+@contextmanager
+def _safe_stdio():
+    """Temporarily ensure sys.stdout/stderr support fileno().
+
+    llama-cpp-python's ``Llama()`` constructor tries to redirect C-level
+    stdout/stderr via ``fileno()`` to suppress llama.cpp log output.
+    In Jupyter notebook kernels on Windows, ``sys.stdout`` is a custom
+    ``OutStream`` that does not support ``fileno()``, causing
+    ``UnsupportedOperation`` errors.
+
+    This context manager replaces non-seekable streams with ``os.devnull``
+    wrappers for the duration of the Llama constructor call and restores
+    the originals afterwards.
+    """
+    orig_out, orig_err = sys.stdout, sys.stderr
+    needs_patch = False
+    try:
+        sys.stdout.fileno()
+    except Exception:
+        needs_patch = True
+
+    if not needs_patch:
+        yield
+        return
+
+    devnull = open(os.devnull, "w")  # noqa: SIM115
+    try:
+        sys.stdout = devnull
+        sys.stderr = devnull
+        yield
+    finally:
+        sys.stdout = orig_out
+        sys.stderr = orig_err
+        devnull.close()
+
+
 def _load_llama(
     model_path: str,
     *,
@@ -74,12 +114,13 @@ def _load_llama(
     except ImportError as exc:
         raise ImportError(_INSTALL_HINT) from exc
 
-    return Llama(
-        model_path=model_path,
-        n_ctx=n_ctx,
-        n_gpu_layers=n_gpu_layers,
-        verbose=verbose,
-    )
+    with _safe_stdio():
+        return Llama(
+            model_path=model_path,
+            n_ctx=n_ctx,
+            n_gpu_layers=n_gpu_layers,
+            verbose=verbose,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -110,14 +151,15 @@ def translate_gguf(
         _translation_model = _load_llama(model_path, n_ctx=n_ctx)
         _translation_model_path = model_path
 
-    result = _translation_model(
-        f"Translate the following scientific text to {target_lang}.\n"
-        "Return only the translation and no explanation.\n\n"
-        f"{text}",
-        max_tokens=max_tokens,
-        temperature=0,
-        echo=False,
-    )
+    with _safe_stdio():
+        result = _translation_model(
+            f"Translate the following scientific text to {target_lang}.\n"
+            "Return only the translation and no explanation.\n\n"
+            f"{text}",
+            max_tokens=max_tokens,
+            temperature=0,
+            echo=False,
+        )
     return result["choices"][0]["text"].strip()
 
 
@@ -153,7 +195,8 @@ class LlamaCppTextGeneration:
     def __call__(self, prompt: str, **kwargs: Any) -> list[dict[str, str]]:
         self._ensure_loaded()
         max_tokens = kwargs.get("max_new_tokens", self.max_new_tokens)
-        result = self._llm(prompt, max_tokens=max_tokens, temperature=0, echo=False)
+        with _safe_stdio():
+            result = self._llm(prompt, max_tokens=max_tokens, temperature=0, echo=False)
         completion = result["choices"][0]["text"].strip()
         # BERTopic strips prompt via .replace(prompt, "")
         return [{"generated_text": prompt + completion}]
@@ -196,9 +239,10 @@ def _build_llama_cpp_namer(
 
         def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
             self._ensure_loaded()
-            result = self._llm(
-                prompt, max_tokens=self._cap(max_tokens), temperature=0, echo=False,
-            )
+            with _safe_stdio():
+                result = self._llm(
+                    prompt, max_tokens=self._cap(max_tokens), temperature=0, echo=False,
+                )
             return result["choices"][0]["text"].strip()
 
         def _call_llm_with_system_prompt(

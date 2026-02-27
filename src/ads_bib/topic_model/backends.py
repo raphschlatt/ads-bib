@@ -242,6 +242,10 @@ def _create_llm(
                 )
         except Exception as exc:
             raise_with_local_hf_compat_hint(model=model, use_case="topic labeling", exc=exc)
+        # Clear max_length from model's generation_config to suppress
+        # "Both max_new_tokens and max_length seem to have been set" warnings.
+        if hasattr(gen, "model") and hasattr(gen.model, "generation_config"):
+            gen.model.generation_config.max_length = None
         return TextGeneration(
             gen,
             prompt=prompt,
