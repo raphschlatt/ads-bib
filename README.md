@@ -42,7 +42,9 @@ conda activate ADS_env
 2. Install package and extras (editable):
 
 ```bash
-pip install -e ".[all,test]"
+uv pip install -e ".[all,test]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install jupyterlab ipykernel
+python -m ipykernel install --user --name ADS_env --display-name "ADS_env"
 ```
 
 3. Create `.env` in project root (minimum):
@@ -64,16 +66,20 @@ follow:
 
 Current local baseline models in `pipeline.ipynb`:
 
-- Translation (GGUF): `mradermacher/translategemma-4b-it-GGUF` (via llama-cpp-python)
+- Translation (GGUF): `mradermacher/translategemma-4b-it-i1-GGUF:translategemma-4b-it.i1-Q4_K_M.gguf` (via llama-cpp-python)
 - Embeddings: `google/embeddinggemma-300m` (via sentence-transformers)
 - Topic labeling: `Qwen/Qwen3-0.6B` (via transformers)
 - Optional quality alternative: `google/gemma-3-4b-it`
 
 Local model notes:
 - Translation uses GGUF quantised models via `llama-cpp-python` for fast CPU inference.
-  Install with: `pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`
+  Translation supports process-based GGUF parallelism (`max_workers`) plus
+  token-aware auto-chunking for long texts.
+  Conda-first install (recommended on Windows): `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
+  Pip fallback (must target the active kernel interpreter):
+  `uv pip install -U llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`
 - Embeddings and labeling require a recent HF stack in `ADS_env`:
-  `pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+  `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
 
 ## Configuration Convention (Notebook vs Modules)
 
@@ -149,16 +155,38 @@ Fix:
 Symptom: import/provider errors for topic models, translation, or visualization.
 
 Fix:
-- Install required extras (`pip install -e ".[all,test]"`).
+- Install required extras (`uv pip install -e ".[all,test]"`).
 - For minimal setups, install only needed extras and select matching providers.
+
+### GGUF Gemma-3 load failure (`unknown model architecture: 'gemma3'`)
+Symptom: BERTopic/Toponymy GGUF labeling fails while loading `unsloth/gemma-3-4b-it-GGUF`.
+
+Cause:
+- `llama-cpp-python` runtime is too old for Gemma-3 (common with `0.2.x` or some early `0.3.x` wheels).
+
+Fix:
+- In `ADS_env`, prefer conda prebuilt package:
+  `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
+- Restart kernel/session and verify from the notebook kernel:
+  `import llama_cpp; print(llama_cpp.__version__)`
+- If you must stay on older runtime, switch `LLM_MODEL` to a compatible GGUF family (e.g. Qwen2/Mistral GGUF).
 
 ### Unsupported local HF architecture (`gemma3`, `qwen3`, `gemma3_text`)
 Symptom: errors such as `Transformers does not recognize this architecture`.
 
 Fix:
 - Upgrade the local HF stack in `ADS_env`:
-  `pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+  `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
 - Restart kernel/session after upgrade.
+
+### Windows OpenMP runtime conflict (`OMP: Error #15`)
+Symptom: `Initializing libomp.dll, but found libiomp5md.dll already initialized`.
+
+Fix:
+- Persist the workaround in `ADS_env` once:
+  `conda env config vars set KMP_DUPLICATE_LIB_OK=TRUE -n ADS_env`
+- Reactivate the environment:
+  `conda deactivate` then `conda activate ADS_env`.
 
 ### OpenRouter provider errors
 Symptom: provider validation/auth/cost resolution failures.
@@ -199,7 +227,7 @@ Equivalent explicit commands:
 
 ```bash
 ruff check src tests scripts
-PYTHONPATH=src pytest -q
+python -m pytest -q
 ```
 
 These are lint-only plus tests (no auto-format rewrite requirement).

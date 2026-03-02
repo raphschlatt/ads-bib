@@ -1,0 +1,19 @@
+name: ADS_env
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - ipykernel
+  - openai
+  - python-dotenv
+  - spacy
+  - conda-forge::tiktoken
+  - numpy
+  - pandas
+  - umap-learn
+  - conda-forge::nmslib
+  - tables
+  - llama-cpp-python=0.3.16
+  - cmake
+  - m2w64-toolchain
+prefix: C:\Users\rapha\anaconda3\envs\ADS_env

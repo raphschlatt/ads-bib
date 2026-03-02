@@ -31,7 +31,7 @@ python -c "import transformers, sentence_transformers; print('transformers', tra
 If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local runs:
 
 ```bash
-pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"
+uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"
 ```
 
 ## Profile A: OpenRouter + BERTopic
@@ -85,7 +85,7 @@ python -c "import llama_cpp; print('llama-cpp-python', llama_cpp.__version__)"
 If not installed:
 
 ```bash
-pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+uv pip install -U llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 ```
 
 Run notebook top-to-bottom and record the same checks.

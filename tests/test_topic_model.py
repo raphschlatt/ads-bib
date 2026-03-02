@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from contextlib import contextmanager
 import logging
 import sys
@@ -1205,28 +1206,30 @@ def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def test_create_llm_gguf_creates_llamacpp_text_generation(monkeypatch):
+def test_create_llm_gguf_uses_native_bertopic_llamacpp(monkeypatch):
+    """GGUF branch should use BERTopic's native LlamaCPP representation model."""
     calls: dict = {}
 
-    class _FakeTextGeneration:
-        def __init__(self, generator, *, prompt, pipeline_kwargs):
-            calls["generator"] = generator
+    class _FakeBERTopicLlamaCPP:
+        def __init__(self, model, *, prompt=None, pipeline_kwargs=None, nr_docs=4, diversity=None, **kw):
+            calls["model"] = model
             calls["prompt"] = prompt
             calls["pipeline_kwargs"] = pipeline_kwargs
+            calls["nr_docs"] = nr_docs
+            calls["diversity"] = diversity
 
     fake_representation = types.ModuleType("bertopic.representation")
-    fake_representation.TextGeneration = _FakeTextGeneration
+    fake_representation.LlamaCPP = _FakeBERTopicLlamaCPP
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
-    class _FakeLlamaCppTextGeneration:
-        def __init__(self, model_path, *, max_new_tokens=128):
-            self.model_path = model_path
-            self.max_new_tokens = max_new_tokens
+    fake_llm = object()  # stand-in for a Llama instance
 
     import ads_bib._utils.gguf_backend as gguf_mod
 
     monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
-    monkeypatch.setattr(gguf_mod, "LlamaCppTextGeneration", _FakeLlamaCppTextGeneration)
+    monkeypatch.setattr(gguf_mod, "_load_llama", lambda path, **kw: fake_llm)
+    safe_calls: list = []
+    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
 
     llm = tm_backends._create_llm(
         provider="gguf",
@@ -1239,15 +1242,16 @@ def test_create_llm_gguf_creates_llamacpp_text_generation(monkeypatch):
         api_key=None,
     )
 
-    assert isinstance(llm, _FakeTextGeneration)
-    gen = calls["generator"]
-    assert isinstance(gen, _FakeLlamaCppTextGeneration)
-    assert gen.model_path == "/fake/gguf.gguf"
-    assert gen.max_new_tokens == 64
-    assert calls["pipeline_kwargs"] == {"max_new_tokens": 64}
+    assert isinstance(llm, _FakeBERTopicLlamaCPP)
+    assert calls["model"] is fake_llm
+    assert calls["pipeline_kwargs"] == {"max_tokens": 64}
+    assert calls["nr_docs"] == 8
+    assert calls["diversity"] == 0.2
+    assert safe_calls == [fake_llm]
 
 
 def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
+    """GGUF branch should use Toponymy's native LlamaCppNamer."""
     _install_fake_toponymy_modules(monkeypatch)
 
     fake_sentence_transformers = types.ModuleType("sentence_transformers")
@@ -1257,15 +1261,17 @@ def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
     import ads_bib._utils.gguf_backend as gguf_mod
 
     monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
+    monkeypatch.setattr(gguf_mod, "_safe_stdio", contextlib.nullcontext)
+    safe_calls: list = []
+    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
 
     class _FakeNamer:
-        pass
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.llm = object()  # stand-in for the internal Llama instance
 
-    monkeypatch.setattr(
-        gguf_mod,
-        "_build_llama_cpp_namer",
-        lambda model_path, **kw: _FakeNamer(),
-    )
+    fake_llm_wrappers = sys.modules["toponymy.llm_wrappers"]
+    fake_llm_wrappers.LlamaCppNamer = _FakeNamer
 
     calls: dict = {}
 
@@ -1288,6 +1294,11 @@ def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
     )
 
     assert isinstance(model.llm_wrapper, _FakeNamer)
+    assert model.llm_wrapper.kwargs["model_path"] == "/fake/gguf.gguf"
+    assert model.llm_wrapper.kwargs["n_ctx"] == 4096
+    assert model.llm_wrapper.kwargs["n_gpu_layers"] == -1
+    assert len(safe_calls) == 1  # _make_llama_jupyter_safe was called
+    assert safe_calls[0] is model.llm_wrapper.llm
     assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
     assert topics.tolist() == [-1, 0, 1]
     assert calls["usage"] is None

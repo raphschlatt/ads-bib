@@ -17,7 +17,19 @@
       "Bash(PYTHONIOENCODING=utf-8 python -c \":*)",
       "WebFetch(domain:abetlen.github.io)",
       "Bash(find . -name \"*.md\" -type f -exec grep -l \"GGUF\\\\|llama-cpp\\\\|llama_cpp\\\\|llamacpp\" {} ;)",
-      "Bash(python -m ruff check src/ tests/)"
+      "Bash(python -m ruff check src/ tests/)",
+      "WebFetch(domain:maartengr.github.io)",
+      "WebFetch(domain:toponymy.readthedocs.io)",
+      "mcp__claude_ai_Hugging_Face__hub_repo_details",
+      "WebFetch(domain:github.com)",
+      "Bash(where cmake)",
+      "Bash(where cl)",
+      "Bash(conda install -n ADS_env -y cmake)",
+      "Bash(conda install -n ADS_env -y m2w64-toolchain)",
+      "Bash(where ollama)",
+      "Bash(ollama --version)",
+      "Bash(winget search \"Visual Studio Build Tools\")",
+      "Bash(choco --version)"
     ]
   }
 }

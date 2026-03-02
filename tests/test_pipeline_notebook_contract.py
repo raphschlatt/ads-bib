@@ -65,9 +65,22 @@ def test_pipeline_notebook_code_contract():
     assert "CACHE_SUFFIX" not in code
 
     # Provider parity defaults (API vs local runbook baseline)
-    assert 'TRANSLATION_MODEL = "mradermacher/translategemma-4b-it-GGUF"' in code
+    assert (
+        'TRANSLATION_MODEL = "mradermacher/translategemma-4b-it-i1-GGUF:'
+        'translategemma-4b-it.i1-Q4_K_M.gguf"'
+    ) in code
+    assert "TRANSLATION_LOCAL_PROFILE =" in code
+    assert "gguf_parallel_policy=TRANSLATION_LOCAL_PROFILE" in code
+    assert "TRANSLATION_GGUF_POLICY =" not in code
+    assert "TRANSLATION_GGUF_THREADS =" not in code
+    assert "TRANSLATION_GGUF_THREADS_BATCH =" not in code
+    assert "TRANSLATION_GGUF_N_CTX =" not in code
+    assert "TRANSLATION_GGUF_AUTO_CHUNK =" not in code
+    assert "TRANSLATION_GGUF_CHUNK_INPUT_TOKENS =" not in code
+    assert "TRANSLATION_GGUF_CHUNK_OVERLAP_TOKENS =" not in code
     assert 'EMBEDDING_MODEL = "google/embeddinggemma-300m"' in code
-    assert 'LLM_MODEL = "Qwen/Qwen3-0.6B"' in code
+    assert 'LLM_PROVIDER = "gguf"' in code
+    assert 'LLM_MODEL = "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf"' in code
     assert '"google/gemma-3-4b-it"' in code
     assert "BERTOPIC_LABEL_MAX_TOKENS =" in code
     assert "TOPONYMY_LOCAL_LABEL_MAX_TOKENS =" in code

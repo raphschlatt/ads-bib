@@ -14,6 +14,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils import local_runtime
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -257,16 +258,23 @@ def _create_llm(
         )
 
     if provider == "gguf":
-        from bertopic.representation import TextGeneration
+        from bertopic.representation import LlamaCPP as BERTopicLlamaCPP
 
-        from ads_bib._utils.gguf_backend import LlamaCppTextGeneration, resolve_gguf_model
+        from ads_bib._utils.gguf_backend import (
+            _load_llama,
+            _make_llama_jupyter_safe,
+            resolve_gguf_model,
+        )
 
         model_path = resolve_gguf_model(model)
-        gen = LlamaCppTextGeneration(model_path, max_new_tokens=llm_max_new_tokens)
-        return TextGeneration(
-            gen,
+        llm = _load_llama(model_path, n_ctx=4096)
+        _make_llama_jupyter_safe(llm)
+        return BERTopicLlamaCPP(
+            model=llm,
             prompt=prompt,
-            pipeline_kwargs={"max_new_tokens": llm_max_new_tokens},
+            pipeline_kwargs={"max_tokens": llm_max_new_tokens},
+            nr_docs=nr_docs,
+            diversity=diversity,
         )
 
     if provider in ("huggingface_api", "openrouter"):
@@ -647,12 +655,57 @@ def _build_toponymy_models(
     if provider_norm == "gguf":
         from sentence_transformers import SentenceTransformer
 
-        from ads_bib._utils.gguf_backend import _build_llama_cpp_namer, resolve_gguf_model
+        from ads_bib._utils.gguf_backend import (
+            gguf_supports_gpu_offload,
+            _make_llama_jupyter_safe,
+            _safe_stdio,
+            resolve_gguf_model,
+        )
 
         model_path = resolve_gguf_model(llm_model)
-        llm_wrapper = _build_llama_cpp_namer(
-            model_path, max_new_tokens=local_llm_max_new_tokens,
+        try:
+            from toponymy.llm_wrappers import LlamaCppNamer
+        except ImportError as exc:
+            raise ImportError(
+                "Toponymy GGUF labeling requires 'toponymy' with LlamaCppNamer and "
+                "'llama-cpp-python'. Install with: pip install toponymy llama-cpp-python"
+            ) from exc
+        runtime_plan = local_runtime.resolve_gguf_runtime_plan(
+            max_workers=max_workers,
+            policy="balanced_auto",
+            model_path=model_path,
+            n_ctx=4096,
+            n_threads=None,
+            n_threads_batch=None,
+            token_budget_mode="global",
+            gpu_offload_supported=gguf_supports_gpu_offload(),
+            calibrated=False,
         )
+        n_threads = runtime_plan.threads
+        n_threads_batch = runtime_plan.threads_batch
+        logger.info(
+            "  Toponymy GGUF runtime hint | workers=%s/%s | threads=%s | threads_batch=%s | gpu_offload=%s",
+            runtime_plan.workers,
+            max_workers,
+            n_threads,
+            n_threads_batch,
+            runtime_plan.gpu_offload_supported,
+        )
+        with _safe_stdio():
+            try:
+                llm_wrapper = LlamaCppNamer(
+                    model_path=model_path,
+                    n_ctx=4096,
+                    n_gpu_layers=-1,
+                    n_threads=n_threads,
+                    n_threads_batch=n_threads_batch,
+                    verbose=False,
+                )
+            except TypeError:
+                llm_wrapper = LlamaCppNamer(
+                    model_path=model_path, n_ctx=4096, n_gpu_layers=-1, verbose=False,
+                )
+        _make_llama_jupyter_safe(llm_wrapper.llm)
         try:
             text_embedding_model = SentenceTransformer(embedding_model)
         except Exception as exc:

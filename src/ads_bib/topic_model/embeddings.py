@@ -13,6 +13,7 @@ from tqdm.auto import tqdm
 
 from ads_bib._utils.ads_api import retry_call
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils import local_runtime
 from ads_bib._utils.openrouter_costs import (
     extract_generation_id,
     extract_response_cost,
@@ -132,6 +133,7 @@ def compute_embeddings(
     logger.info("  Computing embeddings with %s/%s ...", provider, model)
 
     if provider == "local":
+        logger.info("  Local embedding runtime hint | cpu_count=%s", local_runtime.cpu_count())
         emb = _embed_local(documents, model, batch_size, dtype)
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(
