@@ -38,7 +38,9 @@
       "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \":*)",
       "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_pipeline_notebook_contract.py -v)",
       "WebFetch(domain:opennmt.net)",
-      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py -v)"
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py -v)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py tests/test_translate_error_handling.py tests/test_pipeline_notebook_contract.py -v)",
+      "Bash(pip show ctranslate2)"
     ]
   }
 }

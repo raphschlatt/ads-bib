@@ -76,7 +76,7 @@ Create `.env` in the project root and fill in API keys. Place `lid.176.bin` in `
 
 Required: pandas, numpy, requests, python-dotenv, fasttext-wheel, spacy, tqdm, scipy, PyYAML
 
-Optional groups: `[topic]`, `[translate-local]` (llama-cpp-python), `[translate-api]`, `[translate-nllb]` (ctranslate2+sentencepiece), `[gguf]`, `[all]`
+Optional groups: `[topic]`, `[translate-local]` (llama-cpp-python), `[translate-api]`, `[translate-nllb]` (ctranslate2+transformers+sentencepiece), `[gguf]`, `[all]`
 
 ## Conventions
 

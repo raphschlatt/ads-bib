@@ -440,11 +440,15 @@ _nllb_tokenizer = None
 _nllb_model_path: str | None = None
 
 _NLLB_INSTALL_HINT = (
-    "NLLB translation requires 'ctranslate2' and 'sentencepiece'. Install with:\n"
-    "  pip install ctranslate2 sentencepiece huggingface-hub"
+    "NLLB translation requires 'ctranslate2' and 'transformers'. Install with:\n"
+    "  pip install ctranslate2 transformers huggingface-hub"
 )
 
 _DEFAULT_NLLB_MODEL = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
+_NLLB_TOKENIZER_ID = "facebook/nllb-200-distilled-600M"
+_NLLB_CT2_REQUIRED_FILES = ("model.bin", "config.json")
+_NLLB_BATCH_SIZE = 64
+_NLLB_MAX_BATCH_TOKENS = 4096
 
 
 def _resolve_nllb_lang_code(iso_code: str) -> str | None:
@@ -452,59 +456,82 @@ def _resolve_nllb_lang_code(iso_code: str) -> str | None:
     return _NLLB_LANG_MAP.get(iso_code)
 
 
-def _ensure_nllb_model(model: str) -> tuple:
-    """Load and cache the CTranslate2 NLLB translator + SentencePiece tokenizer."""
+def _is_nllb_model_ready(model_dir: Path) -> bool:
+    """Check if a local directory contains a usable CTranslate2 NLLB model."""
+    return model_dir.is_dir() and all(
+        (model_dir / name).exists() for name in _NLLB_CT2_REQUIRED_FILES
+    )
+
+
+def _ensure_nllb_model(model: str, *, cache_dir: Path | None = None) -> tuple:
+    """Load and cache the CTranslate2 NLLB translator + HuggingFace tokenizer."""
     global _nllb_translator, _nllb_tokenizer, _nllb_model_path
     if _nllb_translator is not None and _nllb_model_path == model:
         return _nllb_translator, _nllb_tokenizer
 
     try:
         import ctranslate2
-        import sentencepiece as spm
     except ImportError as exc:
         raise ImportError(_NLLB_INSTALL_HINT) from exc
 
-    from huggingface_hub import snapshot_download
-
-    # Download or resolve model directory
-    if Path(model).is_dir():
-        model_dir = str(model)
-    else:
-        import warnings
-
-        logger.info("Downloading NLLB model %s …", model)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*local_dir_use_symlinks.*")
-            model_dir = snapshot_download(repo_id=model, local_dir_use_symlinks=False)
+    try:
+        from transformers import AutoTokenizer
+    except ImportError as exc:
+        raise ImportError(_NLLB_INSTALL_HINT) from exc
 
     import os
+    from huggingface_hub import snapshot_download
 
-    # Doku: "increase inter_threads over intra_threads" for large data,
-    # keep inter_threads * intra_threads <= physical core count
+    # Resolve model directory: local path, cache_dir, or HF download
+    if Path(model).is_dir():
+        model_dir = Path(model)
+    elif cache_dir is not None and _is_nllb_model_ready(cache_dir / Path(model).name):
+        model_dir = cache_dir / Path(model).name
+    else:
+        target_dir = cache_dir / Path(model).name if cache_dir else None
+        if target_dir and _is_nllb_model_ready(target_dir):
+            model_dir = target_dir
+        else:
+            logger.info("Downloading NLLB model %s …", model)
+            dl_path = snapshot_download(
+                repo_id=model,
+                local_dir=str(target_dir) if target_dir else None,
+            )
+            model_dir = Path(dl_path)
+
+    # CTranslate2 translator with threading per docs:
+    # "increase inter_threads over intra_threads" for large data,
+    # inter_threads * intra_threads <= physical core count
     cpu_count = max(1, int(os.cpu_count() or 1))
     inter = max(1, min(cpu_count, 4))
     intra = max(1, cpu_count // inter)
     _nllb_translator = ctranslate2.Translator(
-        model_dir, device="cpu", compute_type="int8",
+        str(model_dir), device="cpu", compute_type="int8",
         inter_threads=inter, intra_threads=intra,
     )
-    logger.info(
-        "  CTranslate2 threads: inter=%d, intra=%d (cpus=%d)",
-        inter, intra, cpu_count,
-    )
-    sp_model_path = Path(model_dir) / "sentencepiece.bpe.model"
-    if not sp_model_path.exists():
-        # Try common alternative names
-        for alt_name in ["spm.model", "tokenizer.model"]:
-            alt = Path(model_dir) / alt_name
-            if alt.exists():
-                sp_model_path = alt
-                break
-    _nllb_tokenizer = spm.SentencePieceProcessor()
-    _nllb_tokenizer.Load(str(sp_model_path))
+
+    # AutoTokenizer handles NLLB lang prefixes, BOS/EOS tokens correctly
+    _nllb_tokenizer = AutoTokenizer.from_pretrained(_NLLB_TOKENIZER_ID)
+
     _nllb_model_path = model
-    logger.info("NLLB model loaded from %s", model_dir)
+    logger.info(
+        "NLLB model loaded from %s (threads: inter=%d, intra=%d, cpus=%d)",
+        model_dir, inter, intra, cpu_count,
+    )
     return _nllb_translator, _nllb_tokenizer
+
+
+def _encode_nllb(text: str, src_lang: str, tokenizer) -> list[str]:
+    """Tokenize text for NLLB with correct language prefix via AutoTokenizer."""
+    tokenizer.src_lang = src_lang
+    token_ids = tokenizer.encode(text)
+    return tokenizer.convert_ids_to_tokens(token_ids)
+
+
+def _decode_nllb(tokens: list[str], tokenizer) -> str:
+    """Decode NLLB output tokens back to text via AutoTokenizer."""
+    token_ids = tokenizer.convert_tokens_to_ids(tokens)
+    return tokenizer.decode(token_ids, skip_special_tokens=True)
 
 
 def _translate_rows_nllb(
@@ -515,8 +542,9 @@ def _translate_rows_nllb(
     to_translate: pd.DataFrame,
     target_lang: str,
     model: str,
+    cache_dir: Path | None = None,
 ) -> tuple[list[tuple[object, str]], float]:
-    """Translate selected rows with NLLB/CTranslate2 using native batched inference."""
+    """Translate selected rows with NLLB/CTranslate2 using batched inference."""
     lang_col = f"{source_col}_lang"
     failed: list[tuple[object, str]] = []
     started = time.perf_counter()
@@ -529,10 +557,10 @@ def _translate_rows_nllb(
             f"Known codes: {sorted(_NLLB_LANG_MAP.keys())}"
         )
 
-    # Fail fast: verify dependencies and load model before the loop
-    translator, tokenizer = _ensure_nllb_model(model)
+    # Fail fast: verify dependencies and load model + tokenizer
+    translator, tokenizer = _ensure_nllb_model(model, cache_dir=cache_dir)
 
-    # Partition rows: collect translatable items, skip unsupported languages
+    # Partition rows: tokenize translatable items, skip unsupported languages
     indices: list[object] = []
     all_tokens: list[list[str]] = []
     all_prefixes: list[list[str]] = []
@@ -549,46 +577,46 @@ def _translate_rows_nllb(
                 skipped_langs.add(src_lang_str)
             failed.append((idx, f"Unsupported source language: {src_lang_str}"))
             continue
-        tokens = tokenizer.Encode(str(row[source_col]), out_type=str)
+        tokens = _encode_nllb(str(row[source_col]), src_code, tokenizer)
         indices.append(idx)
-        all_tokens.append([src_code] + tokens)
+        all_tokens.append(tokens)
         all_prefixes.append([tgt_code])
 
     # Translate in sub-batches with tqdm progress.
-    # CTranslate2 internally splits each sub-batch by max_batch_size (tokens)
-    # and parallelizes across inter_threads workers.
+    # CTranslate2 internally optimizes each sub-batch (sorting by length,
+    # padding minimization) and parallelizes across inter_threads workers.
     n = len(all_tokens)
-    chunk_size = 64
+    chunk_size = _NLLB_BATCH_SIZE
     for start in tqdm(range(0, max(n, 1), chunk_size), desc=f"  {source_col}", disable=n == 0):
         end = min(start + chunk_size, n)
         try:
             batch_results = translator.translate_batch(
                 all_tokens[start:end],
                 target_prefix=all_prefixes[start:end],
-                beam_size=4,
+                beam_size=2,
                 batch_type="tokens",
-                max_batch_size=1024,
+                max_batch_size=_NLLB_MAX_BATCH_TOKENS,
                 max_decoding_length=512,
             )
             for idx, result in zip(indices[start:end], batch_results):
                 out_tokens = result.hypotheses[0]
                 if out_tokens and out_tokens[0] == tgt_code:
                     out_tokens = out_tokens[1:]
-                df.at[idx, target_col] = tokenizer.Decode(out_tokens)
+                df.at[idx, target_col] = _decode_nllb(out_tokens, tokenizer)
         except Exception:
             # Fallback: translate one-by-one to isolate the bad row
             for i in range(start, end):
                 try:
-                    single_result = translator.translate_batch(
+                    single = translator.translate_batch(
                         [all_tokens[i]],
                         target_prefix=[all_prefixes[i]],
-                        beam_size=4,
+                        beam_size=2,
                         max_decoding_length=512,
                     )
-                    out_tokens = single_result[0].hypotheses[0]
+                    out_tokens = single[0].hypotheses[0]
                     if out_tokens and out_tokens[0] == tgt_code:
                         out_tokens = out_tokens[1:]
-                    df.at[indices[i], target_col] = tokenizer.Decode(out_tokens)
+                    df.at[indices[i], target_col] = _decode_nllb(out_tokens, tokenizer)
                 except Exception as row_exc:
                     failed.append((indices[i], f"{type(row_exc).__name__}: {row_exc}"))
 
