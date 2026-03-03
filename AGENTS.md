@@ -67,6 +67,7 @@ Seed entries:
 - `2026-02-25 | AND stays placeholder for RC | external package is not yet a stable dependency target | avoid premature integration hooks in runtime modules | revisit only when external API/dependency is stable`
 - `2026-02-25 | No BERTopic+EVoC path | EVoC already covered by toponymy_evoc; avoid duplicate backend behavior | lower maintenance and test matrix complexity | require explicit benchmark evidence before reconsidering`
 - `2026-02-27 | GGUF for local translation, HF for embeddings/labeling | autoregressive gen on CPU via torch is too slow; llama-cpp-python 10-50x faster | translate.py uses gguf_backend, topic labeling keeps transformers option | llama-cpp-python is optional dep with pre-built wheels`
+- `2026-03-03 | 3 translation backends: openrouter/gguf/nllb | GGUF overengineered for CPU (~750 lines calibration/pools removed); NLLB via CTranslate2 is 10-50x faster on CPU for seq2seq | gguf stays for GPU, nllb is default for CPU (200+ languages), openrouter for API | ctranslate2+sentencepiece as optional dep [translate-nllb]`
 
 ## 3) DataFrame Schema Conventions
 

@@ -29,7 +29,16 @@
       "Bash(where ollama)",
       "Bash(ollama --version)",
       "Bash(winget search \"Visual Studio Build Tools\")",
-      "Bash(choco --version)"
+      "Bash(choco --version)",
+      "Bash(wc -l \"c:/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/src/ads_bib/\"*.py \"c:/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/src/ads_bib/_utils/\"*.py)",
+      "Bash(wc -l \"c:/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/src/ads_bib/topic_model/\"*.py)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/ -v)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py::test_translate_text_with_gguf_chunk_merge -v)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py tests/test_translate_error_handling.py -v)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \":*)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_pipeline_notebook_contract.py -v)",
+      "WebFetch(domain:opennmt.net)",
+      "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py -v)"
     ]
   }
 }

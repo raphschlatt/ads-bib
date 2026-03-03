@@ -1261,7 +1261,7 @@ def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
     import ads_bib._utils.gguf_backend as gguf_mod
 
     monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
-    monkeypatch.setattr(gguf_mod, "_safe_stdio", contextlib.nullcontext)
+    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
     safe_calls: list = []
     monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
 

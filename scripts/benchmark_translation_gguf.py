@@ -4,7 +4,6 @@ Example:
     /mnt/c/Users/rapha/anaconda3/envs/ADS_env/python.exe scripts/benchmark_translation_gguf.py \
       --input data/cache/publications_translated.json \
       --model mradermacher/translategemma-4b-it-i1-GGUF:translategemma-4b-it.i1-Q4_K_M.gguf \
-      --max-workers 4 \
       --limit 40
 """
 
@@ -47,16 +46,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark local GGUF translation throughput.")
     parser.add_argument("--input", type=Path, required=True, help="JSONL input with *_lang columns.")
     parser.add_argument("--model", required=True, help="GGUF model id/path.")
-    parser.add_argument("--max-workers", type=int, default=1)
-    parser.add_argument(
-        "--policy",
-        choices=["auto_calibrated", "balanced_auto", "max_throughput", "stability_first"],
-        default="auto_calibrated",
-    )
     parser.add_argument("--limit", type=int, default=40, help="Number of rows to benchmark.")
     parser.add_argument("--max-tokens", type=int, default=512)
-    parser.add_argument("--chunk-input-tokens", type=int, default=384)
-    parser.add_argument("--chunk-overlap-tokens", type=int, default=48)
     parser.add_argument("--warmup", type=int, default=1, help="Warmup runs excluded from summary.")
     parser.add_argument("--repeats", type=int, default=3, help="Measured runs used for median/p90.")
     args = parser.parse_args()
@@ -73,12 +64,8 @@ def main() -> int:
             ["Title", "Abstract"],
             provider="gguf",
             model=args.model,
-            max_workers=args.max_workers,
             max_translation_tokens=args.max_tokens,
-            gguf_parallel_policy=args.policy,
             gguf_auto_chunk=True,
-            gguf_chunk_input_tokens=args.chunk_input_tokens,
-            gguf_chunk_overlap_tokens=args.chunk_overlap_tokens,
         )
         elapsed = max(1e-9, time.perf_counter() - t0)
         docs_per_min = len(out_df) * 60.0 / elapsed
@@ -99,7 +86,7 @@ def main() -> int:
     p90_index = max(0, int(round(0.9 * (len(docs_sorted) - 1))))
     p90 = docs_sorted[p90_index]
     print(
-        f"summary rows={len(df)} workers={args.max_workers} policy={args.policy} "
+        f"summary rows={len(df)} "
         f"median_docs_per_min={statistics.median(docs):.2f} p90_docs_per_min={p90:.2f}"
     )
     return 0

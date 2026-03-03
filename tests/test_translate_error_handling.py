@@ -80,7 +80,6 @@ def test_translate_dataframe_gguf_logs_failure_examples(monkeypatch, caplog):
         columns=["Title"],
         provider="gguf",
         model="local/model",
-        gguf_parallel_policy="stability_first",
         gguf_auto_chunk=False,
     )
 
@@ -172,7 +171,7 @@ def test_load_llama_gemma3_with_old_runtime_raises_actionable_hint(monkeypatch):
     fake_llama_cpp.__version__ = "0.2.24"
     fake_llama_cpp.Llama = _BrokenLlama
     monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "_safe_stdio", contextlib.nullcontext)
+    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
 
     with pytest.raises(RuntimeError) as exc:
         gguf_mod._load_llama("C:/tmp/gemma-3-4b-it-Q4_K_M.gguf", n_ctx=512)

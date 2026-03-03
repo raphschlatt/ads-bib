@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
 import time
@@ -23,13 +22,10 @@ from ads_bib._utils.openrouter_costs import (
     normalize_openrouter_cost_mode,
     resolve_openrouter_costs,
 )
-from ads_bib._utils import local_runtime
 
 logger = logging.getLogger(__name__)
 
-TranslationProvider: TypeAlias = Literal["openrouter", "gguf"]
-GGUFParallelPolicy: TypeAlias = local_runtime.GGUFParallelPolicy
-GGUFTokenBudgetMode: TypeAlias = local_runtime.GGUFTokenBudgetMode
+TranslationProvider: TypeAlias = Literal["openrouter", "gguf", "nllb"]
 
 
 class TranslationCostInfo(TypedDict):
@@ -131,7 +127,7 @@ def detect_languages(
 
 
 # ---------------------------------------------------------------------------
-# Translation helpers
+# Translation helpers  (shared)
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = (
@@ -143,369 +139,40 @@ DEFAULT_TRANSLATION_MAX_TOKENS = 2048
 DEFAULT_GGUF_CHUNK_INPUT_TOKENS = 384
 DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS = 48
 DEFAULT_GGUF_TRANSLATION_RETRIES = 2
-DEFAULT_GGUF_PARALLEL_POLICY: GGUFParallelPolicy = "auto_calibrated"
-DEFAULT_GGUF_WARMUP_BUDGET_SECONDS = 60
-DEFAULT_GGUF_TITLE_MAX_TOKENS = 128
-DEFAULT_GGUF_ABSTRACT_MAX_TOKENS = 768
-DEFAULT_GGUF_CALIBRATION_MAX_TOKENS = 64
-DEFAULT_GGUF_SHORT_TEXT_CHAR_THRESHOLD = 900
 
 
-@dataclass(frozen=True)
-class _GGUFRuntimeConfig:
-    effective_workers: int
-    n_ctx: int
-    n_threads: int | None
-    n_threads_batch: int | None
-    policy: GGUFParallelPolicy
-    gpu_offload_supported: bool
-    calibrated: bool
-    token_budget_mode: GGUFTokenBudgetMode
-    auto_chunk: bool
-    chunk_input_tokens: int
-    chunk_overlap_tokens: int
-    short_text_char_threshold: int
-
-
-_GGUF_AUTOCAL_CACHE: dict[tuple[str, int, str, int, int], tuple[int, int, int]] = {}
-
-
-def _make_gguf_runtime_config(
-    *,
-    plan: local_runtime.GGUFRuntimePlan,
-    auto_chunk: bool,
-    chunk_input_tokens: int,
-    chunk_overlap_tokens: int,
-) -> _GGUFRuntimeConfig:
-    return _GGUFRuntimeConfig(
-        effective_workers=max(1, int(plan.workers)),
-        n_ctx=max(1, int(plan.n_ctx)),
-        n_threads=max(1, int(plan.threads)),
-        n_threads_batch=max(1, int(plan.threads_batch)),
-        policy=plan.policy,
-        gpu_offload_supported=bool(plan.gpu_offload_supported),
-        calibrated=bool(plan.calibrated),
-        token_budget_mode=plan.token_budget_mode,
-        auto_chunk=bool(auto_chunk),
-        chunk_input_tokens=max(1, int(chunk_input_tokens)),
-        chunk_overlap_tokens=max(0, int(chunk_overlap_tokens)),
-        short_text_char_threshold=max(
-            DEFAULT_GGUF_SHORT_TEXT_CHAR_THRESHOLD,
-            int(chunk_input_tokens) * 4,
-        ),
-    )
-
-
-def _init_gguf_pool_worker(
-    model_path: str,
-    n_ctx: int,
-    n_threads: int | None,
-    n_threads_batch: int | None,
-    preload_tokenizer: bool,
-) -> None:
-    from ads_bib._utils.gguf_backend import prime_gguf_translation_runtime
-
-    prime_gguf_translation_runtime(
-        model_path=model_path,
-        n_ctx=n_ctx,
-        n_threads=n_threads,
-        n_threads_batch=n_threads_batch,
-        preload_tokenizer=preload_tokenizer,
-    )
-
-
-def _collect_calibration_samples(
+def _prepare_translation_targets(
     df: pd.DataFrame,
     *,
-    columns: list[str],
+    source_col: str,
     target_lang: str,
-    limit: int = 6,
-) -> list[tuple[str, str]]:
-    samples: list[tuple[str, str]] = []
-    for col in columns:
-        lang_col = f"{col}_lang"
-        if lang_col not in df.columns:
-            continue
-        mask = (df[lang_col] != target_lang) & df[col].notna() & (df[col] != "")
-        for _, row in df.loc[mask, [col, lang_col]].head(limit).iterrows():
-            samples.append((str(row[col]), str(row[lang_col])))
-            if len(samples) >= limit:
-                return samples
-    return samples
-
-
-def _benchmark_runtime_candidate(
-    *,
-    model_path: str,
-    target_lang: str,
-    sample_texts: list[tuple[str, str]],
-    workers: int,
-    threads: int,
-    threads_batch: int,
-    n_ctx: int,
-) -> float:
-    """Return candidate docs/sec throughput using a short synthetic run."""
-    if not sample_texts:
-        return 0.0
-    runtime = _GGUFRuntimeConfig(
-        effective_workers=max(1, int(workers)),
-        n_ctx=max(1, int(n_ctx)),
-        n_threads=max(1, int(threads)),
-        n_threads_batch=max(1, int(threads_batch)),
-        policy="auto_calibrated",
-        gpu_offload_supported=False,
-        calibrated=False,
-        token_budget_mode="global",
-        auto_chunk=False,
-        chunk_input_tokens=DEFAULT_GGUF_CHUNK_INPUT_TOKENS,
-        chunk_overlap_tokens=DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS,
-        short_text_char_threshold=DEFAULT_GGUF_SHORT_TEXT_CHAR_THRESHOLD,
-    )
-    n_tasks = 1 if workers <= 1 else min(max(2, workers), 4)
-    payloads = []
-    for i in range(n_tasks):
-        text, src_lang = sample_texts[i % len(sample_texts)]
-        payloads.append(
-            (
-                i,
-                text,
-                src_lang,
-                target_lang,
-                model_path,
-                DEFAULT_GGUF_CALIBRATION_MAX_TOKENS,
-                runtime,
-            )
+) -> tuple[str, pd.DataFrame]:
+    """Initialize translated column and return rows that need translation."""
+    lang_col = f"{source_col}_lang"
+    if source_col not in df.columns:
+        raise ValueError(
+            f"Column '{source_col}' not found. Ensure source columns exist before translation."
         )
-
-    start = time.perf_counter()
-    if workers <= 1:
-        for payload in payloads:
-            _, translated, _, err = _translate_gguf_worker_task(payload)
-            if translated is None:
-                raise RuntimeError(err or "calibration failed")
-    else:
-        with ProcessPoolExecutor(
-            max_workers=workers,
-            initializer=_init_gguf_pool_worker,
-            initargs=(
-                model_path,
-                n_ctx,
-                threads,
-                threads_batch,
-                False,
-            ),
-        ) as pool:
-            futures = [pool.submit(_translate_gguf_worker_task, payload) for payload in payloads]
-            for future in as_completed(futures):
-                _, translated, _, err = future.result()
-                if translated is None:
-                    raise RuntimeError(err or "calibration failed")
-    elapsed = max(1e-9, time.perf_counter() - start)
-    return len(payloads) / elapsed
+    target_col = f"{source_col}_{target_lang}"
+    if lang_col not in df.columns:
+        raise ValueError(f"Column '{lang_col}' not found. Run detect_languages() first.")
+    df[target_col] = df[source_col]
+    mask = (df[lang_col] != target_lang) & df[source_col].notna() & (df[source_col] != "")
+    return target_col, df.loc[mask]
 
 
-def _resolve_auto_calibrated_runtime(
-    *,
-    max_workers: int,
-    model_path: str,
-    n_ctx: int,
-    n_threads: int | None,
-    n_threads_batch: int | None,
-    token_budget_mode: GGUFTokenBudgetMode,
-    warmup_budget_seconds: int,
-    calibration_samples: list[tuple[str, str]],
-    target_lang: str,
-    auto_chunk: bool,
-    chunk_input_tokens: int,
-    chunk_overlap_tokens: int,
-) -> _GGUFRuntimeConfig:
-    from ads_bib._utils.gguf_backend import gguf_supports_gpu_offload
-
-    gpu_supported = gguf_supports_gpu_offload()
-    if gpu_supported:
-        plan = local_runtime.resolve_gguf_runtime_plan(
-            max_workers=max_workers,
-            policy="stability_first",
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=n_threads,
-            n_threads_batch=n_threads_batch,
-            token_budget_mode=token_budget_mode,
-            gpu_offload_supported=True,
-            calibrated=False,
-        )
-        return _make_gguf_runtime_config(
-            plan=plan,
-            auto_chunk=auto_chunk,
-            chunk_input_tokens=chunk_input_tokens,
-            chunk_overlap_tokens=chunk_overlap_tokens,
-        )
-
-    cpu_total = local_runtime.cpu_count()
-    cache_key = (
-        model_path,
-        cpu_total,
-        local_runtime.gguf_provider_build_tag(),
-        int(max_workers),
-        int(n_ctx),
-    )
-    cached = _GGUF_AUTOCAL_CACHE.get(cache_key)
-    if cached is not None:
-        workers_cached, threads_cached, threads_batch_cached = cached
-        plan = local_runtime.resolve_gguf_runtime_plan(
-            max_workers=workers_cached,
-            policy="max_throughput",
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=threads_cached,
-            n_threads_batch=threads_batch_cached,
-            token_budget_mode=token_budget_mode,
-            gpu_offload_supported=False,
-            calibrated=True,
-        )
-        plan = local_runtime.GGUFRuntimePlan(
-            workers=workers_cached,
-            threads=threads_cached,
-            threads_batch=threads_batch_cached,
-            n_ctx=plan.n_ctx,
-            policy="auto_calibrated",
-            gpu_offload_supported=False,
-            calibrated=True,
-            token_budget_mode=token_budget_mode,
-        )
-        return _make_gguf_runtime_config(
-            plan=plan,
-            auto_chunk=auto_chunk,
-            chunk_input_tokens=chunk_input_tokens,
-            chunk_overlap_tokens=chunk_overlap_tokens,
-        )
-
-    fallback_plan = local_runtime.resolve_gguf_runtime_plan(
-        max_workers=max_workers,
-        policy="stability_first",
-        model_path=model_path,
-        n_ctx=n_ctx,
-        n_threads=n_threads,
-        n_threads_batch=n_threads_batch,
-        token_budget_mode=token_budget_mode,
-        gpu_offload_supported=False,
-        calibrated=False,
-    )
-    if not calibration_samples:
-        return _make_gguf_runtime_config(
-            plan=fallback_plan,
-            auto_chunk=auto_chunk,
-            chunk_input_tokens=chunk_input_tokens,
-            chunk_overlap_tokens=chunk_overlap_tokens,
-        )
-
-    best: tuple[float, int, int, int] | None = None
-    deadline = time.perf_counter() + max(1, int(warmup_budget_seconds))
-    for cand_workers, cand_threads in local_runtime.build_gguf_calibration_candidates(
-        max_workers=max_workers,
-        cpu_total=cpu_total,
-    ):
-        if time.perf_counter() >= deadline:
-            break
-        remaining = deadline - time.perf_counter()
-        if remaining < 5:
-            break
-        cand_threads_batch = max(1, min(cpu_total, max(cand_threads, cand_threads * 2)))
-        try:
-            score = _benchmark_runtime_candidate(
-                model_path=model_path,
-                target_lang=target_lang,
-                sample_texts=calibration_samples,
-                workers=cand_workers,
-                threads=cand_threads,
-                threads_batch=cand_threads_batch,
-                n_ctx=n_ctx,
-            )
-        except Exception:
-            continue
-        if best is None or score > best[0]:
-            best = (score, cand_workers, cand_threads, cand_threads_batch)
-
-    if best is None:
-        return _make_gguf_runtime_config(
-            plan=fallback_plan,
-            auto_chunk=auto_chunk,
-            chunk_input_tokens=chunk_input_tokens,
-            chunk_overlap_tokens=chunk_overlap_tokens,
-        )
-
-    _, win_workers, win_threads, win_threads_batch = best
-    _GGUF_AUTOCAL_CACHE[cache_key] = (win_workers, win_threads, win_threads_batch)
-    calibrated_plan = local_runtime.GGUFRuntimePlan(
-        workers=max(1, int(win_workers)),
-        threads=max(1, int(win_threads)),
-        threads_batch=max(1, int(win_threads_batch)),
-        n_ctx=max(1, int(n_ctx)),
-        policy="auto_calibrated",
-        gpu_offload_supported=False,
-        calibrated=True,
-        token_budget_mode=token_budget_mode,
-    )
-    return _make_gguf_runtime_config(
-        plan=calibrated_plan,
-        auto_chunk=auto_chunk,
-        chunk_input_tokens=chunk_input_tokens,
-        chunk_overlap_tokens=chunk_overlap_tokens,
-    )
+def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -> None:
+    """Print compact translation failure summary for one column."""
+    if not failed:
+        return
+    logger.warning("  %s: %s translations failed", column, len(failed))
+    sample = "; ".join(f"idx={idx} ({msg})" for idx, msg in failed[:3])
+    logger.warning("    examples: %s", sample)
 
 
-def _resolve_gguf_runtime(
-    *,
-    max_workers: int,
-    policy: GGUFParallelPolicy,
-    model_path: str,
-    n_ctx: int,
-    n_threads: int | None,
-    n_threads_batch: int | None,
-    token_budget_mode: GGUFTokenBudgetMode,
-    warmup_budget_seconds: int,
-    calibration_samples: list[tuple[str, str]],
-    target_lang: str,
-    auto_chunk: bool,
-    chunk_input_tokens: int,
-    chunk_overlap_tokens: int,
-) -> _GGUFRuntimeConfig:
-    from ads_bib._utils.gguf_backend import gguf_supports_gpu_offload
-
-    if policy == "auto_calibrated":
-        return _resolve_auto_calibrated_runtime(
-            max_workers=max_workers,
-            model_path=model_path,
-            n_ctx=n_ctx,
-            n_threads=n_threads,
-            n_threads_batch=n_threads_batch,
-            token_budget_mode=token_budget_mode,
-            warmup_budget_seconds=warmup_budget_seconds,
-            calibration_samples=calibration_samples,
-            target_lang=target_lang,
-            auto_chunk=auto_chunk,
-            chunk_input_tokens=chunk_input_tokens,
-            chunk_overlap_tokens=chunk_overlap_tokens,
-        )
-
-    plan = local_runtime.resolve_gguf_runtime_plan(
-        max_workers=max_workers,
-        policy=policy,
-        model_path=model_path,
-        n_ctx=n_ctx,
-        n_threads=n_threads,
-        n_threads_batch=n_threads_batch,
-        token_budget_mode=token_budget_mode,
-        gpu_offload_supported=gguf_supports_gpu_offload(),
-        calibrated=False,
-    )
-    return _make_gguf_runtime_config(
-        plan=plan,
-        auto_chunk=auto_chunk,
-        chunk_input_tokens=chunk_input_tokens,
-        chunk_overlap_tokens=chunk_overlap_tokens,
-    )
-
+# ---------------------------------------------------------------------------
+# OpenRouter backend
+# ---------------------------------------------------------------------------
 
 import threading
 
@@ -554,26 +221,6 @@ def _translate_openrouter(
     gen_id = usage["call_record"]["generation_id"]
     direct_cost = usage["call_record"]["direct_cost"]
     return translated, pt, ct, gen_id, direct_cost
-
-
-def _prepare_translation_targets(
-    df: pd.DataFrame,
-    *,
-    source_col: str,
-    target_lang: str,
-) -> tuple[str, pd.DataFrame]:
-    """Initialize translated column and return rows that need translation."""
-    lang_col = f"{source_col}_lang"
-    if source_col not in df.columns:
-        raise ValueError(
-            f"Column '{source_col}' not found. Ensure source columns exist before translation."
-        )
-    target_col = f"{source_col}_{target_lang}"
-    if lang_col not in df.columns:
-        raise ValueError(f"Column '{lang_col}' not found. Run detect_languages() first.")
-    df[target_col] = df[source_col]
-    mask = (df[lang_col] != target_lang) & df[source_col].notna() & (df[source_col] != "")
-    return target_col, df.loc[mask]
 
 
 def _translate_rows_openrouter(
@@ -627,6 +274,10 @@ def _translate_rows_openrouter(
     return total_pt, total_ct, call_records, failed
 
 
+# ---------------------------------------------------------------------------
+# GGUF backend  (GPU-accelerated, or CPU fallback)
+# ---------------------------------------------------------------------------
+
 def _merge_translated_chunks(chunks: list[str]) -> str:
     """Merge chunk translations while trimming simple duplicated overlap text."""
     if not chunks:
@@ -661,18 +312,23 @@ def _translate_text_with_gguf(
     source_lang: str,
     model_path: str,
     max_tokens: int,
-    runtime: _GGUFRuntimeConfig,
+    n_ctx: int,
+    n_threads: int | None,
+    n_threads_batch: int | None,
+    auto_chunk: bool,
+    chunk_input_tokens: int,
+    chunk_overlap_tokens: int,
     retries: int = DEFAULT_GGUF_TRANSLATION_RETRIES,
 ) -> tuple[str, int]:
     from ads_bib._utils.gguf_backend import split_text_by_gguf_tokens, translate_gguf
 
     chunks = [str(text)]
-    if runtime.auto_chunk and len(str(text)) > runtime.short_text_char_threshold:
+    if auto_chunk and len(str(text)) > chunk_input_tokens * 4:
         chunks = split_text_by_gguf_tokens(
             str(text),
             model_path=model_path,
-            max_input_tokens=runtime.chunk_input_tokens,
-            overlap_tokens=runtime.chunk_overlap_tokens,
+            max_input_tokens=chunk_input_tokens,
+            overlap_tokens=chunk_overlap_tokens,
         )
 
     translated_chunks: list[str] = []
@@ -686,15 +342,15 @@ def _translate_text_with_gguf(
                         target_lang,
                         source_lang=source_lang,
                         model_path=model_path,
-                        n_ctx=runtime.n_ctx,
-                        n_threads=runtime.n_threads,
-                        n_threads_batch=runtime.n_threads_batch,
+                        n_ctx=n_ctx,
+                        n_threads=n_threads,
+                        n_threads_batch=n_threads_batch,
                         max_tokens=max_tokens,
                     )
                 )
                 last_exc = None
                 break
-            except Exception as exc:  # pragma: no cover - exercised via integration paths
+            except Exception as exc:
                 last_exc = exc
                 if attempt >= retries:
                     raise
@@ -702,54 +358,6 @@ def _translate_text_with_gguf(
             raise last_exc
     merged = _merge_translated_chunks(translated_chunks)
     return (merged if merged else str(text)), len(chunks)
-
-
-def _translate_gguf_worker_task(
-    payload: tuple[object, str, str, str, str, int, _GGUFRuntimeConfig],
-) -> tuple[object, str | None, int, str | None]:
-    idx, text, source_lang, target_lang, model_path, max_tokens, runtime = payload
-    try:
-        translated, chunk_count = _translate_text_with_gguf(
-            text,
-            target_lang=target_lang,
-            source_lang=source_lang,
-            model_path=model_path,
-            max_tokens=max_tokens,
-            runtime=runtime,
-        )
-        return idx, translated, chunk_count, None
-    except Exception as exc:  # pragma: no cover - exercised via integration paths
-        return idx, None, 0, f"{type(exc).__name__}: {exc}"
-
-
-def _resolve_gguf_token_cap(
-    *,
-    source_col: str,
-    text: str,
-    hard_cap: int,
-    runtime: _GGUFRuntimeConfig,
-    title_max_tokens: int,
-    abstract_max_tokens: int,
-) -> int:
-    if runtime.token_budget_mode == "global":
-        return max(1, int(hard_cap))
-
-    col_norm = source_col.strip().casefold()
-    if col_norm == "title":
-        return max(1, min(int(hard_cap), int(title_max_tokens)))
-    if col_norm == "abstract":
-        text_len = len(str(text))
-        if text_len <= 900:
-            adaptive = 384
-        elif text_len <= 1800:
-            adaptive = 512
-        elif text_len <= 3200:
-            adaptive = 640
-        else:
-            adaptive = int(abstract_max_tokens)
-        return max(64, min(int(hard_cap), int(abstract_max_tokens), adaptive))
-
-    return max(1, min(int(hard_cap), 768))
 
 
 def _translate_rows_gguf(
@@ -761,98 +369,236 @@ def _translate_rows_gguf(
     target_lang: str,
     model_path: str,
     max_tokens: int,
-    runtime: _GGUFRuntimeConfig,
-    title_max_tokens: int,
-    abstract_max_tokens: int,
-    pool: ProcessPoolExecutor | None = None,
+    n_ctx: int,
+    n_threads: int | None,
+    n_threads_batch: int | None,
+    auto_chunk: bool,
+    chunk_input_tokens: int,
+    chunk_overlap_tokens: int,
 ) -> tuple[list[tuple[object, str]], int, int, float]:
-    """Translate selected rows with a local GGUF model."""
+    """Translate selected rows with a local GGUF model (single-worker)."""
     lang_col = f"{source_col}_lang"
     failed: list[tuple[object, str]] = []
     chunked_docs = 0
     total_chunks = 0
     started = time.perf_counter()
-    items = [
-        (
-            idx,
-            str(text),
-            str(to_translate.at[idx, lang_col]),
-            _resolve_gguf_token_cap(
-                source_col=source_col,
-                text=str(text),
-                hard_cap=max_tokens,
-                runtime=runtime,
-                title_max_tokens=title_max_tokens,
-                abstract_max_tokens=abstract_max_tokens,
-            ),
-        )
-        for idx, text in to_translate[source_col].items()
-    ]
-    if runtime.effective_workers <= 1 or len(items) <= 1:
-        for idx, text, src_lang, cap_tokens in tqdm(items, total=len(items), desc=f"  {source_col}"):
-            try:
-                translated, chunk_count = _translate_text_with_gguf(
-                    text,
-                    target_lang=target_lang,
-                    source_lang=src_lang,
-                    model_path=model_path,
-                    max_tokens=cap_tokens,
-                    runtime=runtime,
-                )
-                df.at[idx, target_col] = translated
-                if chunk_count > 1:
-                    chunked_docs += 1
-                total_chunks += chunk_count
-            except Exception as exc:
-                failed.append((idx, f"{type(exc).__name__}: {exc}"))
-        elapsed = max(1e-9, time.perf_counter() - started)
-        return failed, chunked_docs, total_chunks, elapsed
 
-    owns_pool = pool is None
-    if pool is None:
-        pool = ProcessPoolExecutor(
-            max_workers=runtime.effective_workers,
-            initializer=_init_gguf_pool_worker,
-            initargs=(
-                model_path,
-                runtime.n_ctx,
-                runtime.n_threads,
-                runtime.n_threads_batch,
-                runtime.auto_chunk,
-            ),
-        )
-    try:
-        futures = [
-            pool.submit(
-                _translate_gguf_worker_task,
-                (idx, text, src_lang, target_lang, model_path, cap_tokens, runtime),
+    items = list(zip(to_translate.index, to_translate[source_col], to_translate[lang_col]))
+    for idx, text, src_lang in tqdm(items, total=len(items), desc=f"  {source_col}"):
+        try:
+            translated, chunk_count = _translate_text_with_gguf(
+                str(text),
+                target_lang=target_lang,
+                source_lang=str(src_lang),
+                model_path=model_path,
+                max_tokens=max_tokens,
+                n_ctx=n_ctx,
+                n_threads=n_threads,
+                n_threads_batch=n_threads_batch,
+                auto_chunk=auto_chunk,
+                chunk_input_tokens=chunk_input_tokens,
+                chunk_overlap_tokens=chunk_overlap_tokens,
             )
-            for idx, text, src_lang, cap_tokens in items
-        ]
-        for future in tqdm(as_completed(futures), total=len(futures), desc=f"  {source_col}"):
-            idx, translated, chunk_count, error_msg = future.result()
-            if translated is not None:
-                df.at[idx, target_col] = translated
-                if chunk_count > 1:
-                    chunked_docs += 1
-                total_chunks += chunk_count
-            else:
-                failed.append((idx, error_msg or "unknown error"))
-    finally:
-        if owns_pool:
-            pool.shutdown(wait=True)
+            df.at[idx, target_col] = translated
+            if chunk_count > 1:
+                chunked_docs += 1
+            total_chunks += chunk_count
+        except Exception as exc:
+            failed.append((idx, f"{type(exc).__name__}: {exc}"))
     elapsed = max(1e-9, time.perf_counter() - started)
     return failed, chunked_docs, total_chunks, elapsed
 
 
-def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -> None:
-    """Print compact translation failure summary for one column."""
-    if not failed:
-        return
-    logger.warning("  %s: %s translations failed", column, len(failed))
-    sample = "; ".join(f"idx={idx} ({msg})" for idx, msg in failed[:3])
-    logger.warning("    examples: %s", sample)
+# ---------------------------------------------------------------------------
+# NLLB backend  (CTranslate2 — fast CPU translation, 200+ languages)
+# ---------------------------------------------------------------------------
 
+# Mapping from fasttext ISO-639-1 codes to NLLB Flores-200 codes.
+_NLLB_LANG_MAP: dict[str, str] = {
+    "af": "afr_Latn", "am": "amh_Ethi", "ar": "arb_Arab", "az": "azj_Latn",
+    "be": "bel_Cyrl", "bg": "bul_Cyrl", "bn": "ben_Beng", "bs": "bos_Latn",
+    "ca": "cat_Latn", "cs": "ces_Latn", "cy": "cym_Latn", "da": "dan_Latn",
+    "de": "deu_Latn", "el": "ell_Grek", "en": "eng_Latn", "es": "spa_Latn",
+    "et": "est_Latn", "fa": "pes_Arab", "fi": "fin_Latn", "fr": "fra_Latn",
+    "ga": "gle_Latn", "gl": "glg_Latn", "gu": "guj_Gujr", "ha": "hau_Latn",
+    "he": "heb_Hebr", "hi": "hin_Deva", "hr": "hrv_Latn", "hu": "hun_Latn",
+    "hy": "hye_Armn", "id": "ind_Latn", "is": "isl_Latn", "it": "ita_Latn",
+    "ja": "jpn_Jpan", "ka": "kat_Geor", "kk": "kaz_Cyrl", "km": "khm_Khmr",
+    "kn": "kan_Knda", "ko": "kor_Hang", "lt": "lit_Latn", "lv": "lvs_Latn",
+    "mk": "mkd_Cyrl", "ml": "mal_Mlym", "mn": "khk_Cyrl", "mr": "mar_Deva",
+    "ms": "zsm_Latn", "my": "mya_Mymr", "ne": "npi_Deva", "nl": "nld_Latn",
+    "no": "nob_Latn", "pa": "pan_Guru", "pl": "pol_Latn", "pt": "por_Latn",
+    "ro": "ron_Latn", "ru": "rus_Cyrl", "si": "sin_Sinh", "sk": "slk_Latn",
+    "sl": "slv_Latn", "sq": "als_Latn", "sr": "srp_Cyrl", "sv": "swe_Latn",
+    "sw": "swh_Latn", "ta": "tam_Taml", "te": "tel_Telu", "th": "tha_Thai",
+    "tl": "tgl_Latn", "tr": "tur_Latn", "uk": "ukr_Cyrl", "ur": "urd_Arab",
+    "uz": "uzn_Latn", "vi": "vie_Latn", "zh": "zho_Hans",
+}
+
+_nllb_translator = None
+_nllb_tokenizer = None
+_nllb_model_path: str | None = None
+
+_NLLB_INSTALL_HINT = (
+    "NLLB translation requires 'ctranslate2' and 'sentencepiece'. Install with:\n"
+    "  pip install ctranslate2 sentencepiece huggingface-hub"
+)
+
+_DEFAULT_NLLB_MODEL = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
+
+
+def _resolve_nllb_lang_code(iso_code: str) -> str | None:
+    """Map a fasttext ISO-639-1 code to an NLLB Flores-200 code."""
+    return _NLLB_LANG_MAP.get(iso_code)
+
+
+def _ensure_nllb_model(model: str) -> tuple:
+    """Load and cache the CTranslate2 NLLB translator + SentencePiece tokenizer."""
+    global _nllb_translator, _nllb_tokenizer, _nllb_model_path
+    if _nllb_translator is not None and _nllb_model_path == model:
+        return _nllb_translator, _nllb_tokenizer
+
+    try:
+        import ctranslate2
+        import sentencepiece as spm
+    except ImportError as exc:
+        raise ImportError(_NLLB_INSTALL_HINT) from exc
+
+    from huggingface_hub import snapshot_download
+
+    # Download or resolve model directory
+    if Path(model).is_dir():
+        model_dir = str(model)
+    else:
+        import warnings
+
+        logger.info("Downloading NLLB model %s …", model)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*local_dir_use_symlinks.*")
+            model_dir = snapshot_download(repo_id=model, local_dir_use_symlinks=False)
+
+    import os
+
+    # Doku: "increase inter_threads over intra_threads" for large data,
+    # keep inter_threads * intra_threads <= physical core count
+    cpu_count = max(1, int(os.cpu_count() or 1))
+    inter = max(1, min(cpu_count, 4))
+    intra = max(1, cpu_count // inter)
+    _nllb_translator = ctranslate2.Translator(
+        model_dir, device="cpu", compute_type="int8",
+        inter_threads=inter, intra_threads=intra,
+    )
+    logger.info(
+        "  CTranslate2 threads: inter=%d, intra=%d (cpus=%d)",
+        inter, intra, cpu_count,
+    )
+    sp_model_path = Path(model_dir) / "sentencepiece.bpe.model"
+    if not sp_model_path.exists():
+        # Try common alternative names
+        for alt_name in ["spm.model", "tokenizer.model"]:
+            alt = Path(model_dir) / alt_name
+            if alt.exists():
+                sp_model_path = alt
+                break
+    _nllb_tokenizer = spm.SentencePieceProcessor()
+    _nllb_tokenizer.Load(str(sp_model_path))
+    _nllb_model_path = model
+    logger.info("NLLB model loaded from %s", model_dir)
+    return _nllb_translator, _nllb_tokenizer
+
+
+def _translate_rows_nllb(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_col: str,
+    to_translate: pd.DataFrame,
+    target_lang: str,
+    model: str,
+) -> tuple[list[tuple[object, str]], float]:
+    """Translate selected rows with NLLB/CTranslate2 using native batched inference."""
+    lang_col = f"{source_col}_lang"
+    failed: list[tuple[object, str]] = []
+    started = time.perf_counter()
+    skipped_langs: set[str] = set()
+
+    tgt_code = _resolve_nllb_lang_code(target_lang)
+    if tgt_code is None:
+        raise ValueError(
+            f"NLLB does not support target language '{target_lang}'. "
+            f"Known codes: {sorted(_NLLB_LANG_MAP.keys())}"
+        )
+
+    # Fail fast: verify dependencies and load model before the loop
+    translator, tokenizer = _ensure_nllb_model(model)
+
+    # Partition rows: collect translatable items, skip unsupported languages
+    indices: list[object] = []
+    all_tokens: list[list[str]] = []
+    all_prefixes: list[list[str]] = []
+
+    for idx, row in to_translate.iterrows():
+        src_lang_str = str(row[lang_col])
+        src_code = _resolve_nllb_lang_code(src_lang_str)
+        if src_code is None:
+            if src_lang_str not in skipped_langs:
+                logger.warning(
+                    "  NLLB: no mapping for source language '%s' — skipping rows with this language",
+                    src_lang_str,
+                )
+                skipped_langs.add(src_lang_str)
+            failed.append((idx, f"Unsupported source language: {src_lang_str}"))
+            continue
+        tokens = tokenizer.Encode(str(row[source_col]), out_type=str)
+        indices.append(idx)
+        all_tokens.append([src_code] + tokens)
+        all_prefixes.append([tgt_code])
+
+    # Translate in sub-batches with tqdm progress.
+    # CTranslate2 internally splits each sub-batch by max_batch_size (tokens)
+    # and parallelizes across inter_threads workers.
+    n = len(all_tokens)
+    chunk_size = 64
+    for start in tqdm(range(0, max(n, 1), chunk_size), desc=f"  {source_col}", disable=n == 0):
+        end = min(start + chunk_size, n)
+        try:
+            batch_results = translator.translate_batch(
+                all_tokens[start:end],
+                target_prefix=all_prefixes[start:end],
+                beam_size=4,
+                batch_type="tokens",
+                max_batch_size=1024,
+                max_decoding_length=512,
+            )
+            for idx, result in zip(indices[start:end], batch_results):
+                out_tokens = result.hypotheses[0]
+                if out_tokens and out_tokens[0] == tgt_code:
+                    out_tokens = out_tokens[1:]
+                df.at[idx, target_col] = tokenizer.Decode(out_tokens)
+        except Exception:
+            # Fallback: translate one-by-one to isolate the bad row
+            for i in range(start, end):
+                try:
+                    single_result = translator.translate_batch(
+                        [all_tokens[i]],
+                        target_prefix=[all_prefixes[i]],
+                        beam_size=4,
+                        max_decoding_length=512,
+                    )
+                    out_tokens = single_result[0].hypotheses[0]
+                    if out_tokens and out_tokens[0] == tgt_code:
+                        out_tokens = out_tokens[1:]
+                    df.at[indices[i], target_col] = tokenizer.Decode(out_tokens)
+                except Exception as row_exc:
+                    failed.append((indices[i], f"{type(row_exc).__name__}: {row_exc}"))
+
+    elapsed = max(1e-9, time.perf_counter() - started)
+    return failed, elapsed
+
+
+# ---------------------------------------------------------------------------
+# Cost summarization  (OpenRouter only)
+# ---------------------------------------------------------------------------
 
 def _summarize_translation_cost(
     *,
@@ -898,17 +644,14 @@ def translate_dataframe(
     api_base: str = DEFAULT_OPENROUTER_API_BASE,
     max_workers: int = 5,
     max_translation_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
-    gguf_parallel_policy: GGUFParallelPolicy = DEFAULT_GGUF_PARALLEL_POLICY,
-    gguf_warmup_budget_seconds: int = DEFAULT_GGUF_WARMUP_BUDGET_SECONDS,
-    gguf_token_budget_mode: GGUFTokenBudgetMode = "column_aware",
-    gguf_title_max_tokens: int = DEFAULT_GGUF_TITLE_MAX_TOKENS,
-    gguf_abstract_max_tokens: int = DEFAULT_GGUF_ABSTRACT_MAX_TOKENS,
+    # GGUF-specific (kept simple — single worker, optional chunking)
+    gguf_n_ctx: int = 4096,
     gguf_threads: int | None = None,
     gguf_threads_batch: int | None = None,
-    gguf_n_ctx: int = 4096,
     gguf_auto_chunk: bool = True,
     gguf_chunk_input_tokens: int = DEFAULT_GGUF_CHUNK_INPUT_TOKENS,
     gguf_chunk_overlap_tokens: int = DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS,
+    # OpenRouter cost tracking
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
 ) -> tuple[pd.DataFrame, TranslationCostInfo]:
@@ -921,10 +664,13 @@ def translate_dataframe(
     columns : list[str]
         Columns to translate (e.g. ``["Title", "Abstract"]``).
     provider : str
-        ``"openrouter"`` or ``"gguf"``.
+        ``"openrouter"``, ``"gguf"``, or ``"nllb"``.
     model : str
-        Model identifier (e.g. ``"gpt-4o"`` for OpenRouter,
-        ``"mradermacher/translategemma-4b-it-GGUF"`` for GGUF).
+        Model identifier. Examples:
+
+        - OpenRouter: ``"gpt-4o"``
+        - GGUF: ``"mradermacher/translategemma-4b-it-GGUF"``
+        - NLLB: ``"JustFrederik/nllb-200-distilled-600M-ct2-int8"`` (default)
     target_lang : str
         Target language code.
     api_key : str, optional
@@ -932,77 +678,44 @@ def translate_dataframe(
     api_base : str
         OpenRouter API base URL.
     max_workers : int
-        Concurrent workers for OpenRouter and GGUF document-level translation.
+        Concurrent workers for OpenRouter.
     max_translation_tokens : int
-        Global hard token ceiling per translation call.
-    gguf_parallel_policy : str
-        GGUF worker policy: ``"auto_calibrated"``, ``"balanced_auto"``,
-        ``"max_throughput"``, or ``"stability_first"``.
-    gguf_warmup_budget_seconds : int
-        Time budget for one-time CPU auto-calibration when
-        ``gguf_parallel_policy="auto_calibrated"``.
-    gguf_token_budget_mode : str
-        ``"column_aware"`` (default) or ``"global"`` token budgeting.
-    gguf_title_max_tokens : int
-        Title translation cap used when ``gguf_token_budget_mode="column_aware"``.
-    gguf_abstract_max_tokens : int
-        Abstract translation cap used when ``gguf_token_budget_mode="column_aware"``.
-    gguf_threads : int, optional
-        Threads used by each GGUF worker model instance.
-    gguf_threads_batch : int, optional
-        Prompt/batch thread count used by each GGUF worker model instance.
+        Token ceiling per translation call (OpenRouter and GGUF).
     gguf_n_ctx : int
         GGUF context window.
+    gguf_threads : int, optional
+        Threads for the GGUF model instance.
+    gguf_threads_batch : int, optional
+        Prompt/batch thread count for the GGUF model instance.
     gguf_auto_chunk : bool
-        If ``True``, split long texts into token chunks and merge translated chunks.
+        If ``True``, split long texts into token chunks (GGUF only).
     gguf_chunk_input_tokens : int
-        Maximum GGUF input tokens per chunk when ``gguf_auto_chunk=True``.
+        Maximum GGUF input tokens per chunk.
     gguf_chunk_overlap_tokens : int
-        Chunk overlap in GGUF tokens when ``gguf_auto_chunk=True``.
+        Chunk overlap in tokens.
     openrouter_cost_mode : str
         ``"hybrid"`` (default), ``"strict"``, or ``"fast"``.
+    cost_tracker : CostTracker, optional
+        Aggregated cost tracker instance.
 
     Returns
     -------
     tuple[pd.DataFrame, TranslationCostInfo]
-        ``(translated_df, cost_info)`` where *cost_info* has keys
-        ``prompt_tokens``, ``completion_tokens``, ``provider``, ``model``,
-        ``cost_usd``, ``cost_mode``, ``cost_summary``.
+        ``(translated_df, cost_info)``.
     """
     from .config import validate_provider
     validate_provider(
         provider,
-        valid={"openrouter", "gguf"},
+        valid={"openrouter", "gguf", "nllb"},
         api_key=api_key,
         requires_key={"openrouter"},
-        requires_import={"gguf": "llama_cpp"},
+        requires_import={"gguf": "llama_cpp", "nllb": "ctranslate2"},
     )
     df = df.copy()
     if max_translation_tokens <= 0:
         raise ValueError("max_translation_tokens must be > 0.")
     if max_workers <= 0:
         raise ValueError("max_workers must be > 0.")
-    if gguf_parallel_policy not in {"auto_calibrated", "balanced_auto", "max_throughput", "stability_first"}:
-        raise ValueError(
-            f"Invalid gguf_parallel_policy '{gguf_parallel_policy}'. "
-            "Expected 'auto_calibrated', 'balanced_auto', 'max_throughput', or 'stability_first'."
-        )
-    if gguf_token_budget_mode not in {"column_aware", "global"}:
-        raise ValueError(
-            f"Invalid gguf_token_budget_mode '{gguf_token_budget_mode}'. "
-            "Expected 'column_aware' or 'global'."
-        )
-    if gguf_warmup_budget_seconds <= 0:
-        raise ValueError("gguf_warmup_budget_seconds must be > 0.")
-    if gguf_title_max_tokens <= 0:
-        raise ValueError("gguf_title_max_tokens must be > 0.")
-    if gguf_abstract_max_tokens <= 0:
-        raise ValueError("gguf_abstract_max_tokens must be > 0.")
-    if gguf_parallel_policy != "auto_calibrated" and gguf_warmup_budget_seconds != DEFAULT_GGUF_WARMUP_BUDGET_SECONDS:
-        logger.info(
-            "  GGUF warmup budget ignored because policy=%s",
-            gguf_parallel_policy,
-        )
     if gguf_n_ctx <= 0:
         raise ValueError("gguf_n_ctx must be > 0.")
     if gguf_threads is not None and int(gguf_threads) <= 0:
@@ -1021,148 +734,91 @@ def translate_dataframe(
     total_ct = 0
     call_records: list[dict[str, str | float | None]] = []
 
-    # Pre-resolve GGUF model path once (downloads on first call, then cached).
+    # Pre-resolve GGUF model path once.
     gguf_model_path: str | None = None
-    gguf_runtime: _GGUFRuntimeConfig | None = None
-    calibration_samples: list[tuple[str, str]] = []
-    gguf_pool: ProcessPoolExecutor | None = None
     if provider == "gguf":
         from ads_bib._utils.gguf_backend import resolve_gguf_model
-
         gguf_model_path = resolve_gguf_model(model)
-        calibration_samples = _collect_calibration_samples(
-            df,
-            columns=columns,
-            target_lang=target_lang,
-            limit=6,
-        )
-        gguf_runtime = _resolve_gguf_runtime(
-            max_workers=max_workers,
-            policy=gguf_parallel_policy,
-            model_path=gguf_model_path,
-            n_ctx=gguf_n_ctx,
-            n_threads=gguf_threads,
-            n_threads_batch=gguf_threads_batch,
-            token_budget_mode=gguf_token_budget_mode,
-            warmup_budget_seconds=gguf_warmup_budget_seconds,
-            calibration_samples=calibration_samples,
-            target_lang=target_lang,
-            auto_chunk=gguf_auto_chunk,
-            chunk_input_tokens=gguf_chunk_input_tokens,
-            chunk_overlap_tokens=gguf_chunk_overlap_tokens,
-        )
         logger.info(
-            "  GGUF runtime | policy=%s | calibrated=%s | workers=%s/%s | "
-            "gpu_offload=%s | threads=%s | threads_batch=%s | n_ctx=%s | "
-            "token_budget_mode=%s | chunking=%s(%s/%s)",
-            gguf_runtime.policy,
-            gguf_runtime.calibrated,
-            gguf_runtime.effective_workers,
-            max_workers,
-            gguf_runtime.gpu_offload_supported,
-            gguf_runtime.n_threads,
-            gguf_runtime.n_threads_batch,
-            gguf_runtime.n_ctx,
-            gguf_runtime.token_budget_mode,
-            gguf_runtime.auto_chunk,
-            gguf_runtime.chunk_input_tokens,
-            gguf_runtime.chunk_overlap_tokens,
+            "  GGUF translation | n_ctx=%s | threads=%s | threads_batch=%s | chunking=%s(%s/%s)",
+            gguf_n_ctx, gguf_threads, gguf_threads_batch,
+            gguf_auto_chunk, gguf_chunk_input_tokens, gguf_chunk_overlap_tokens,
         )
-        if gguf_runtime.effective_workers > 1:
-            gguf_pool = ProcessPoolExecutor(
-                max_workers=gguf_runtime.effective_workers,
-                initializer=_init_gguf_pool_worker,
-                initargs=(
-                    gguf_model_path,
-                    gguf_runtime.n_ctx,
-                    gguf_runtime.n_threads,
-                    gguf_runtime.n_threads_batch,
-                    gguf_runtime.auto_chunk,
-                ),
-            )
 
-    try:
-        for col in columns:
-            en_col, to_translate = _prepare_translation_targets(
+    for col in columns:
+        en_col, to_translate = _prepare_translation_targets(
+            df,
+            source_col=col,
+            target_lang=target_lang,
+        )
+        n = len(to_translate)
+        if n == 0:
+            logger.info("  %s: nothing to translate", col)
+            continue
+
+        logger.info(
+            "  %s: translating %s entries with %s/%s ...",
+            col, f"{n:,}", provider, model,
+        )
+
+        if provider == "openrouter":
+            pt, ct, records, failed = _translate_rows_openrouter(
                 df,
                 source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
                 target_lang=target_lang,
+                model=model,
+                api_key=api_key,
+                api_base=api_base,
+                max_workers=max_workers,
+                max_tokens=max_translation_tokens,
             )
-            n = len(to_translate)
-            if n == 0:
-                logger.info("  %s: nothing to translate", col)
-                continue
+            total_pt += pt
+            total_ct += ct
+            call_records.extend(records)
 
-            logger.info(
-                "  %s: translating %s entries with %s/%s ...",
-                col,
-                f"{n:,}",
-                provider,
-                model,
+        elif provider == "gguf":
+            assert gguf_model_path is not None
+            failed, chunked_docs, total_chunks, elapsed_s = _translate_rows_gguf(
+                df,
+                source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
+                target_lang=target_lang,
+                model_path=gguf_model_path,
+                max_tokens=max_translation_tokens,
+                n_ctx=gguf_n_ctx,
+                n_threads=gguf_threads,
+                n_threads_batch=gguf_threads_batch,
+                auto_chunk=gguf_auto_chunk,
+                chunk_input_tokens=gguf_chunk_input_tokens,
+                chunk_overlap_tokens=gguf_chunk_overlap_tokens,
             )
-            if provider == "openrouter":
-                pt, ct, records, failed = _translate_rows_openrouter(
-                    df,
-                    source_col=col,
-                    target_col=en_col,
-                    to_translate=to_translate,
-                    target_lang=target_lang,
-                    model=model,
-                    api_key=api_key,
-                    api_base=api_base,
-                    max_workers=max_workers,
-                    max_tokens=max_translation_tokens,
-                )
-                total_pt += pt
-                total_ct += ct
-                call_records.extend(records)
-            elif provider == "gguf":
-                assert gguf_model_path is not None
-                assert gguf_runtime is not None
-                if gguf_runtime.token_budget_mode == "global":
-                    cap_info = str(max_translation_tokens)
-                elif col.strip().casefold() == "title":
-                    cap_info = str(min(max_translation_tokens, gguf_title_max_tokens))
-                elif col.strip().casefold() == "abstract":
-                    cap_info = f"adaptive<={min(max_translation_tokens, gguf_abstract_max_tokens)}"
-                else:
-                    cap_info = "adaptive<=768"
+            docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
+            logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)
+            if chunked_docs > 0:
                 logger.info(
-                    "  %s: token_cap[%s]=%s",
-                    col,
-                    gguf_runtime.token_budget_mode,
-                    cap_info,
+                    "  %s: chunked %s/%s texts (avg chunks/text=%.2f)",
+                    col, f"{chunked_docs:,}", f"{n:,}", total_chunks / max(1, n),
                 )
-                failed, chunked_docs, total_chunks, elapsed_s = _translate_rows_gguf(
-                    df,
-                    source_col=col,
-                    target_col=en_col,
-                    to_translate=to_translate,
-                    target_lang=target_lang,
-                    model_path=gguf_model_path,
-                    max_tokens=max_translation_tokens,
-                    runtime=gguf_runtime,
-                    title_max_tokens=gguf_title_max_tokens,
-                    abstract_max_tokens=gguf_abstract_max_tokens,
-                    pool=gguf_pool,
-                )
-                docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
-                logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)
-                if chunked_docs > 0:
-                    logger.info(
-                        "  %s: chunked %s/%s texts (avg chunks/text=%.2f)",
-                        col,
-                        f"{chunked_docs:,}",
-                        f"{n:,}",
-                        total_chunks / max(1, n),
-                    )
-            else:
-                raise ValueError(f"Unknown translation provider: {provider}")
 
-            _report_failed_translations(col, failed)
-    finally:
-        if gguf_pool is not None:
-            gguf_pool.shutdown(wait=True)
+        elif provider == "nllb":
+            failed, elapsed_s = _translate_rows_nllb(
+                df,
+                source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
+                target_lang=target_lang,
+                model=model,
+            )
+            docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
+            logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)
+
+        else:
+            raise ValueError(f"Unknown translation provider: {provider}")
+
+        _report_failed_translations(col, failed)
 
     total_cost_usd, cost_summary = _summarize_translation_cost(
         provider=provider,

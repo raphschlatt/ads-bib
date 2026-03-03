@@ -27,7 +27,7 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 ## Pipeline Phases
 
 1. **Search & Export** — ADS API queries + resolve bibcodes to metadata
-2. **Translation** — fasttext language detection + OpenRouter or HuggingFace TranslateGemma
+2. **Translation** — fasttext language detection + 3 backends (OpenRouter API, GGUF/GPU, NLLB/CPU)
 3. **Tokenization** — spaCy lemmatization of Title + Abstract
 4. **AND** — Author Name Disambiguation (placeholder for external package)
 5. **Topic Modeling & Curation** — BERTopic + datamapplot visualization + cluster removal
@@ -39,7 +39,7 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 - Notebook is the primary entrypoint; optional `ads-bib check` exists only for local quality gates
 - AND is an external package, just imported when ready
 - AND integration is deferred for the internal RC until the external package API is stable
-- Translation backends: OpenRouter (any LLM) + GGUF local (TranslateGemma 4B via llama-cpp-python)
+- Translation backends: OpenRouter (API, any LLM), GGUF (local GPU via llama-cpp-python), NLLB (local CPU via CTranslate2, 200+ languages)
 - No BERTopic+EVoC path for now; EVoC support remains `toponymy_evoc` only
 - All paths relative to notebook location via `config.init_paths()`
 - Static config in `.env` (API keys), dynamic config in notebook cells
@@ -50,7 +50,7 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 |--------|---------|
 | `search.py` | ADS API cursor-based deep paging |
 | `export.py` | Concurrent chunked bibcode export + parsing |
-| `translate.py` | Language detection + 2 translation backends (OpenRouter, GGUF) |
+| `translate.py` | Language detection + 3 translation backends (OpenRouter, GGUF, NLLB) |
 | `tokenize.py` | spaCy tokenization (replaced semanticlayertools) |
 | `topic_model/` | BERTopic + Toponymy backends: embeddings, dim reduction, clustering, LLM labeling |
 | `visualize.py` | datamapplot with custom legend, tooltips, word cloud |
@@ -76,7 +76,7 @@ Create `.env` in the project root and fill in API keys. Place `lid.176.bin` in `
 
 Required: pandas, numpy, requests, python-dotenv, fasttext-wheel, spacy, tqdm, scipy, PyYAML
 
-Optional groups: `[topic]`, `[translate-local]` (llama-cpp-python), `[translate-api]`, `[gguf]`, `[all]`
+Optional groups: `[topic]`, `[translate-local]` (llama-cpp-python), `[translate-api]`, `[translate-nllb]` (ctranslate2+sentencepiece), `[gguf]`, `[all]`
 
 ## Conventions
 

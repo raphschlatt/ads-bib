@@ -14,7 +14,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
-from ads_bib._utils import local_runtime
+import os
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -658,7 +658,7 @@ def _build_toponymy_models(
         from ads_bib._utils.gguf_backend import (
             gguf_supports_gpu_offload,
             _make_llama_jupyter_safe,
-            _safe_stdio,
+            safe_stdio,
             resolve_gguf_model,
         )
 
@@ -670,28 +670,17 @@ def _build_toponymy_models(
                 "Toponymy GGUF labeling requires 'toponymy' with LlamaCppNamer and "
                 "'llama-cpp-python'. Install with: pip install toponymy llama-cpp-python"
             ) from exc
-        runtime_plan = local_runtime.resolve_gguf_runtime_plan(
-            max_workers=max_workers,
-            policy="balanced_auto",
-            model_path=model_path,
-            n_ctx=4096,
-            n_threads=None,
-            n_threads_batch=None,
-            token_budget_mode="global",
-            gpu_offload_supported=gguf_supports_gpu_offload(),
-            calibrated=False,
-        )
-        n_threads = runtime_plan.threads
-        n_threads_batch = runtime_plan.threads_batch
+        cpu_total = max(1, int(os.cpu_count() or 1))
+        n_threads = min(8, cpu_total)
+        n_threads_batch = max(n_threads, min(cpu_total, n_threads * 2))
+        gpu_offload = gguf_supports_gpu_offload()
         logger.info(
-            "  Toponymy GGUF runtime hint | workers=%s/%s | threads=%s | threads_batch=%s | gpu_offload=%s",
-            runtime_plan.workers,
-            max_workers,
+            "  Toponymy GGUF runtime hint | threads=%s | threads_batch=%s | gpu_offload=%s",
             n_threads,
             n_threads_batch,
-            runtime_plan.gpu_offload_supported,
+            gpu_offload,
         )
-        with _safe_stdio():
+        with safe_stdio():
             try:
                 llm_wrapper = LlamaCppNamer(
                     model_path=model_path,

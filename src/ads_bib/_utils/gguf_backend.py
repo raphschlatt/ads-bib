@@ -11,7 +11,6 @@ Topic-labeling integration uses the native library classes directly:
 
 from __future__ import annotations
 
-from collections import deque
 import functools
 import logging
 import os
@@ -20,6 +19,8 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from ads_bib._utils.hf_compat import _iter_exception_chain
 
 logger = logging.getLogger(__name__)
 
@@ -43,23 +44,6 @@ _GGUF_ARCH_MISMATCH_MARKERS = (
     "unsupported architecture",
 )
 _VERSION_TOKEN_RE = re.compile(r"(\d+)")
-
-
-def _iter_exception_chain(exc: BaseException):
-    """Yield *exc* and nested causes/contexts once each."""
-    seen: set[int] = set()
-    queue = deque([exc])
-    while queue:
-        current = queue.popleft()
-        current_id = id(current)
-        if current_id in seen:
-            continue
-        seen.add(current_id)
-        yield current
-        if current.__cause__ is not None:
-            queue.append(current.__cause__)
-        if current.__context__ is not None:
-            queue.append(current.__context__)
 
 
 def _parse_version_triplet(version: str) -> tuple[int, int, int] | None:
@@ -172,7 +156,7 @@ def resolve_gguf_model(model: str) -> str:
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def _safe_stdio():
+def safe_stdio():
     """Temporarily ensure sys.stdout/stderr support fileno().
 
     llama-cpp-python's ``Llama()`` constructor tries to redirect C-level
@@ -224,7 +208,7 @@ def _load_llama(
         raise ImportError(_INSTALL_HINT) from exc
 
     try:
-        with _safe_stdio():
+        with safe_stdio():
             return Llama(
                 model_path=model_path,
                 n_ctx=n_ctx,
@@ -252,7 +236,7 @@ def _make_llama_jupyter_safe(llm: Any) -> None:
     and ``create_chat_completion``.  In Jupyter on Windows the kernel's
     ``sys.stdout`` lacks ``fileno()``, raising ``UnsupportedOperation``.
 
-    This function wraps both methods with :func:`_safe_stdio` so they
+    This function wraps both methods with :func:`safe_stdio` so they
     work transparently inside notebook kernels.  If ``fileno()`` already
     works, nothing is patched.
     """
@@ -267,12 +251,12 @@ def _make_llama_jupyter_safe(llm: Any) -> None:
 
     @functools.wraps(original_call)
     def _safe_call(*args: Any, **kwargs: Any) -> Any:
-        with _safe_stdio():
+        with safe_stdio():
             return original_call(*args, **kwargs)
 
     @functools.wraps(original_chat)
     def _safe_chat(*args: Any, **kwargs: Any) -> Any:
-        with _safe_stdio():
+        with safe_stdio():
             return original_chat(*args, **kwargs)
 
     llm.__call__ = _safe_call
@@ -339,25 +323,6 @@ def _ensure_translation_tokenizer(*, model_path: str) -> Any:
     return _translation_tokenizer
 
 
-def prime_gguf_translation_runtime(
-    *,
-    model_path: str,
-    n_ctx: int,
-    n_threads: int | None,
-    n_threads_batch: int | None,
-    preload_tokenizer: bool,
-) -> None:
-    """Prime worker-local model state for translation process pools."""
-    _ensure_translation_model(
-        model_path=model_path,
-        n_ctx=n_ctx,
-        n_threads=n_threads,
-        n_threads_batch=n_threads_batch,
-    )
-    if preload_tokenizer:
-        _ensure_translation_tokenizer(model_path=model_path)
-
-
 def translate_gguf(
     text: str,
     target_lang: str,
@@ -382,7 +347,7 @@ def translate_gguf(
         n_threads_batch=n_threads_batch,
     )
 
-    with _safe_stdio():
+    with safe_stdio():
         result = model_obj.create_chat_completion(
             messages=[
                 {

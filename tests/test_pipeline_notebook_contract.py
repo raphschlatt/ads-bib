@@ -69,8 +69,9 @@ def test_pipeline_notebook_code_contract():
         'TRANSLATION_MODEL = "mradermacher/translategemma-4b-it-i1-GGUF:'
         'translategemma-4b-it.i1-Q4_K_M.gguf"'
     ) in code
-    assert "TRANSLATION_LOCAL_PROFILE =" in code
-    assert "gguf_parallel_policy=TRANSLATION_LOCAL_PROFILE" in code
+    # Simplified GGUF: no parallel policy, no calibration, no token budget modes
+    assert "TRANSLATION_LOCAL_PROFILE =" not in code
+    assert "gguf_parallel_policy" not in code
     assert "TRANSLATION_GGUF_POLICY =" not in code
     assert "TRANSLATION_GGUF_THREADS =" not in code
     assert "TRANSLATION_GGUF_THREADS_BATCH =" not in code
@@ -78,6 +79,8 @@ def test_pipeline_notebook_code_contract():
     assert "TRANSLATION_GGUF_AUTO_CHUNK =" not in code
     assert "TRANSLATION_GGUF_CHUNK_INPUT_TOKENS =" not in code
     assert "TRANSLATION_GGUF_CHUNK_OVERLAP_TOKENS =" not in code
+    # NLLB provider is documented as a comment
+    assert "nllb" in code
     assert 'EMBEDDING_MODEL = "google/embeddinggemma-300m"' in code
     assert 'LLM_PROVIDER = "gguf"' in code
     assert 'LLM_MODEL = "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf"' in code
