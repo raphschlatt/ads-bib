@@ -35,7 +35,7 @@ logger = logging.getLogger("ads_bib.topic_model")
 
 DEFAULT_CLUSTER_MIN_SIZE = 180
 DEFAULT_BERTOPIC_TOP_N_WORDS = 20
-DEFAULT_POS_SPACY_MODEL = "en_core_web_sm"
+DEFAULT_POS_SPACY_MODEL = "en_core_web_md"
 DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128
 DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256
 BERTopicLLMProvider: TypeAlias = Literal["local", "gguf", "huggingface_api", "openrouter"]
@@ -951,7 +951,11 @@ def fit_bertopic(
         pos_spacy_model=pos_spacy_model,
     )
 
-    vectorizer = CountVectorizer(stop_words="english", min_df=min_df, ngram_range=(1, 3))
+    n_docs = len(documents)
+    safe_min_df = min(min_df, max(1, n_docs // 20))
+    if safe_min_df != min_df:
+        logger.warning("  min_df capped from %d to %d (dataset has %d documents)", min_df, safe_min_df, n_docs)
+    vectorizer = CountVectorizer(stop_words="english", min_df=safe_min_df, ngram_range=(1, 3))
     ctfidf = ClassTfidfTransformer()
 
     emb_model = None

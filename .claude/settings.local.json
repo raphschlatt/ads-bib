@@ -40,7 +40,20 @@
       "WebFetch(domain:opennmt.net)",
       "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py -v)",
       "Bash(/c/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pytest tests/test_translate_core.py tests/test_translate_error_handling.py tests/test_pipeline_notebook_contract.py -v)",
-      "Bash(pip show ctranslate2)"
+      "Bash(pip show ctranslate2)",
+      "Bash(pip show sentence-transformers)",
+      "Bash(pip show bertopic)",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pip show ctranslate2 sentence-transformers bertopic llama-cpp-python)",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \" # Check what torch version constraints exist import importlib.metadata as meta for dist in meta.distributions\\(\\): reqs = dist.requires or [] for r in reqs: if ''torch'' in r.lower\\(\\) and dist.metadata[''Name''].lower\\(\\) != ''torch'': print\\(f''{dist.metadata[\"\"Name\"\"]}=={dist.metadata[\"\"Version\"\"]} -> {r}''\\) \")",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \":*)",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -m uv pip install \"torch==2.6.0+cpu\" --extra-index-url https://download.pytorch.org/whl/cpu)",
+      "Bash(uv pip install --python C:/Users/rapha/anaconda3/envs/ADS_env/python.exe \"torch==2.6.0+cpu\" --extra-index-url https://download.pytorch.org/whl/cpu)",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \"import torch; print\\(''torch:'', torch.__version__\\); print\\(''cuda:'', torch.cuda.is_available\\(\\)\\)\")",
+      "Bash(KMP_DUPLICATE_LIB_OK=TRUE C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \"import torch; print\\(''torch:'', torch.__version__\\)\")",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pip show datamapplot)",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -c \"import datamapplot; print\\(dir\\(datamapplot\\)\\)\")",
+      "Bash(ls C:/Users/rapha/anaconda3/envs/ADS_env/Lib/site-packages/datamapplot/selection_handlers*)",
+      "Bash(C:/Users/rapha/anaconda3/envs/ADS_env/python.exe -m pip index versions datamapplot)"
     ]
   }
 }
