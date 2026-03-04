@@ -130,11 +130,7 @@ def detect_languages(
 # Translation helpers  (shared)
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = (
-    "You are a highly accurate translator specializing in scientific and "
-    "technical texts. Only translate the text. Do not comment or provide "
-    "additional information."
-)
+from ads_bib.prompts import TRANSLATION_SYSTEM as SYSTEM_PROMPT
 DEFAULT_TRANSLATION_MAX_TOKENS = 2048
 DEFAULT_GGUF_CHUNK_INPUT_TOKENS = 384
 DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS = 48

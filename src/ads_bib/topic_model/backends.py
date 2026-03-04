@@ -29,6 +29,7 @@ from ads_bib._utils.openrouter_costs import (
     resolve_openrouter_costs,
 )
 from ads_bib.config import validate_provider
+from ads_bib.prompts import BERTOPIC_LABELING_GENERIC
 from ads_bib.topic_model.embeddings import OpenRouterEmbedder
 
 logger = logging.getLogger("ads_bib.topic_model")
@@ -322,14 +323,7 @@ def _build_representation_model(
     """Build BERTopic representation models for sequential and parallel use."""
     from bertopic.representation import MaximalMarginalRelevance, PartOfSpeech
 
-    default_prompt = (
-        "You are an experienced researcher. You are labeling research topic clusters.\n\n"
-        "Documents: [DOCUMENTS]\nKeywords: [KEYWORDS]\n\n"
-        "Task: Generate EXACTLY ONE topic label of 4-7 words.\n"
-        "Output format (single line): topic: <label>\n"
-        "Do NOT write anything else."
-    )
-    prompt = llm_prompt or default_prompt
+    prompt = llm_prompt or BERTOPIC_LABELING_GENERIC
 
     if "POS" in pipeline_models or "POS" in parallel_models:
         logger.info("  Initializing POS keyword extraction model: %s", pos_spacy_model)
