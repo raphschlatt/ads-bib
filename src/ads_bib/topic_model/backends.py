@@ -33,11 +33,11 @@ from ads_bib.topic_model.embeddings import OpenRouterEmbedder
 
 logger = logging.getLogger("ads_bib.topic_model")
 
-DEFAULT_CLUSTER_MIN_SIZE = 180
-DEFAULT_BERTOPIC_TOP_N_WORDS = 20
+DEFAULT_CLUSTER_MIN_SIZE = 180       # ~0.1-0.2% of typical corpus (87k-180k docs) -> 50-70 topics
+DEFAULT_BERTOPIC_TOP_N_WORDS = 20     # Keywords per topic for c-TF-IDF representation
 DEFAULT_POS_SPACY_MODEL = "en_core_web_md"
-DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128
-DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256
+DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128   # Concise topic labels (4-7 words)
+DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256  # Toponymy needs more tokens for hierarchical labels
 BERTopicLLMProvider: TypeAlias = Literal["local", "gguf", "huggingface_api", "openrouter"]
 ToponymyLLMProvider: TypeAlias = Literal["local", "gguf", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
@@ -56,11 +56,13 @@ def _create_cluster_model(method: str, params: dict | None = None):
 
         defaults = dict(
             min_cluster_size=DEFAULT_CLUSTER_MIN_SIZE,
-            min_samples=3,
-            cluster_selection_method="eom",
-            cluster_selection_epsilon=0.02,
+            min_samples=3,                     # Low value reduces outliers; higher = stricter density requirement
+            cluster_selection_method="eom",     # Excess of Mass: selects most persistent clusters
+            cluster_selection_epsilon=0.02,     # Absorbs border points into nearby clusters
             allow_single_cluster=False,
         )
+        # Note: fast_hdbscan does NOT support prediction_data or gen_min_span_tree.
+        # Use standard hdbscan if you need approximate_predict() or condensed_tree_ analysis.
         defaults.update(params)
         return fast_hdbscan.HDBSCAN(**defaults)
 
@@ -73,8 +75,8 @@ def _create_cluster_model(method: str, params: dict | None = None):
             metric="euclidean",
             cluster_selection_method="eom",
             cluster_selection_epsilon=0.02,
-            prediction_data=True,
-            gen_min_span_tree=True,
+            prediction_data=True,              # Enables approximate_predict() for new documents
+            gen_min_span_tree=True,             # Enables condensed_tree_ for cluster hierarchy analysis
         )
         defaults.update(params)
         return HDBSCAN(**defaults)

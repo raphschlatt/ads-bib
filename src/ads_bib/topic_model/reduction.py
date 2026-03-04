@@ -15,8 +15,9 @@ from tqdm.auto import tqdm
 logger = logging.getLogger("ads_bib.topic_model")
 
 DEFAULT_DIM_REDUCTION_RANDOM_STATE = 42
-DEFAULT_PACMAP_N_NEIGHBORS = 60
-DEFAULT_UMAP_N_NEIGHBORS = 80
+DEFAULT_PACMAP_N_NEIGHBORS = 60   # Balances local/global structure; lower = more local detail
+DEFAULT_UMAP_N_NEIGHBORS = 80     # UMAP needs more neighbors than PaCMAP for stable manifolds
+DEFAULT_UMAP_MIN_DIST = 0.05      # Tighter clusters in 2D; library default 0.1 is too loose for bibliometric data
 
 
 def _stable_hash(payload: dict[str, Any]) -> str:
@@ -122,13 +123,19 @@ def _reduce_with_cache(
         defaults = dict(
             n_components=n_components,
             n_neighbors=DEFAULT_UMAP_N_NEIGHBORS,
-            min_dist=0.05,
+            min_dist=DEFAULT_UMAP_MIN_DIST,
             metric="cosine",
             random_state=random_state,
             verbose=False,
         )
         defaults.update(params)
         defaults["n_components"] = n_components
+
+        # densmap preserves local density in 2D — important for downstream KDE
+        # analysis. It is passed through as a native UMAP parameter.
+        if defaults.get("densmap"):
+            logger.info("  densmap=True: density-preserving UMAP (slower, better for KDE)")
+
         model = UMAP(**defaults)
     else:
         raise ValueError(f"Unknown dim reduction method: {method}")
@@ -196,12 +203,15 @@ def reduce_dimensions(
     """
     if not cache_suffix and embedding_id:
         p5 = params_5d or {}
+        p2 = params_2d or {}
+        densmap_tag = "_densmap" if p2.get("densmap") else ""
         cache_suffix = (
             f"{embedding_id.replace('/', '_')}_{method}"
             f"_nn{p5.get('n_neighbors', 'def')}"
             f"_mind{p5.get('min_dist', 'def')}"
             f"_metric{p5.get('metric', 'def')}"
             f"_rs{random_state}"
+            f"{densmap_tag}"
         )
 
     with tqdm(total=2, desc=f"Reduction ({method.upper()})", disable=not show_progress) as pbar:
