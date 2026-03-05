@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,6 @@ from tqdm.auto import tqdm
 
 from ads_bib._utils.ads_api import retry_call
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
-import os
 from ads_bib._utils.openrouter_costs import (
     extract_generation_id,
     extract_response_cost,
@@ -27,6 +27,13 @@ logger = logging.getLogger("ads_bib.topic_model")
 
 _DOC_FINGERPRINT_SEPARATOR = "\x1f"
 _DOC_FINGERPRINT_ENCODING = "utf-8"
+_PAID_PROVIDER_FALLBACK_DIM = 3072
+_PAID_PROVIDER_DIM_HINTS = {
+    "google/gemini-embedding-001": 3072,
+}
+_EMBEDDING_MEMORY_OVERHEAD_FACTOR = 1.5
+_EMBEDDING_MEMORY_BUDGET_FRACTION = 0.70
+_EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
 
 
 def _documents_fingerprint(documents: list[str]) -> str:
@@ -39,6 +46,68 @@ def _documents_fingerprint(documents: list[str]) -> str:
     return hasher.hexdigest()
 
 
+def _available_memory_bytes() -> int | None:
+    """Return available system memory bytes when discoverable."""
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        available_pages = int(os.sysconf("SC_AVPHYS_PAGES"))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    if page_size <= 0 or available_pages <= 0:
+        return None
+    return page_size * available_pages
+
+
+def _embedding_dim_hint(provider: str, model: str) -> int | None:
+    """Return a conservative embedding dimension estimate for paid providers."""
+    if provider not in {"openrouter", "huggingface_api"}:
+        return None
+    model_key = str(model)
+    if model_key.startswith("openrouter/"):
+        model_key = model_key[len("openrouter/") :]
+    return _PAID_PROVIDER_DIM_HINTS.get(model_key, _PAID_PROVIDER_FALLBACK_DIM)
+
+
+def _bytes_to_gib(value: int) -> float:
+    return float(value) / float(1024**3)
+
+
+def _assert_memory_budget_for_paid_embeddings(
+    *,
+    provider: str,
+    model: str,
+    n_docs: int,
+    dtype: Any,
+) -> None:
+    """Fail fast for paid providers if estimated in-memory assembly is unsafe."""
+    if n_docs <= 0:
+        return
+    dim_hint = _embedding_dim_hint(provider, model)
+    if dim_hint is None:
+        return
+
+    dtype_size = int(np.dtype(dtype).itemsize)
+    required_bytes = int(n_docs * dim_hint * dtype_size)
+    estimated_peak_bytes = int(required_bytes * _EMBEDDING_MEMORY_OVERHEAD_FACTOR)
+    available = _available_memory_bytes()
+    if available is None:
+        budget_bytes = _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES
+        budget_label = "fallback 2.00 GiB"
+    else:
+        budget_bytes = int(available * _EMBEDDING_MEMORY_BUDGET_FRACTION)
+        budget_label = f"{int(_EMBEDDING_MEMORY_BUDGET_FRACTION * 100)}% of available RAM"
+
+    if estimated_peak_bytes <= budget_bytes:
+        return
+
+    raise MemoryError(
+        "Embedding preflight aborted before API calls: estimated peak memory "
+        f"{_bytes_to_gib(estimated_peak_bytes):.2f} GiB exceeds budget "
+        f"{_bytes_to_gib(budget_bytes):.2f} GiB ({budget_label}) for "
+        f"{provider}/{model}. Set SAMPLE_SIZE, keep dtype=float16, or switch provider/model."
+    )
+
+
 def compute_embeddings(
     documents: list[str],
     *,
@@ -47,7 +116,7 @@ def compute_embeddings(
     cache_dir: Path | None = None,
     batch_size: int = 64,
     max_workers: int = 5,
-    dtype=np.float32,
+    dtype=np.float16,
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
@@ -97,6 +166,7 @@ def compute_embeddings(
         },
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
+    target_dtype = np.dtype(dtype)
 
     model_safe = model.replace("/", "_")
     cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
@@ -117,7 +187,7 @@ def compute_embeddings(
         )
         if is_valid:
             logger.info("  Loaded embeddings from cache: %s", cache_file.name)
-            return cached
+            return cached.astype(target_dtype, copy=False)
         logger.warning(
             "  Embedding cache mismatch for %s. Recomputing "
             "(cached n_docs=%s, current n_docs=%s; cached provider/model=%s/%s, current=%s/%s).",
@@ -132,15 +202,23 @@ def compute_embeddings(
 
     logger.info("  Computing embeddings with %s/%s ...", provider, model)
 
+    if provider in {"openrouter", "huggingface_api"}:
+        _assert_memory_budget_for_paid_embeddings(
+            provider=provider,
+            model=model,
+            n_docs=len(documents),
+            dtype=target_dtype,
+        )
+
     if provider == "local":
         logger.info("  Local embedding runtime hint | cpu_count=%s", max(1, int(os.cpu_count() or 1)))
-        emb = _embed_local(documents, model, batch_size, dtype)
+        emb = _embed_local(documents, model, batch_size, target_dtype)
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(
             documents,
             model,
             batch_size,
-            dtype,
+            target_dtype,
             cost_tracker=cost_tracker,
         )
     elif provider == "openrouter":
@@ -149,7 +227,7 @@ def compute_embeddings(
             model=model,
             batch_size=batch_size,
             max_workers=max_workers,
-            dtype=dtype,
+            dtype=target_dtype,
         )
         emb = embedder.encode(documents, show_progress_bar=True)
         usage = embedder.usage
@@ -182,6 +260,7 @@ def compute_embeddings(
             provider=provider,
             n_docs=len(documents),
             doc_fingerprint=doc_fingerprint,
+            dtype=str(target_dtype),
         )
         logger.info("  Saved: %s", cache_file.name)
 
@@ -220,7 +299,7 @@ def _embed_huggingface_api(
     """Embed documents via LiteLLM against a HuggingFace API model."""
     import litellm
 
-    all_emb: list[Any] = []
+    out: np.ndarray | None = None
     total_prompt_tokens = 0
     batches = [documents[i : i + batch_size] for i in range(0, len(documents), batch_size)]
     for batch_index, batch in tqdm(
@@ -260,7 +339,25 @@ def _embed_huggingface_api(
             )
             raise
 
-        all_emb.extend(d["embedding"] for d in resp["data"])
+        batch_embeddings = np.asarray([d["embedding"] for d in resp["data"]], dtype=dtype)
+        if batch_embeddings.ndim != 2:
+            raise RuntimeError("HF API embedding response must be a 2D array.")
+        if batch_embeddings.shape[0] != len(batch):
+            raise RuntimeError(
+                f"HF API embedding batch size mismatch: expected {len(batch)}, got {batch_embeddings.shape[0]}."
+            )
+        if out is None:
+            out = np.empty((len(documents), batch_embeddings.shape[1]), dtype=dtype)
+        elif batch_embeddings.shape[1] != out.shape[1]:
+            raise RuntimeError(
+                "HF API embedding dimension mismatch across batches: "
+                f"expected {out.shape[1]}, got {batch_embeddings.shape[1]}."
+            )
+
+        start = batch_index * batch_size
+        end = start + len(batch)
+        out[start:end] = batch_embeddings
+
         usage = getattr(resp, "usage", None) or resp.get("usage", {})
         total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or usage.get("prompt_tokens", 0)
 
@@ -274,7 +371,9 @@ def _embed_huggingface_api(
             cost_usd=None,
         )
 
-    return np.array(all_emb, dtype=dtype)
+    if out is None:
+        return np.array([], dtype=dtype)
+    return out
 
 
 class OpenRouterEmbedder:
@@ -346,6 +445,12 @@ class OpenRouterEmbedder:
 
         batch_size = max(1, self.batch_size)
         batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+        batch_offsets: list[tuple[int, int]] = []
+        offset = 0
+        for batch in batches:
+            start = offset
+            offset += len(batch)
+            batch_offsets.append((start, offset))
         worker_count = max(1, min(self.max_workers, len(batches)))
         show_progress = self._resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
 
@@ -415,7 +520,36 @@ class OpenRouterEmbedder:
                 },
             }
 
-        batch_results: dict[int, dict[str, Any]] = {}
+        out: np.ndarray | None = None
+        usage_by_batch: dict[int, dict[str, Any]] = {}
+
+        def _store_result(result: dict[str, Any]) -> None:
+            nonlocal out
+            batch_index = int(result["batch_index"])
+            start, end = batch_offsets[batch_index]
+            batch_embeddings = np.asarray(result["embeddings"], dtype=self.dtype)
+            if batch_embeddings.ndim != 2:
+                raise RuntimeError("OpenRouter embedding batch must be a 2D array.")
+            expected_rows = end - start
+            if batch_embeddings.shape[0] != expected_rows:
+                raise RuntimeError(
+                    "OpenRouter embedding batch size mismatch: "
+                    f"expected {expected_rows}, got {batch_embeddings.shape[0]}."
+                )
+            if out is None:
+                out = np.empty((len(texts), batch_embeddings.shape[1]), dtype=self.dtype)
+            elif batch_embeddings.shape[1] != out.shape[1]:
+                raise RuntimeError(
+                    "OpenRouter embedding dimension mismatch across batches: "
+                    f"expected {out.shape[1]}, got {batch_embeddings.shape[1]}."
+                )
+            out[start:end] = batch_embeddings
+            usage_by_batch[batch_index] = {
+                "prompt_tokens": int(result["prompt_tokens"]),
+                "total_tokens": int(result["total_tokens"]),
+                "call_record": result["call_record"],
+            }
+
         desc = "Embedding (OpenRouter)"
         if worker_count == 1:
             for batch_index, batch in tqdm(
@@ -425,7 +559,7 @@ class OpenRouterEmbedder:
                 disable=not show_progress,
             ):
                 result = _embed_batch(batch_index, batch)
-                batch_results[result["batch_index"]] = result
+                _store_result(result)
         else:
             with ThreadPoolExecutor(max_workers=worker_count) as pool:
                 futures = [pool.submit(_embed_batch, batch_index, batch) for batch_index, batch in enumerate(batches)]
@@ -436,23 +570,23 @@ class OpenRouterEmbedder:
                     disable=not show_progress,
                 ):
                     result = future.result()
-                    batch_results[result["batch_index"]] = result
+                    _store_result(result)
 
-        all_embeddings: list[Any] = []
         prompt_tokens = 0
         total_tokens = 0
         call_records: list[dict[str, Any]] = []
         for batch_index in range(len(batches)):
-            result = batch_results[batch_index]
-            all_embeddings.extend(result["embeddings"])
-            prompt_tokens += int(result["prompt_tokens"])
-            total_tokens += int(result["total_tokens"])
-            call_records.append(result["call_record"])
+            usage = usage_by_batch[batch_index]
+            prompt_tokens += usage["prompt_tokens"]
+            total_tokens += usage["total_tokens"]
+            call_records.append(usage["call_record"])
 
         self.usage["prompt_tokens"] += prompt_tokens
         self.usage["total_tokens"] += total_tokens
         self.usage["call_records"].extend(call_records)
-        return np.array(all_embeddings, dtype=self.dtype)
+        if out is None:
+            return np.array([], dtype=self.dtype)
+        return out
 
 
 __all__ = ["compute_embeddings", "OpenRouterEmbedder"]

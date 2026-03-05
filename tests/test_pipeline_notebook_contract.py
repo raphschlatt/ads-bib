@@ -52,7 +52,7 @@ def test_pipeline_notebook_code_contract():
     assert "run.save_config(globals())" in code
     assert "references_translated_tokenized.json" not in code
     assert "references_translated.json" not in code  # moved to load_phase3_checkpoint
-    assert "build_citation_inputs_from_publications(publications)" in code
+    assert "build_citation_inputs_from_publications(df)" in code
 
     # Notebook is a thin command layer — no inline cache logic or cost snapshots
     assert "load_pickle(latest)" not in code
@@ -64,27 +64,15 @@ def test_pipeline_notebook_code_contract():
     assert "validate_provider" not in code
     assert "CACHE_SUFFIX" not in code
 
-    # Provider parity defaults (API vs local runbook baseline)
-    assert (
-        'TRANSLATION_MODEL = "mradermacher/translategemma-4b-it-i1-GGUF:'
-        'translategemma-4b-it.i1-Q4_K_M.gguf"'
-    ) in code
-    # Simplified GGUF: no parallel policy, no calibration, no token budget modes
-    assert "TRANSLATION_LOCAL_PROFILE =" not in code
-    assert "gguf_parallel_policy" not in code
-    assert "TRANSLATION_GGUF_POLICY =" not in code
-    assert "TRANSLATION_GGUF_THREADS =" not in code
-    assert "TRANSLATION_GGUF_THREADS_BATCH =" not in code
-    assert "TRANSLATION_GGUF_N_CTX =" not in code
-    assert "TRANSLATION_GGUF_AUTO_CHUNK =" not in code
-    assert "TRANSLATION_GGUF_CHUNK_INPUT_TOKENS =" not in code
-    assert "TRANSLATION_GGUF_CHUNK_OVERLAP_TOKENS =" not in code
-    # NLLB provider is documented as a comment
-    assert "nllb" in code
-    assert 'EMBEDDING_MODEL = "google/embeddinggemma-300m"' in code
-    assert 'LLM_PROVIDER = "gguf"' in code
-    assert 'LLM_MODEL = "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf"' in code
-    assert '"google/gemma-3-4b-it"' in code
+    # OpenRouter-first defaults for large runs.
+    assert 'TRANSLATION_PROVIDER = "openrouter"' in code
+    assert 'TRANSLATION_MODEL = "google/gemini-3-flash-preview"' in code
+    assert 'EMBEDDING_PROVIDER = "openrouter"' in code
+    assert 'EMBEDDING_MODEL = "google/gemini-embedding-001"' in code
+    assert 'LLM_PROVIDER = "openrouter"' in code
+    assert 'LLM_MODEL = "google/gemini-3-flash-preview"' in code
+    assert "BERTOPIC_LABELING_PHYSICS as LLM_PROMPT" in code
+    assert "BERTOPIC_LABELING_GENERIC as LLM_PROMPT" in code  # kept as commented fallback
     assert "BERTOPIC_LABEL_MAX_TOKENS =" in code
     assert "TOPONYMY_LOCAL_LABEL_MAX_TOKENS =" in code
     assert "llm_max_new_tokens=BERTOPIC_LABEL_MAX_TOKENS" in code

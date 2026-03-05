@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import inspect
 
+import numpy as np
+
 import ads_bib.topic_model as tm
 
 
@@ -54,6 +56,7 @@ def test_compute_embeddings_signature_contract():
             "cost_tracker",
         ],
     )
+    assert signature.parameters["dtype"].default == np.float16
 
 
 def test_reduce_dimensions_signature_contract():

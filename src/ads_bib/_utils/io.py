@@ -4,8 +4,23 @@ from __future__ import annotations
 
 import pickle
 from pathlib import Path
+import hashlib
 
 import pandas as pd
+
+
+def sha256_file(path: Path | str) -> str:
+    """Calculate the SHA-256 hash of a file."""
+    path = Path(path)
+    if not path.exists():
+        return ""
+    
+    sha256_hash = hashlib.sha256()
+    with open(path, "rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
 
 
 def save_json_lines(df: pd.DataFrame, path: Path | str) -> None:

@@ -6,6 +6,7 @@ import logging
 import sys
 import time
 import types
+from typing import Any
 import warnings
 
 import numpy as np
@@ -946,6 +947,87 @@ def test_openrouter_embedder_retries_when_data_is_none(monkeypatch):
     assert [r["generation_id"] for r in embedder.usage["call_records"]] == ["gen_ok"]
 
 
+def test_openrouter_embedder_prealloc_keeps_dtype(monkeypatch):
+    fake_litellm = types.ModuleType("litellm")
+
+    def _fake_embedding(model, input, api_key):
+        del model, api_key
+        return {
+            "id": f"gen_{input[0]}",
+            "usage": {"prompt_tokens": len(input), "total_tokens": len(input)},
+            "data": [{"embedding": [float(int(text.split('_')[1])), 10.0]} for text in input],
+        }
+
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    fake_litellm.embedding = _fake_embedding
+    monkeypatch.setattr(tm_embeddings, "extract_usage_stats", lambda resp: resp["usage"])
+    monkeypatch.setattr(tm_embeddings, "extract_generation_id", lambda resp: resp["id"])
+    monkeypatch.setattr(tm_embeddings, "extract_response_cost", lambda **kwargs: None)
+
+    embedder = tm_embeddings.OpenRouterEmbedder(
+        api_key="key",
+        model="google/gemini-embedding-001",
+        batch_size=2,
+        max_workers=2,
+        dtype=np.float16,
+    )
+    emb = embedder.encode([f"doc_{i}" for i in range(5)], show_progress_bar=False)
+
+    assert emb.shape == (5, 2)
+    assert emb.dtype == np.float16
+    assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+def test_embed_huggingface_api_prealloc_keeps_order(monkeypatch):
+    fake_litellm = types.ModuleType("litellm")
+
+    def _fake_embedding(model, input):
+        del model
+        return {
+            "usage": {"prompt_tokens": len(input)},
+            "data": [{"embedding": [float(int(text.split('_')[1])), 1.0]} for text in input],
+        }
+
+    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
+        del max_retries, delay, backoff, on_retry
+        return func()
+
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    fake_litellm.embedding = _fake_embedding
+    monkeypatch.setattr(tm_embeddings, "retry_call", _fake_retry_call)
+
+    emb = tm_embeddings._embed_huggingface_api(
+        [f"doc_{i}" for i in range(5)],
+        model="huggingface/test-model",
+        batch_size=2,
+        dtype=np.float32,
+    )
+
+    assert emb.shape == (5, 2)
+    assert emb.dtype == np.float32
+    assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+def test_compute_embeddings_defaults_to_float16(monkeypatch):
+    calls: dict[str, Any] = {}
+
+    def _fake_embed_local(documents, model_name, batch_size, dtype):
+        del model_name, batch_size
+        calls["dtype"] = np.dtype(dtype)
+        return np.ones((len(documents), 2), dtype=np.dtype(dtype))
+
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
+
+    emb = tm.compute_embeddings(
+        ["doc-a", "doc-b"],
+        provider="local",
+        model="local/test-model",
+    )
+
+    assert calls["dtype"] == np.dtype(np.float16)
+    assert emb.dtype == np.float16
+
+
 def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
     model = "local/test-model"
@@ -1009,6 +1091,60 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
     assert float(out[0, 0]) == 7.0
     assert calls["n"] == 1
     assert "Embedding cache mismatch" in caplog.text
+
+
+def test_compute_embeddings_casts_valid_cache_to_requested_dtype(monkeypatch, tmp_path):
+    docs = ["doc-a", "doc-b"]
+    model = "local/test-model"
+    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    np.savez_compressed(
+        cache_file,
+        embeddings=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+        n_docs=len(docs),
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+        provider="local",
+        model=model,
+    )
+
+    def _fail_embed_local(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("Expected valid cache reuse without recompute.")
+
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fail_embed_local)
+
+    out = tm.compute_embeddings(
+        docs,
+        provider="local",
+        model=model,
+        cache_dir=tmp_path,
+        dtype=np.float16,
+    )
+
+    assert out.dtype == np.float16
+    assert np.allclose(out, np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float16))
+
+
+def test_compute_embeddings_paid_provider_memory_preflight_fails_fast(monkeypatch):
+    def _fake_validate_provider(*args, **kwargs):
+        del args, kwargs
+
+    class _FakeOpenRouterEmbedder:
+        def __init__(self, **kwargs):
+            del kwargs
+            raise AssertionError("OpenRouter embedder must not be instantiated when preflight fails.")
+
+    monkeypatch.setattr(tm_embeddings, "validate_provider", _fake_validate_provider)
+    monkeypatch.setattr(tm_embeddings, "_available_memory_bytes", lambda: 1024 * 1024)
+    monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+
+    docs = [f"doc_{i}" for i in range(2000)]
+    with pytest.raises(MemoryError, match="SAMPLE_SIZE"):
+        tm.compute_embeddings(
+            docs,
+            provider="openrouter",
+            model="google/gemini-embedding-001",
+            api_key="key",
+        )
 
 
 def test_reduce_recomputes_on_params_hash_mismatch(monkeypatch, tmp_path, caplog):
