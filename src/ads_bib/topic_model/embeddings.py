@@ -34,6 +34,7 @@ _PAID_PROVIDER_DIM_HINTS = {
 _EMBEDDING_MEMORY_OVERHEAD_FACTOR = 1.5
 _EMBEDDING_MEMORY_BUDGET_FRACTION = 0.70
 _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
+_MAX_OPENROUTER_WORKERS = 20
 
 
 def _documents_fingerprint(documents: list[str]) -> str:
@@ -451,7 +452,15 @@ class OpenRouterEmbedder:
             start = offset
             offset += len(batch)
             batch_offsets.append((start, offset))
-        worker_count = max(1, min(self.max_workers, len(batches)))
+        effective_max = min(self.max_workers, _MAX_OPENROUTER_WORKERS)
+        if self.max_workers > _MAX_OPENROUTER_WORKERS:
+            logger.warning(
+                "  max_workers=%s exceeds cap of %s for OpenRouter; using %s to avoid socket exhaustion.",
+                self.max_workers,
+                _MAX_OPENROUTER_WORKERS,
+                effective_max,
+            )
+        worker_count = max(1, min(effective_max, len(batches)))
         show_progress = self._resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
 
         def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
@@ -494,9 +503,9 @@ class OpenRouterEmbedder:
             try:
                 response, embeddings = retry_call(
                     _request_batch,
-                    max_retries=2,
-                    delay=1.0,
-                    backoff="linear",
+                    max_retries=3,
+                    delay=2.0,
+                    backoff="exponential",
                     on_retry=_on_retry,
                 )
             except Exception as exc:

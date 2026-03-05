@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from collections.abc import Callable
 from typing import TypeVar, Literal
@@ -45,7 +46,7 @@ def retry_call(
             if attempt >= retries:
                 raise
             if backoff == "exponential":
-                wait = delay * (2 ** attempt)
+                wait = delay * (2 ** attempt) + random.uniform(0, delay * 0.5)
             else:
                 wait = delay * (attempt + 1)
             if on_retry is not None:
