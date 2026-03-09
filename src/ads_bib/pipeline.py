@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
 import logging
+import os
 from pathlib import Path
 import random
 from typing import Any, Literal
@@ -83,6 +84,12 @@ def _prompt_value(name: str) -> str:
     return str(getattr(prompts, name))
 
 
+_PROMPT_MAP: dict[str, str] = {
+    "physics": _prompt_value("BERTOPIC_LABELING_PHYSICS"),
+    "generic": _prompt_value("BERTOPIC_LABELING_GENERIC"),
+}
+
+
 @dataclass
 class RunConfig:
     run_name: str = "ADS_Curation_Run"
@@ -149,7 +156,8 @@ class TopicModelConfig:
     toponymy_cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_evoc_cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_layer_index: int = 1
-    llm_prompt: str = field(default_factory=lambda: _prompt_value("BERTOPIC_LABELING_PHYSICS"))
+    llm_prompt_name: str = "physics"
+    llm_prompt: str | None = None
     llm_provider: str = "openrouter"
     llm_model: str = "google/gemini-3-flash-preview"
     llm_api_key: str | None = None
@@ -218,6 +226,12 @@ class PipelineConfig:
         if self.author_disambiguation.enabled and not self.author_disambiguation.model_bundle:
             raise ValueError(
                 "author_disambiguation.model_bundle is required when author_disambiguation.enabled=true."
+            )
+        if self.topic_model.llm_prompt is None and self.topic_model.llm_prompt_name not in _PROMPT_MAP:
+            allowed = ", ".join(sorted(_PROMPT_MAP))
+            raise ValueError(
+                f"Invalid topic_model.llm_prompt_name '{self.topic_model.llm_prompt_name}'. "
+                f"Expected one of: {allowed}."
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -327,6 +341,32 @@ def _stage_slice(start_stage: StageName, stop_stage: StageName | None) -> tuple[
 def _set_random_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
+
+
+def _resolve_topic_prompt(cfg: TopicModelConfig) -> str:
+    if cfg.llm_prompt:
+        return cfg.llm_prompt
+    return _PROMPT_MAP[cfg.llm_prompt_name]
+
+
+def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
+    prepared = PipelineConfig.from_dict(config.to_dict())
+
+    if not prepared.search.ads_token:
+        prepared.search.ads_token = os.getenv("ADS_TOKEN")
+
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+    if prepared.translate.provider == "openrouter" and not prepared.translate.api_key:
+        prepared.translate.api_key = openrouter_api_key
+    if (
+        prepared.topic_model.embedding_provider == "openrouter"
+        and not prepared.topic_model.embedding_api_key
+    ):
+        prepared.topic_model.embedding_api_key = openrouter_api_key
+    if prepared.topic_model.llm_provider == "openrouter" and not prepared.topic_model.llm_api_key:
+        prepared.topic_model.llm_api_key = openrouter_api_key
+
+    return prepared
 
 
 def _topic_subtitle(config: PipelineConfig) -> str:
@@ -667,7 +707,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.reduced_5d,
             llm_provider=cfg.llm_provider,
             llm_model=cfg.llm_model,
-            llm_prompt=cfg.llm_prompt,
+            llm_prompt=_resolve_topic_prompt(cfg),
             llm_max_new_tokens=cfg.bertopic_label_max_tokens,
             pipeline_models=cfg.pipeline_models,
             parallel_models=cfg.parallel_models,
@@ -858,11 +898,14 @@ def run_pipeline(
     start_time: float | None = None,
     load_environment: bool = True,
 ) -> PipelineContext:
-    resolved_start = validate_stage_name(start_stage or config.run.start_stage)
-    resolved_stop = validate_stage_name(stop_stage) if stop_stage is not None else config.run.stop_stage
-    _set_random_seed(config.run.random_seed)
+    prepared_config = prepare_pipeline_config(config)
+    resolved_start = validate_stage_name(start_stage or prepared_config.run.start_stage)
+    resolved_stop = (
+        validate_stage_name(stop_stage) if stop_stage is not None else prepared_config.run.stop_stage
+    )
+    _set_random_seed(prepared_config.run.random_seed)
     ctx = PipelineContext.create(
-        config,
+        prepared_config,
         project_root=project_root,
         run_name=run_name,
         paths=paths,
@@ -871,7 +914,7 @@ def run_pipeline(
         start_time=start_time,
         load_environment=load_environment,
     )
-    ctx.run.save_config(config)
+    ctx.run.save_config(prepared_config)
     for stage in _stage_slice(resolved_start, resolved_stop):
         _STAGE_FUNCS[stage](ctx)
     return ctx
@@ -908,6 +951,7 @@ __all__ = [
     "TranslateConfig",
     "VisualizationConfig",
     "pipeline_config_to_dict",
+    "prepare_pipeline_config",
     "run_author_disambiguation_stage",
     "run_citations_stage",
     "run_curate_stage",

@@ -19,6 +19,7 @@ Technical colleagues who want to reuse selected `ads_bib` modules as a Python li
 
 - Frontends: `pipeline.ipynb` and `ads-bib run --config ...`
 - Shared runner: `src/ads_bib/pipeline.py`
+- Notebook adapter: `src/ads_bib/notebook.py`
 - Runtime logic: `src/ads_bib/`
 - Philosophy: KISS, DRY, YAGNI, consolidation-first
 
@@ -46,40 +47,54 @@ OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
 ```
 
 4. Choose one entrypoint:
-   - Notebook: `pipeline.ipynb`
-   - CLI: `ads-bib run --config path/to/config.yaml`
+   - Notebook: edit the inline section dicts in `pipeline.ipynb`
+   - CLI: `ads-bib run --config configs/pipeline/default.yaml`
 
 ## Entrypoints
 
 ### Notebook: interactive exploration
 
 Use `pipeline.ipynb` when you want to inspect intermediate results, tweak
-parameters, and rerun from a named stage without replaying the full workflow.
+parameters, and rerun only the cells that depend on your latest changes.
 
-- Configure the run in the notebook cells.
-- Use `START_STAGE` / `STOP_STAGE` for targeted reruns.
-- Topic-model experiments can restart from `embeddings`, `reduction`, or `topic_fit`
-  while reusing earlier snapshots and module caches.
+- Configure the run through explicit section dicts:
+  - `RUN`
+  - `SEARCH`
+  - `TRANSLATE`
+  - `TOKENIZE`
+  - `AUTHOR_DISAMBIGUATION`
+  - `TOPIC_MODEL`
+  - `VISUALIZATION`
+  - `CURATION`
+  - `CITATIONS`
+- The notebook uses `NotebookSession` from `ads_bib.notebook`; config diffing,
+  invalidation, and run-state management live in the package, not inline cells.
+- Topic-model experiments can restart by rerunning `topic_fit`,
+  `topic_dataframe`, `visualize`, or `curate` after updating `TOPIC_MODEL`.
+- Start a fresh run directory only when you explicitly set `RESET_SESSION = True`.
 
 ### CLI: reproducible batch runs
 
 Use the CLI when you want one config-driven run without notebook interaction.
 
 ```bash
-ads-bib run --config path/to/config.yaml
+ads-bib run --config configs/pipeline/default.yaml
 ```
 
 Useful overrides:
 
 ```bash
-ads-bib run --config path/to/config.yaml --from topic_fit --to citations
-ads-bib run --config path/to/config.yaml --run-name my_run
-ads-bib run --config path/to/config.yaml --set topic_model.backend=toponymy
+ads-bib run --config configs/pipeline/default.yaml --from topic_fit --to citations
+ads-bib run --config configs/pipeline/default.yaml --run-name my_run
+ads-bib run --config configs/pipeline/default.yaml --set topic_model.backend=toponymy
 ```
 
 The CLI and notebook call the same runner in `ads_bib.pipeline`. A saved run
 config such as `runs/<run_id>/config_used.yaml` is a good template for future
 batch runs.
+
+Secrets stay out of notebook cells and committed YAML. Leave API-key/token
+fields as `None` and provide them via `.env`.
 
 ## Provider Parity Runbook
 
@@ -105,8 +120,15 @@ Local model notes:
 - Embeddings and labeling require a recent HF stack in `ADS_env`:
   `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
 
-## Configuration Convention (Notebook vs Modules)
+## Configuration Placement
 
+- Notebook config lives inline in `pipeline.ipynb` as section dicts.
+- Batch config lives under `configs/pipeline/`:
+  - committed template: `configs/pipeline/default.yaml`
+  - generated run snapshot: `runs/<run_id>/config_used.yaml`
+- Secrets live only in `.env`.
+- Prompt selection uses `topic_model.llm_prompt_name` (`physics` or `generic`)
+  unless you explicitly set `topic_model.llm_prompt`.
 - Notebook stays orchestration-only.
 - Modules in `src/ads_bib/` own retries, caching, validation, and summaries.
 - Functions touching API/disk should accept `cache_dir: Path | None` and `force_refresh: bool`.
@@ -205,6 +227,7 @@ Mapped pipeline outputs normalize these into aligned list columns:
 
 - `pipeline.ipynb` remains the main exploratory entrypoint for end-to-end ADS workflows.
 - `ads-bib run --config ...` provides the same pipeline path for unattended batch runs.
+- `configs/pipeline/default.yaml` is the committed CLI template; saved run configs are reusable copies.
 - `ads_bib.pipeline` is the single orchestration path used by both frontends.
 - The installable package provides reusable building blocks plus repository-local quality checks.
 - Author disambiguation runs as an optional Phase-4 step between tokenization and topic/citation processing.

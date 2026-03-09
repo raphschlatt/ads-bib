@@ -1,0 +1,446 @@
+"""Notebook-facing session adapter over the shared pipeline runner."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+import logging
+import os
+from pathlib import Path
+import random
+from typing import Any, Mapping
+
+import numpy as np
+import pandas as pd
+
+from ads_bib._utils.costs import CostTracker
+from ads_bib.pipeline import (
+    PipelineConfig,
+    PipelineContext,
+    STAGE_ORDER,
+    StageName,
+    prepare_pipeline_config,
+    run_author_disambiguation_stage,
+    run_citations_stage,
+    run_curate_stage,
+    run_embeddings_stage,
+    run_export_stage,
+    run_reduction_stage,
+    run_search_stage,
+    run_tokenize_stage,
+    run_topic_dataframe_stage,
+    run_topic_fit_stage,
+    run_translate_stage,
+    run_visualize_stage,
+    validate_stage_name,
+)
+from ads_bib.run_manager import RunManager
+
+logger = logging.getLogger(__name__)
+
+SECTION_NAMES: tuple[str, ...] = (
+    "run",
+    "search",
+    "translate",
+    "tokenize",
+    "author_disambiguation",
+    "topic_model",
+    "visualization",
+    "curation",
+    "citations",
+)
+
+_STAGE_FUNCS: dict[StageName, Any] = {
+    "search": run_search_stage,
+    "export": run_export_stage,
+    "translate": run_translate_stage,
+    "tokenize": run_tokenize_stage,
+    "author_disambiguation": run_author_disambiguation_stage,
+    "embeddings": run_embeddings_stage,
+    "reduction": run_reduction_stage,
+    "topic_fit": run_topic_fit_stage,
+    "topic_dataframe": run_topic_dataframe_stage,
+    "visualize": run_visualize_stage,
+    "curate": run_curate_stage,
+    "citations": run_citations_stage,
+}
+
+_ACTIVE_SESSION: NotebookSession | None = None
+
+
+def _default_sections(project_root: Path, run_name: str) -> dict[str, dict[str, Any]]:
+    data = PipelineConfig().to_dict()
+    data["run"]["run_name"] = run_name
+    data["run"]["project_root"] = str(project_root)
+    return data
+
+
+def _nested_get(data: dict[str, Any], path: tuple[str, ...]) -> Any:
+    current: Any = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _earliest_invalidation_stage(
+    previous: dict[str, Any] | None,
+    current: dict[str, Any],
+) -> StageName | None:
+    if previous is None:
+        return None
+
+    stage_checks: list[tuple[StageName, list[tuple[str, ...]]]] = [
+        ("search", [("search",)]),
+        ("translate", [("translate",), ("run", "openrouter_cost_mode")]),
+        ("tokenize", [("tokenize",)]),
+        ("author_disambiguation", [("author_disambiguation",)]),
+        (
+            "embeddings",
+            [
+                ("run", "random_seed"),
+                ("topic_model", "sample_size"),
+                ("topic_model", "embedding_provider"),
+                ("topic_model", "embedding_model"),
+                ("topic_model", "embedding_api_key"),
+                ("topic_model", "embedding_batch_size"),
+                ("topic_model", "embedding_max_workers"),
+            ],
+        ),
+        (
+            "reduction",
+            [
+                ("topic_model", "reduction_method"),
+                ("topic_model", "params_5d"),
+                ("topic_model", "params_2d"),
+            ],
+        ),
+        (
+            "topic_fit",
+            [
+                ("topic_model", "backend"),
+                ("topic_model", "clustering_method"),
+                ("topic_model", "cluster_params"),
+                ("topic_model", "toponymy_cluster_params"),
+                ("topic_model", "toponymy_evoc_cluster_params"),
+                ("topic_model", "toponymy_layer_index"),
+                ("topic_model", "llm_prompt_name"),
+                ("topic_model", "llm_prompt"),
+                ("topic_model", "llm_provider"),
+                ("topic_model", "llm_model"),
+                ("topic_model", "llm_api_key"),
+                ("topic_model", "bertopic_label_max_tokens"),
+                ("topic_model", "toponymy_local_label_max_tokens"),
+                ("topic_model", "pipeline_models"),
+                ("topic_model", "parallel_models"),
+                ("topic_model", "toponymy_embedding_model"),
+                ("topic_model", "toponymy_max_workers"),
+                ("topic_model", "min_df"),
+                ("topic_model", "outlier_threshold"),
+            ],
+        ),
+        ("visualize", [("visualization",)]),
+        ("curate", [("curation",)]),
+        ("citations", [("citations",)]),
+    ]
+
+    for stage, paths_to_check in stage_checks:
+        if any(_nested_get(previous, path) != _nested_get(current, path) for path in paths_to_check):
+            return stage
+    return None
+
+
+def _invalidate_context_from(context: PipelineContext, stage: StageName) -> None:
+    stage_name = validate_stage_name(stage)
+    stage_index = STAGE_ORDER.index(stage_name)
+
+    if stage_index <= STAGE_ORDER.index("search"):
+        context.bibcodes = None
+        context.references = None
+        context.esources = None
+        context.fulltext_urls = None
+        context.publications = None
+        context.refs = None
+    elif stage_index <= STAGE_ORDER.index("author_disambiguation"):
+        context.publications = None
+        context.refs = None
+
+    if stage_index <= STAGE_ORDER.index("embeddings"):
+        context.topic_input_df = None
+        context.documents = None
+        context.embeddings = None
+        context.reduced_5d = None
+        context.reduced_2d = None
+        context.topic_model = None
+        context.topics = None
+        context.topic_info = None
+        context.topic_df = None
+        context.curated_df = None
+        context.citation_results = None
+        return
+
+    if stage_index <= STAGE_ORDER.index("reduction"):
+        context.reduced_5d = None
+        context.reduced_2d = None
+        context.topic_model = None
+        context.topics = None
+        context.topic_info = None
+        context.topic_df = None
+        context.curated_df = None
+        context.citation_results = None
+        return
+
+    if stage_index <= STAGE_ORDER.index("topic_fit"):
+        context.topic_model = None
+        context.topics = None
+        context.topic_info = None
+        context.topic_df = None
+        context.curated_df = None
+        context.citation_results = None
+        return
+
+    if stage_index <= STAGE_ORDER.index("topic_dataframe"):
+        context.topic_df = None
+        context.curated_df = None
+        context.citation_results = None
+        return
+
+    if stage_index <= STAGE_ORDER.index("curate"):
+        context.curated_df = None
+        context.citation_results = None
+        return
+
+    if stage_index <= STAGE_ORDER.index("citations"):
+        context.citation_results = None
+
+
+class NotebookSession:
+    """Interactive notebook session over the shared package pipeline."""
+
+    def __init__(
+        self,
+        *,
+        project_root: Path | str | None = None,
+        run_name: str = "ADS_Curation_Run",
+        start_time: float | None = None,
+    ) -> None:
+        self._project_root = Path(project_root or Path.cwd())
+        self._run_name = run_name
+        self._start_time = start_time
+        self._section_defaults = _default_sections(self._project_root, run_name)
+        self._sections = deepcopy(self._section_defaults)
+        self._last_config_data: dict[str, Any] | None = None
+        self._context: PipelineContext | None = None
+        self._ensure_context(initial=True)
+
+    def _config_from_sections(self) -> PipelineConfig:
+        return PipelineConfig.from_dict(deepcopy(self._sections))
+
+    def _prepared_config(self) -> PipelineConfig:
+        return prepare_pipeline_config(self._config_from_sections())
+
+    def _ensure_context(self, *, initial: bool = False) -> None:
+        config_data = deepcopy(self._sections)
+        prepared = self._prepared_config()
+        random.seed(prepared.run.random_seed)
+        np.random.seed(prepared.run.random_seed)
+
+        if self._context is None or initial:
+            self._context = PipelineContext.create(
+                prepared,
+                project_root=self._project_root,
+                run_name=self._run_name,
+                start_time=self._start_time,
+            )
+        else:
+            invalidation_stage = _earliest_invalidation_stage(self._last_config_data, config_data)
+            if invalidation_stage is not None:
+                _invalidate_context_from(self._context, invalidation_stage)
+                logger.info(
+                    "Config changed; invalidated in-memory state from stage '%s'.",
+                    invalidation_stage,
+                )
+            self._context.config = prepared
+
+        self._last_config_data = config_data
+        self._context.run.save_config(prepared)
+
+    @property
+    def config(self) -> PipelineConfig:
+        assert self._context is not None
+        return self._context.config
+
+    @property
+    def publications(self) -> pd.DataFrame | None:
+        assert self._context is not None
+        return self._context.publications
+
+    @property
+    def refs(self) -> pd.DataFrame | None:
+        assert self._context is not None
+        return self._context.refs
+
+    @property
+    def documents(self) -> list[str] | None:
+        assert self._context is not None
+        return self._context.documents
+
+    @property
+    def embeddings(self) -> np.ndarray | None:
+        assert self._context is not None
+        return self._context.embeddings
+
+    @property
+    def reduced_5d(self) -> np.ndarray | None:
+        assert self._context is not None
+        return self._context.reduced_5d
+
+    @property
+    def reduced_2d(self) -> np.ndarray | None:
+        assert self._context is not None
+        return self._context.reduced_2d
+
+    @property
+    def topic_model(self) -> Any | None:
+        assert self._context is not None
+        return self._context.topic_model
+
+    @property
+    def topic_info(self) -> pd.DataFrame | None:
+        assert self._context is not None
+        return self._context.topic_info
+
+    @property
+    def topic_df(self) -> pd.DataFrame | None:
+        assert self._context is not None
+        return self._context.topic_df
+
+    @property
+    def curated_df(self) -> pd.DataFrame | None:
+        assert self._context is not None
+        return self._context.curated_df
+
+    @property
+    def citation_results(self) -> dict[str, pd.DataFrame] | None:
+        assert self._context is not None
+        return self._context.citation_results
+
+    @property
+    def run(self) -> RunManager:
+        assert self._context is not None
+        return self._context.run
+
+    @property
+    def paths(self) -> dict[str, Path]:
+        assert self._context is not None
+        return self._context.paths
+
+    @property
+    def tracker(self) -> CostTracker:
+        assert self._context is not None
+        return self._context.tracker
+
+    def set_section(self, name: str, values: Mapping[str, Any]) -> None:
+        if name not in SECTION_NAMES:
+            allowed = ", ".join(SECTION_NAMES)
+            raise ValueError(f"Unknown config section '{name}'. Expected one of: {allowed}.")
+        if not isinstance(values, Mapping):
+            raise TypeError("Section values must be a mapping.")
+
+        section = deepcopy(self._section_defaults[name])
+        section.update(dict(values))
+
+        if name == "run":
+            new_run_name = str(section.get("run_name", self._run_name))
+            if new_run_name != self._run_name:
+                raise ValueError(
+                    "run.run_name cannot change within an existing notebook session. "
+                    "Set RESET_SESSION=True and recreate the session to start a new run."
+                )
+            section["project_root"] = str(self._project_root)
+
+        self._sections[name] = section
+        self._ensure_context()
+
+    def run_stage(self, stage: StageName | str) -> None:
+        assert self._context is not None
+        stage_name = validate_stage_name(stage)
+        random.seed(self._context.config.run.random_seed)
+        np.random.seed(self._context.config.run.random_seed)
+        _STAGE_FUNCS[stage_name](self._context)
+
+    def save_summary(self) -> None:
+        assert self._context is not None
+
+        logger.info("=" * 60)
+        logger.info("PIPELINE COMPLETE")
+        logger.info("=" * 60)
+        logger.info(
+            "Publications:     %s",
+            f"{len(self.publications):,}" if self.publications is not None else "0",
+        )
+        logger.info(
+            "References:       %s",
+            f"{len(self.refs):,}" if self.refs is not None else "0",
+        )
+        if self.curated_df is not None:
+            logger.info("Curated dataset:  %s", f"{len(self.curated_df):,}")
+            if "topic_id" in self.curated_df.columns:
+                logger.info("Topics found:     %s", self.curated_df["topic_id"].nunique())
+        else:
+            logger.info("Curated dataset:  n/a")
+        logger.info("")
+        logger.info("Output files:")
+        for root, _dirs, files in os.walk(self.run.paths["root"]):
+            for filename in sorted(files):
+                fpath = Path(root) / filename
+                size_mb = fpath.stat().st_size / 1024 / 1024
+                logger.info(
+                    "  %s (%.1f MB)",
+                    fpath.relative_to(self.run.paths["root"]),
+                    size_mb,
+                )
+        logger.info("")
+        logger.info(self.tracker.compact_summary())
+        logger.info("Building and saving run summary...")
+        self.run.save_summary(
+            cost_tracker=self.tracker,
+            publications=self.publications,
+            refs=self.refs,
+            curated=self.curated_df,
+            start_time=self._context.start_time,
+        )
+
+
+def get_notebook_session(
+    *,
+    project_root: Path | str | None = None,
+    run_name: str = "ADS_Curation_Run",
+    reset: bool = False,
+    start_time: float | None = None,
+) -> NotebookSession:
+    global _ACTIVE_SESSION
+
+    resolved_root = Path(project_root or Path.cwd())
+    if reset or _ACTIVE_SESSION is None:
+        _ACTIVE_SESSION = NotebookSession(
+            project_root=resolved_root,
+            run_name=run_name,
+            start_time=start_time,
+        )
+        return _ACTIVE_SESSION
+
+    if _ACTIVE_SESSION._run_name != run_name:
+        raise ValueError(
+            "Notebook session already exists with a different run_name. "
+            "Set RESET_SESSION=True to create a new run."
+        )
+    if _ACTIVE_SESSION._project_root != resolved_root:
+        raise ValueError(
+            "Notebook session already exists with a different project_root. "
+            "Set RESET_SESSION=True to recreate it."
+        )
+    return _ACTIVE_SESSION
+
+
+__all__ = ["NotebookSession", "get_notebook_session"]

@@ -12,6 +12,7 @@ Engineering rules and operating conventions for this repository.
 
 - Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
 - Shared runner: `src/ads_bib/pipeline.py`
+- Notebook adapter: `src/ads_bib/notebook.py`
 - Package root: `src/ads_bib/`
 - Core pipeline modules:
   - `search.py`: ADS API retrieval
@@ -70,6 +71,7 @@ Seed entries:
 - `2026-02-27 | GGUF for local translation, HF for embeddings/labeling | autoregressive gen on CPU via torch is too slow; llama-cpp-python 10-50x faster | translate.py uses gguf_backend, topic labeling keeps transformers option | llama-cpp-python is optional dep with pre-built wheels`
 - `2026-03-03 | 3 translation backends: openrouter/gguf/nllb | GGUF overengineered for CPU (~750 lines calibration/pools removed); NLLB via CTranslate2 is 10-50x faster on CPU for seq2seq | gguf stays for GPU, nllb is default for CPU (200+ languages), openrouter for API | ctranslate2+sentencepiece as optional dep [translate-nllb]`
 - `2026-03-09 | Shared package runner with named stages | notebook-only orchestration drifted from CLI/testing needs | notebook and CLI now call the same pipeline functions with stage-based resume | remove numeric phase logic and duplicate orchestration paths`
+- `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/default.yaml | no notebook-local helpers or secret wiring to maintain`
 
 ## 3) DataFrame Schema Conventions
 
@@ -146,7 +148,9 @@ Seed entries:
 - When API contracts change, update notebook cells in the same change set.
 - Clear stale outputs when they encode outdated schema names or misleading historical logs.
 - Notebook cells should stay orchestration-only (top layer).
-- Prefer named stage controls over numeric phase gates in notebook orchestration.
+- Notebook config lives in explicit section dicts (`RUN`, `SEARCH`, `TRANSLATE`, `TOKENIZE`, `AUTHOR_DISAMBIGUATION`, `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`, `CITATIONS`).
+- Notebook session/state logic lives in `src/ads_bib/notebook.py`, not inline in notebook cells.
+- Notebook stage selection comes from running the corresponding cell; `START_STAGE` / `STOP_STAGE` are CLI/YAML controls, not notebook controls.
 - Background logic (fallbacks, retries/backoff strategies, install/preflight mechanics, checkpoint internals, data-shaping helpers) belongs in `src/ads_bib/` modules, not inline notebook code.
 - Functions that access APIs or disk own their caching internally.
   Convention: accept `cache_dir: Path | None` and `force_refresh: bool` parameters.

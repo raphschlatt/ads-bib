@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import ads_bib.pipeline as pipeline
+from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS
 
 
 class _DummyTopicModel:
@@ -40,6 +41,18 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert data["run"]["start_stage"] == "translate"
     assert data["search"]["query"] == "author:test"
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
+
+
+def test_default_pipeline_config_template_loads():
+    config = pipeline.PipelineConfig.from_yaml(
+        Path(__file__).resolve().parents[1] / "configs" / "pipeline" / "default.yaml"
+    )
+    data = config.to_dict()
+
+    assert data["run"]["start_stage"] == "search"
+    assert data["run"]["stop_stage"] is None
+    assert data["topic_model"]["llm_prompt_name"] == "physics"
+    assert data["author_disambiguation"]["enabled"] is False
 
 
 def test_run_pipeline_respects_stage_slice(monkeypatch):
@@ -105,6 +118,7 @@ def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkey
         ]
     )
     events: list[str] = []
+    seen_prompts: list[str] = []
 
     monkeypatch.setattr(
         pipeline,
@@ -146,7 +160,11 @@ def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkey
     monkeypatch.setattr(
         pipeline,
         "fit_bertopic",
-        lambda documents, reduced_5d, **kwargs: events.append("fit") or _DummyTopicModel(),
+        lambda documents, reduced_5d, **kwargs: (
+            seen_prompts.append(kwargs["llm_prompt"]),
+            events.append("fit"),
+            _DummyTopicModel(),
+        )[-1],
     )
     monkeypatch.setattr(
         pipeline,
@@ -162,6 +180,7 @@ def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkey
     assert ctx.refs is not None
     assert ctx.topics.tolist() == [0, 1]
     assert list(ctx.topic_info["Name"]) == ["Topic 0", "Topic 1"]
+    assert seen_prompts == [BERTOPIC_LABELING_PHYSICS]
 
 
 def test_validate_stage_name_rejects_unknown_stage():
