@@ -8,6 +8,7 @@ from ads_bib._utils.logging import suppress_noisy_third_party_logs
 
 suppress_noisy_third_party_logs()
 
+from ads_bib.author_disambiguation import apply_author_disambiguation
 from ads_bib.citations import build_all_nodes, process_all_citations
 from ads_bib.config import init_paths, load_env
 from ads_bib.curate import get_cluster_summary, remove_clusters
@@ -32,6 +33,7 @@ except PackageNotFoundError:
 
 __all__ = [
     "__version__",
+    "apply_author_disambiguation",
     "RunManager",
     "build_all_nodes",
     "build_topic_dataframe",

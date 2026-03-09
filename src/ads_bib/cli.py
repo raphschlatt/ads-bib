@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Sequence
 
 CommandRunner = Callable[[Sequence[str], dict[str, str] | None], int]
@@ -19,8 +20,8 @@ def run_quality_checks(*, run_command: CommandRunner | None = None) -> int:
     """Run the standard local quality gates."""
     runner = run_command or _run_command
     checks: list[tuple[Sequence[str], dict[str, str] | None]] = [
-        (["ruff", "check", "src", "tests", "scripts"], None),
-        (["pytest", "-q"], {"PYTHONPATH": "src"}),
+        ([sys.executable, "-m", "ruff", "check", "src", "tests", "scripts"], None),
+        ([sys.executable, "-m", "pytest", "-q"], {"PYTHONPATH": "src"}),
     ]
 
     for command, extra_env in checks:

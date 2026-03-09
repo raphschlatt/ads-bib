@@ -191,7 +191,7 @@ def parse_export(
     if "Bibcode" in df.columns:
         df["Bibcode"] = df["Bibcode"].astype(str).str.strip()
 
-    for col in df.select_dtypes(include="object").columns:
+    for col in df.select_dtypes(include=["object", "string"]).columns:
         df[col] = (
             df[col]
             .str.replace("\\n", " ", regex=False)

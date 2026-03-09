@@ -1,105 +1,73 @@
 # ADS Pipeline (`ads-bib`) - Package ToDo
 
-Stand: 2026-02-26
-Ziel: Letzter interner RC direkt vor erstem externen Release.
+Stand: 2026-03-06
+Ziel: erster externer Release eines notebook-first Research-Packages mit externem AND-Adapter.
 
-## Backlog-Governance
+## Festgelegte Entscheidungen
 
-- Diese Datei ist der aktive Release-Backlog.
-- Abgeschlossener Review-Backlog liegt in:
-  - `archive/Review_ToDo_2026-02-25_closed.md`
+- Kein `uv.lock` in dieser Release-Welle; `conda activate ADS_env` bleibt der kanonische lokale Pfad.
+- AI-Dateien duerfen im Repo bleiben, aber nicht in SDist/Wheel landen; lokale `.claude/`-Dateien gehoeren nicht ins Repo.
+- AND bleibt ein externes Package; `ads-bib` baut nur den ADS-spezifischen Adapter, die Validierung, das Rueck-Mapping und die Downstream-Nutzung.
+- Notebook output-clean ist ein Release-Freeze-Thema und kein taeglicher Development-Gate.
+- `CITATION.cff` kommt rein; ein separates `AUTHORS.md` ist fuer `0.1.x` nicht erforderlich.
 
-## 0) Festgelegte Entscheidungen (verbindlich)
+## 1) Sofortige Korrekturen
 
-- [x] Fokus: Release-Fundament vor neuen Forschungsfeatures.
-- [x] Zielstand: interner RC (kein Public Tag in dieser Welle).
-- [x] AND bleibt Placeholder bis externe Abhaengigkeit stabil ist.
-  - Evidenz (2026-02-25): Dokumentiert in `AGENTS.md` Architecture Notes und in `README.md`/`CLAUDE.md`.
-- [x] Kein BERTopic+EVoC-Pfad (EVoC nur via `toponymy_evoc`).
-  - Evidenz (2026-02-25): Dokumentiert in `AGENTS.md` Architecture Notes und in `README.md`/`CLAUDE.md`.
-- [x] Lizenz: MIT.
-- [x] Dependency-Policy: kein Bloat; nur echte Core-Imports.
+- [ ] `filter_by_field()` auf exaktes, case-insensitive Matching fuer Stringspalten ziehen.
+  - Erfolgskriterium: `tests/test_curate.py` ist gruen und kein Regex-/Substring-Verhalten bleibt aktiv.
+- [ ] `ads-bib check` auf interpreter-lokale Modulaufrufe (`python -m ...`) umstellen.
+  - Erfolgskriterium: der Windows-Wrapper-Fehler tritt nicht mehr auf.
+- [ ] Notebook-Cleanliness aus den Daily-Gates loesen, aber den Release-Check erhalten.
+  - Erfolgskriterium: `python -m pytest -q` ist gruen, ohne dass `pipeline.ipynb` gecleart sein muss.
+- [ ] Pandas-Warnung in `export.py` fuer `select_dtypes(include="object")` entfernen.
+  - Erfolgskriterium: keine entsprechende Warnung mehr in der Testsuite.
 
-## 1) PR1 - Backlog und Artefakt-Klarheit
+## 2) AND-Integration in diesem Repo
 
-- [x] `Review_ToDo.md` aus Root entfernt und archiviert.
-  - Evidenz (2026-02-25): Datei verschoben nach `archive/Review_ToDo_2026-02-25_closed.md`.
-- [x] Active-vs-archived Backlog in Repo-Doku klargezogen.
-  - Evidenz (2026-02-25): Hinweise in `AGENTS.md`, `README.md`, `CLAUDE.md`.
-- [x] Roadmap-Grenzen fuer AND/EVoC explizit gemacht.
-  - Evidenz (2026-02-25): neue Architecture Notes in `AGENTS.md` (`AND stays placeholder`, `No BERTopic+EVoC path`).
+- [ ] Mention-Input-Schema fuer den externen Runner festziehen: `mention_id`, `document_id`, `document_type`, `record_row`, `author_position`, `raw_mention`, optional `affiliation`, optional `year`.
+- [ ] `apply_author_disambiguation()` als oeffentliche API einfuehren.
+- [ ] Rueckgabevertrag des externen Runners validieren: `mention_assignments` plus `authors`.
+- [ ] Rueck-Mapping nach `publications` und `references` implementieren.
+  - Zielspalten: `author_uids` und `author_display_names`, positions-aligned zu `Author`.
+- [ ] Phase-4-Checkpoints in Parquet einfuehren.
+  - Dateien: `publications_disambiguated.parquet`, `references_disambiguated.parquet`, `authors.parquet`.
+- [ ] Tests mit gemocktem externen Runner einfuehren.
+  - Erfolgskriterium: Mapping, Validierung, Cache-Reload und Run-Snapshot sind abgesichert.
 
-## 2) PR2 - Packaging und Dependency-Fundament
+## 3) Anforderungen an das externe AND-Package
 
-- [x] PEP-621 Metadaten in `pyproject.toml` vervollstaendigt.
-  - Evidenz (2026-02-25): `readme`, `license`, `authors`, `classifiers`, `project.urls` gesetzt.
-- [x] `LICENSE` (MIT) angelegt.
-- [x] `CHANGELOG.md` angelegt.
-- [x] Dependency-Liste konsolidiert:
-  - `PyYAML` als Core-Dependency aufgenommen (Runtime-Import in `run_manager.py`).
-  - `plotly` aus Core entfernt (kein aktiver Runtime-Import).
-- [x] Doku-Konsistenz fuer Env-Vorlage hergestellt.
-  - Evidenz (2026-02-25): Doku auf direkten `.env`-Workflow konsolidiert (ohne separate `.env.example`-Datei).
+- [ ] Generische Mention-basierte API dokumentieren; keine ADS-DataFrames als externe Package-API.
+- [ ] Rueckgabe von `mention_assignments` plus `authors` als verbindlichen Vertrag beschreiben.
+- [ ] `author_display_name` als generische Entity-Metadatenlogik im externen Package festhalten.
+  - Heuristik gehoert dort hin, nicht in `ads-bib`.
 
-## 3) PR3 - Release-Gates und RC-Verifikation
+## 4) Citation-Aufraeumen
 
-- [x] CI-Workflow mit Python-Matrix angelegt.
-  - Evidenz (2026-02-25): `.github/workflows/ci.yml` mit `3.10` und `3.12`.
-- [x] CI-Gates definiert:
-  - `ruff check src tests scripts`
-  - `pytest -q`
-  - `python -m build`
-  - `python -m twine check dist/*`
-  - Wheel-Smokes (Core + Topic-Extras)
+- [ ] `author_co_citation` auf eigene Author-Nodes umstellen.
+- [ ] `author_uids` bevorzugen, Fallback auf bestehende First-Author-Name-Logik behalten.
+- [ ] Labels aus `author_entities` ziehen, wenn vorhanden.
+- [ ] Keine gemischten Bibcode-/Author-Knoten mehr exportieren.
+  - Erfolgskriterium: Author-Co-Citation-Exporte enthalten nur Author-Nodes.
 
-### Evidenzlauf (lokal in `ADS_env`)
+## 5) Release-Hygiene
 
-- [x] `ruff check src tests scripts`
-  - Ergebnis (2026-02-26): `All checks passed!`
-- [x] `pytest -q` (Vollsuite inkl. Notebook-Contract)
-  - Ergebnis (2026-02-25): `1 failed, 149 passed` (Fail: `tests/test_pipeline_notebook_contract.py::test_pipeline_notebook_is_output_clean`)
-  - Befund: `pipeline.ipynb` ist lokal nicht output-clean (`execution_count = 1` in mindestens einer Code-Zelle).
-  - Fix-Evidenz (2026-02-26): nach Output-Cleanup `150 passed, 4 warnings`.
-- [x] `pytest -q -k "not pipeline_notebook_contract"`
-  - Ergebnis (2026-02-26): `147 passed, 3 deselected, 4 warnings`.
-- [x] `pytest -q tests/test_pipeline_notebook_contract.py`
-  - Ergebnis (2026-02-25): `1 failed, 2 passed` (gleicher Output-Cleanliness-Blocker).
-  - Fix-Evidenz (2026-02-26): `3 passed`.
-- [x] `python -m build`
-  - Ergebnis (2026-02-26): `Successfully built ads_bib-0.1.0.tar.gz and ads_bib-0.1.0-py3-none-any.whl`.
-- [x] `python -m twine check dist/*`
-  - Ergebnis (2026-02-26): Wheel + sdist `PASSED`.
-  - Hinweis: dafuer war in `ADS_env` ein Upgrade auf `packaging==26.0` noetig.
-- [x] Wheel-Smoke Core (frische venv, Import-Smoke)
-  - Ergebnis (2026-02-26): `wheel_core 0.1.0`.
-- [x] Wheel-Smoke Topic-Extras (frische venv, Import-Smoke)
-  - Ergebnis (2026-02-26): `wheel_topic_ok`.
-- [x] SDist-Smoke Core (frische venv, Import-Smoke)
-  - Ergebnis (2026-02-26): `sdist_core 0.1.0`.
+- [ ] `.claude/settings.local.json` aus dem Repo entfernen und `.claude/` ignorieren.
+- [ ] `archive/`, `AGENTS.md`, `CLAUDE.md` und `Package_ToDo.md` aus SDist/Wheel ausschliessen.
+- [ ] `archive/` aus dem Default-Branch vor externem Release neu entscheiden.
+  - Minimum fuer diese Welle: nicht mehr in SDist/Wheel.
+- [ ] `.gitignore` explizit um Coverage-/HTML-/Ruff-Artefakte ergaenzen.
+- [ ] SDist/Wheel-Inhalte nach jedem Packaging-Change pruefen.
+  - Erfolgskriterium: keine lokalen Tooling-Dateien und keine internen Backlogs im Artefakt.
 
-## 4) RC-Status
+## 6) Metadaten und Doku
 
-- [x] Notebook output-clean und Contract gruen.
-  - Evidenz (2026-02-26): `jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace pipeline.ipynb`, danach `pytest -q tests/test_pipeline_notebook_contract.py` = `3 passed`.
-- [x] Interner RC-Stand erreicht (ohne externen Upload/Tag).
-  - Evidenz (2026-02-26): `ruff`, Teilsuite, Vollsuite, Build, Twine-Check, Wheel-Smoke und SDist-Smoke alle gruen.
+- [ ] `CITATION.cff` anlegen.
+- [ ] `pyproject.toml` Authors/Maintainers explizit machen.
+- [ ] `README.md` um Citation-, AND-, Scope- und Package-vs-Notebook-Abschnitte ergaenzen.
+- [ ] Kein `.readthedocs.yaml` fuer `0.1.x`; `README.md` bleibt der zentrale Einstieg.
 
-## 5) Nach internem RC (nicht Teil dieser Welle)
+## 7) Final Release Freeze
 
-- [ ] Public Release-Sequenz (Version bump, tag `vX.Y.Z`, Release Notes finalisieren).
-- [ ] TestPyPI Upload + Install-Smoke gegen TestPyPI.
-  - Blocker (2026-02-26): `TWINE_CREDS_MISSING` im lokalen Umfeld.
-  - Evidenz (2026-02-26): Install-Probe gegen TestPyPI liefert `ERROR: No matching distribution found for ads-bib==0.1.0`.
-- [x] Security/Compliance vor externem Release vorbereitet:
-  - Secrets-Check (2026-02-26): `NO_SECRET_MATCHES`.
-  - Dependency-Audit (2026-02-26, ADS_env): `75 vulnerabilities in 22 packages` (env-breit, nicht package-spezifisch).
-  - Dependency-Audit (2026-02-26, frische SDist-Venv): `No known vulnerabilities found` fuer installierte Pakete; `ads-bib` als lokales Paket auf PyPI noch nicht auditierbar.
-
-## 6) Zusaetzliche Punkte vor erstem externen Release (neu)
-
-- [x] PyPI-Namenscheck und Release-Ziel geprueft.
-  - Evidenz (2026-02-26): `https://pypi.org/pypi/ads-bib/json` und `https://test.pypi.org/pypi/ads-bib/json` liefern beide `{"message":"Not Found"}`.
-- [x] SDist-Install-Smoke ergaenzt (nicht nur Wheel).
-  - Evidenz (2026-02-26): Installation aus `dist/ads_bib-0.1.0.tar.gz` in frischer Venv + `sdist_core 0.1.0`.
-- [x] Third-party Attribution sichtbar dokumentiert.
-  - Evidenz (2026-02-26): Abschnitt `Third-Party Attribution` in `README.md`.
+- [ ] Notebook-Outputs clearen und den Output-Cleanliness-Check explizit laufen lassen.
+- [ ] `CHANGELOG.md` fuer den externen Release aktualisieren.
+- [ ] Version bump, `python -m build`, `python -m twine check dist/*`, TestPyPI-Smoke.

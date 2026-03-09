@@ -117,6 +117,50 @@ def filter_nodes(
     return nodes[nodes["id"].isin(unique)]
 
 
+def _build_author_nodes(
+    edges: pd.DataFrame,
+    *,
+    author_entities: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Build dedicated author nodes for author-author edge lists."""
+    node_ids = [str(v) for v in pd.unique(edges[["source", "target"]].values.ravel("K"))]
+    nodes = pd.DataFrame({"id": node_ids})
+
+    label_map: dict[str, str] = {}
+    if "source_label" in edges.columns:
+        label_map.update(
+            {
+                str(source): str(label)
+                for source, label in zip(edges["source"], edges["source_label"], strict=False)
+                if pd.notna(label)
+            }
+        )
+    if "target_label" in edges.columns:
+        label_map.update(
+            {
+                str(target): str(label)
+                for target, label in zip(edges["target"], edges["target_label"], strict=False)
+                if pd.notna(label)
+            }
+        )
+
+    if author_entities is not None and not author_entities.empty:
+        metadata = author_entities.drop_duplicates(subset="author_uid").rename(
+            columns={"author_uid": "id"}
+        )
+        nodes = nodes.merge(metadata, on="id", how="left")
+    else:
+        nodes["author_display_name"] = pd.NA
+
+    nodes["author_display_name"] = (
+        nodes["author_display_name"]
+        .fillna(nodes["id"].map(label_map))
+        .fillna(nodes["id"])
+    )
+    nodes["label"] = nodes["author_display_name"]
+    return nodes
+
+
 
 def _has_value(value: object) -> bool:
     """Return True when *value* should be exported as a meaningful attribute."""
@@ -258,20 +302,51 @@ def create_author_co_citations(
     *,
     min_count: int = 1,
     authors_filter: list[str] | None = None,
+    author_entities: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build a first-author co-citation edge list."""
     pubs = _filter_by_authors(publications, authors_filter)
 
     refs = references.copy()
-    refs["FirstAuthor"] = refs["Author"].apply(_first_author_lastname)
-    ref_to_fa = refs.set_index("Bibcode")["FirstAuthor"].to_dict()
+    refs["first_author_id"] = refs.apply(_resolve_first_author_id, axis=1)
+    refs["first_author_label"] = refs.apply(_resolve_first_author_label, axis=1)
+    ref_to_fa = refs.set_index("Bibcode")["first_author_id"].to_dict()
+    label_map = (
+        refs.dropna(subset=["first_author_id"])
+        .drop_duplicates(subset=["first_author_id"])
+        .set_index("first_author_id")["first_author_label"]
+        .to_dict()
+    )
+
+    if author_entities is not None and not author_entities.empty:
+        entity_label_map = (
+            author_entities.drop_duplicates(subset="author_uid")
+            .set_index("author_uid")["author_display_name"]
+            .to_dict()
+        )
+    else:
+        entity_label_map = {}
 
     df_exp = pubs.explode("References").dropna(subset=["References"])
-    df_exp["first_author"] = df_exp["References"].map(ref_to_fa)
-    df_exp = df_exp.dropna(subset=["first_author"])
+    df_exp["author_id"] = df_exp["References"].map(ref_to_fa)
+    df_exp = df_exp.dropna(subset=["author_id"])
 
-    grouped = df_exp.groupby(["Bibcode", "Year"])["first_author"].agg(list).reset_index()
-    return _author_co_citation_fast(grouped, min_count)
+    grouped = df_exp.groupby(["Bibcode", "Year"])["author_id"].agg(list).reset_index()
+    edges = _author_co_citation_fast(grouped, min_count)
+    if edges.empty:
+        return edges
+
+    source_labels = [
+        entity_label_map.get(str(source), label_map.get(str(source), str(source)))
+        for source in edges["source"]
+    ]
+    target_labels = [
+        entity_label_map.get(str(target), label_map.get(str(target), str(target)))
+        for target in edges["target"]
+    ]
+    edges["source_label"] = source_labels
+    edges["target_label"] = target_labels
+    return edges
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +547,7 @@ def process_all_citations(
     authors_filter: list[str] | None = None,
     output_format: ExportFormat = "gexf",
     output_dir: Path | str = "data/output",
+    author_entities: pd.DataFrame | None = None,
 ) -> dict[MetricName, pd.DataFrame]:
     """Compute selected citation metrics and export edge/node files.
 
@@ -498,6 +574,9 @@ def process_all_citations(
         ``"gexf"``, ``"graphology"``, ``"csv"``, or ``"all"``.
     output_dir : Path | str
         Target directory for exported artifacts.
+    author_entities : pd.DataFrame, optional
+        Author entity table used to label ``author_co_citation`` nodes when
+        ``author_uids`` are available.
 
     Returns
     -------
@@ -521,7 +600,11 @@ def process_all_citations(
             publications, min_shared_refs=mc, authors_filter=authors_filter
         ),
         "author_co_citation": lambda mc: create_author_co_citations(
-            publications, ref_df, min_count=mc, authors_filter=authors_filter
+            publications,
+            ref_df,
+            min_count=mc,
+            authors_filter=authors_filter,
+            author_entities=author_entities,
         ),
     }
 
@@ -556,7 +639,13 @@ def process_all_citations(
                 continue
 
             results[metric] = edges
-            filtered_nodes = filter_nodes(all_nodes, edges, _edge_cols[metric])
+            if metric == "author_co_citation":
+                filtered_nodes = _build_author_nodes(
+                    edges,
+                    author_entities=author_entities,
+                )
+            else:
+                filtered_nodes = filter_nodes(all_nodes, edges, _edge_cols[metric])
 
             # Step 2: Export
             pbar.set_postfix_str("exporting")
@@ -579,8 +668,13 @@ def process_all_citations(
 
         # Summary line below the completed bar
         total_bytes = sum(
-            (p.stat().st_size if p.is_file()
-             else sum(c.stat().st_size for c in p.iterdir() if c.is_file()))
+            (
+                p.stat().st_size
+                if p.exists() and p.is_file()
+                else sum(c.stat().st_size for c in p.iterdir() if c.is_file())
+                if p.exists()
+                else 0
+            )
             for p in written
         )
         filter_info = f"filter={','.join(authors_filter)}" if authors_filter else "no filter"
@@ -612,6 +706,23 @@ def _filter_by_authors(
     pattern = "|".join(authors)
     author_series = df["Author"].apply(_author_text)
     return df[author_series.str.contains(pattern, case=False, na=False)]
+
+
+def _resolve_first_author_id(row: pd.Series) -> str | None:
+    """Resolve first-author identifier from disambiguated IDs or raw names."""
+    author_uids = _author_list(row.get("author_uids"))
+    if author_uids:
+        return author_uids[0]
+    return _first_author_lastname(row.get("Author"))
+
+
+def _resolve_first_author_label(row: pd.Series) -> str | None:
+    """Resolve first-author display label from disambiguated labels or raw names."""
+    author_display_names = _author_list(row.get("author_display_names"))
+    if author_display_names:
+        return author_display_names[0]
+    authors = _author_list(row.get("Author"))
+    return authors[0] if authors else None
 
 
 def _build_incidence_matrix(
@@ -831,7 +942,7 @@ def _author_co_citation_fast(
     valid_rows: list[tuple[int, str, int, list[str]]] = []
 
     for row_idx, row in grouped.iterrows():
-        authors_set = sorted(set(row["first_author"]))
+        authors_set = sorted(set(row["author_id"]))
         if len(authors_set) < 2:
             continue
         pidx = len(valid_rows)

@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "ADS Pipeline (ads-bib)"
+type: software
+license: MIT
+abstract: "Notebook-first research software for NASA ADS bibliometric analysis, topic modeling, citation networks, and curated dataset construction."
+authors:
+  - family-names: Schlattmann
+    given-names: Raphael
+repository-code: "https://github.com/raphschlatt/ADS_Pipeline"
+url: "https://github.com/raphschlatt/ADS_Pipeline"

@@ -65,6 +65,45 @@ def test_author_co_citations_extracts_first_author_from_list():
     assert len(edges) == 1
     assert edges.iloc[0]["source"] == "Borz"
     assert edges.iloc[0]["target"] == "Miller"
+    assert edges.iloc[0]["source_label"] == "Borz, K."
+    assert edges.iloc[0]["target_label"] == "Miller, A."
+
+
+def test_author_co_citations_prefers_author_uids_when_available():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1"],
+            "Year": [2024],
+            "Author": [["Treder, H. J."]],
+            "References": [["r1", "r2"]],
+        }
+    )
+    references = pd.DataFrame(
+        {
+            "Bibcode": ["r1", "r2"],
+            "Author": [["Borz, K."], ["Miller, A."]],
+            "author_uids": [["uid:borz"], ["uid:miller"]],
+            "author_display_names": [["Borz, Karl"], ["Miller, Alice"]],
+        }
+    )
+    author_entities = pd.DataFrame(
+        [
+            {"author_uid": "uid:borz", "author_display_name": "Borz, Karl"},
+            {"author_uid": "uid:miller", "author_display_name": "Miller, Alice"},
+        ]
+    )
+
+    edges = create_author_co_citations(
+        publications,
+        references,
+        author_entities=author_entities,
+    )
+
+    assert len(edges) == 1
+    assert edges.iloc[0]["source"] == "uid:borz"
+    assert edges.iloc[0]["target"] == "uid:miller"
+    assert edges.iloc[0]["source_label"] == "Borz, Karl"
+    assert edges.iloc[0]["target_label"] == "Miller, Alice"
 
 
 def test_export_to_gexf_accepts_list_attributes(tmp_path):

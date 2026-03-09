@@ -9,7 +9,10 @@ description = "NASA ADS bibliometric analysis pipeline for citation networks, to
 readme = "README.md"
 license = "MIT"
 authors = [
-    { name = "ADS Pipeline contributors" },
+    { name = "Raphael Schlattmann" },
+]
+maintainers = [
+    { name = "Raphael Schlattmann" },
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -33,6 +36,7 @@ dependencies = [
     "tqdm",
     "scipy>=1.10",
 ]
+keywords = ["ads", "bibliometrics", "research", "topic-modeling", "citation-network"]
 
 [project.urls]
 Homepage = "https://github.com/raphschlatt/ADS_Pipeline"
@@ -68,6 +72,15 @@ all = ["ads-bib[topic,translate-local,translate-api,translate-nllb,umap,hdbscan]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ads_bib"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.claude",
+    "/archive",
+    "/AGENTS.md",
+    "/CLAUDE.md",
+    "/Package_ToDo.md",
+]
 
 [tool.pytest.ini_options]
 markers = [

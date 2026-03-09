@@ -115,6 +115,83 @@ def test_process_all_citations_runs_selected_metrics_and_exports_csv(monkeypatch
     assert len(calls) == 2
 
 
+def test_process_all_citations_author_co_citation_uses_author_nodes(monkeypatch, tmp_path):
+    captured: dict[str, pd.DataFrame] = {}
+
+    def _fake_export_to_csv(edges, nodes, directory):
+        directory.mkdir(parents=True, exist_ok=True)
+        captured["edges"] = edges.copy()
+        captured["nodes"] = nodes.copy()
+        return directory
+
+    monkeypatch.setattr(cit, "export_to_csv", _fake_export_to_csv)
+
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1"],
+            "Year": [2024],
+            "Author": [["Treder, H. J."]],
+            "References": [["r1", "r2"]],
+        }
+    )
+    bibcodes = ["p1"]
+    references = [["r1", "r2"]]
+    ref_df = pd.DataFrame(
+        {
+            "Bibcode": ["r1", "r2"],
+            "Author": [["Borz, K."], ["Miller, A."]],
+            "author_uids": [["uid:borz"], ["uid:miller"]],
+            "author_display_names": [["Borz, Karl"], ["Miller, Alice"]],
+        }
+    )
+    all_nodes = pd.DataFrame(
+        {
+            "id": ["p1", "r1", "r2"],
+            "Year": [2024, 2010, 2011],
+        }
+    )
+    author_entities = pd.DataFrame(
+        [
+            {
+                "author_uid": "uid:borz",
+                "author_display_name": "Borz, Karl",
+                "aliases": ["Borz, K."],
+                "mention_count": 1,
+                "document_count": 1,
+                "unique_mention_count": 1,
+                "display_name_method": "most_frequent_readable_alias",
+            },
+            {
+                "author_uid": "uid:miller",
+                "author_display_name": "Miller, Alice",
+                "aliases": ["Miller, A."],
+                "mention_count": 1,
+                "document_count": 1,
+                "unique_mention_count": 1,
+                "display_name_method": "most_frequent_readable_alias",
+            },
+        ]
+    )
+
+    results = cit.process_all_citations(
+        bibcodes=bibcodes,
+        references=references,
+        publications=publications,
+        ref_df=ref_df,
+        all_nodes=all_nodes,
+        metrics=["author_co_citation"],
+        output_format="csv",
+        output_dir=tmp_path,
+        author_entities=author_entities,
+    )
+
+    assert set(results.keys()) == {"author_co_citation"}
+    assert captured["edges"]["source"].tolist() == ["uid:borz"]
+    assert captured["edges"]["target"].tolist() == ["uid:miller"]
+    assert set(captured["nodes"]["id"]) == {"uid:borz", "uid:miller"}
+    assert set(captured["nodes"]["label"]) == {"Borz, Karl", "Miller, Alice"}
+
+
 def test_build_citation_inputs_from_publications_normalizes_invalid_references():
     publications = pd.DataFrame(
         {

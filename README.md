@@ -95,6 +95,7 @@ Use top-level `ads_bib` exports as stable imports:
 ```python
 from ads_bib import (
     RunManager,
+    apply_author_disambiguation,
     build_all_nodes,
     build_topic_dataframe,
     compute_embeddings,
@@ -141,6 +142,36 @@ from ads_bib.topic_model import (
 - interactive visualization polish details and optional UI dependencies
 - AND remains a notebook placeholder until a stable external package is adopted.
 - BERTopic+EVoC is intentionally out of scope; EVoC is only supported via `toponymy_evoc`.
+
+## AND Integration Contract
+
+This repository will keep AND as an external package.
+`ads-bib` owns the ADS-specific adapter layer:
+
+- extract author mentions from ADS-shaped `publications` / `references`
+- call an external mention-based disambiguation function
+- validate and map outputs back into pipeline DataFrames
+- persist Phase-4 checkpoints as Parquet snapshots
+- pass disambiguated author IDs into author-based citation exports
+
+The external AND package is expected to stay source-agnostic and return:
+
+- `mention_assignments` with `mention_id`, `author_uid`, `author_display_name`
+- `authors` with `author_uid`, `author_display_name`, `aliases`, `mention_count`, `document_count`, `unique_mention_count`, `display_name_method`
+
+Mapped pipeline outputs use aligned list columns:
+
+- `author_uids`
+- `author_display_names`
+
+The human-readable representative name belongs in the external AND package,
+not in `ads-bib`.
+
+## Package vs Notebook Usage
+
+- `pipeline.ipynb` remains the main orchestration entrypoint for end-to-end ADS workflows.
+- The installable package provides reusable building blocks plus repository-local quality checks.
+- Notebook output cleanliness is treated as a release-freeze task, not an everyday development gate.
 
 ## Troubleshooting
 
@@ -226,8 +257,16 @@ ads-bib check
 Equivalent explicit commands:
 
 ```bash
-ruff check src tests scripts
+python -m ruff check src tests scripts
 python -m pytest -q
 ```
 
 These are lint-only plus tests (no auto-format rewrite requirement).
+
+## How To Cite
+
+If you use this repository or package in research, cite the software metadata in:
+
+- `CITATION.cff`
+
+GitHub will surface this automatically via the repository citation UI.

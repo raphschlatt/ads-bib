@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
+from pandas.api.types import is_string_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,13 @@ def filter_by_field(
     -------
     pd.DataFrame
     """
-    if df[column].dtype == object:
-        pattern = "|".join(str(v) for v in values)
-        mask = df[column].str.contains(pattern, case=False, na=False)
+    series = df[column]
+    if is_string_dtype(series):
+        normalized = series.astype("string").str.casefold()
+        normalized_values = {str(v).casefold() for v in values if pd.notna(v)}
+        mask = normalized.isin(normalized_values)
     else:
-        mask = df[column].isin(values)
+        mask = series.isin(values)
 
     result = df[mask] if keep else df[~mask]
     logger.info(
