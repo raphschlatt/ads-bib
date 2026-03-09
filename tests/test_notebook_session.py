@@ -376,10 +376,12 @@ def test_author_disambiguation_config_change_preserves_tokens_and_drops_author_c
 def test_llm_prompt_name_resolution_and_explicit_override(tmp_path, monkeypatch):
     prompts: list[str] = []
 
-    def _fake_topic_fit(context):
+    def _fake_execute_stage(context, stage):
+        assert stage == "topic_fit"
         prompts.append(pipeline._resolve_topic_prompt(context.config.topic_model))
+        return context
 
-    monkeypatch.setitem(notebook_module._STAGE_FUNCS, "topic_fit", _fake_topic_fit)
+    monkeypatch.setattr(notebook_module, "_execute_stage", _fake_execute_stage)
 
     session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
     session.set_section("topic_model", {"llm_prompt_name": "generic"})

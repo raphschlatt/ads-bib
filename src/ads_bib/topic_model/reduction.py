@@ -12,6 +12,8 @@ from typing import Any
 import numpy as np
 from tqdm.auto import tqdm
 
+from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
+
 logger = logging.getLogger("ads_bib.topic_model")
 
 DEFAULT_DIM_REDUCTION_RANDOM_STATE = 42
@@ -140,7 +142,8 @@ def _reduce_with_cache(
     else:
         raise ValueError(f"Unknown dim reduction method: {method}")
 
-    reduced = model.fit_transform(embeddings)
+    with capture_external_output(get_runtime_log_path()):
+        reduced = model.fit_transform(embeddings)
 
     if cache_dir:
         path = cache_dir / f"reduced_{name}.npz"

@@ -73,6 +73,7 @@ Seed entries:
 - `2026-03-09 | Shared package runner with named stages | notebook-only orchestration drifted from CLI/testing needs | notebook and CLI now call the same pipeline functions with stage-based resume | remove numeric phase logic and duplicate orchestration paths`
 - `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/default.yaml | no notebook-local helpers or secret wiring to maintain`
 - `2026-03-09 | Notebook explicit, CLI orchestrated | shared stage functions had started mixing work, hidden prerequisite chaining, and snapshot resume | notebook stages run only their named work or same-stage resume; run_pipeline remains the only auto-chaining batch path | remove recursive stage calls and any tests/docs that depend on them`
+- `2026-03-09 | Curated frontend output with runtime log sink | raw tqdm/library/model-load output had made CLI and notebook hard to read | console output is now stage-first, frontend-specific, and raw third-party output is redirected to runs/<run_id>/logs/runtime.log | remove free-form stage banners and redundant nested progress bars`
 
 ## 3) DataFrame Schema Conventions
 
@@ -121,6 +122,10 @@ Seed entries:
 - Avoid large raw DataFrame dumps in notebook output where concise summaries are sufficient.
 - Keep progress bars that communicate long-running work; remove redundant noise.
 - In repository-owned code, standardize progress bars on `tqdm.auto`.
+- CLI output should be stage-first and compact.
+- Notebook output may be slightly more explanatory than CLI, but still stage-first.
+- Use one primary progress bar per stage in normal runs.
+- Raw third-party stdout/stderr and model-load chatter belong in `runs/<run_id>/logs/runtime.log`, not in the normal console stream.
 
 ## 6) Testing and Quality Gates
 

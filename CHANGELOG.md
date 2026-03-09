@@ -22,6 +22,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Tokenization defaults now use `en_core_web_md` rather than `en_core_web_lg`.
 - AND integration remains optional, but the active path is now the source-based external adapter rather than a placeholder notebook contract.
 - `run_pipeline()` remains the dependency-aware batch path; notebook stage execution now has intentionally different UX semantics.
+- Runtime output is now frontend-aware: CLI runs use compact stage-first console output, notebook runs stay slightly more explanatory, and raw third-party stdout/stderr is redirected into `runs/<run_id>/logs/runtime.log`.
+- Nested progress-bar noise was reduced so normal runs show at most one primary progress bar per stage.
 
 ### Docs
 - `README.md` now documents inline notebook section configs, `configs/pipeline/default.yaml`, and `.env` as the only secret location.

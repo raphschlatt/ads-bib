@@ -14,23 +14,12 @@ import pandas as pd
 
 from ads_bib._utils.costs import CostTracker
 from ads_bib.pipeline import (
+    _execute_stage,
     PipelineConfig,
     PipelineContext,
     STAGE_ORDER,
     StageName,
     prepare_pipeline_config,
-    run_author_disambiguation_stage,
-    run_citations_stage,
-    run_curate_stage,
-    run_embeddings_stage,
-    run_export_stage,
-    run_reduction_stage,
-    run_search_stage,
-    run_tokenize_stage,
-    run_topic_dataframe_stage,
-    run_topic_fit_stage,
-    run_translate_stage,
-    run_visualize_stage,
     snapshot_block_from_invalidation,
     validate_stage_name,
 )
@@ -49,21 +38,6 @@ SECTION_NAMES: tuple[str, ...] = (
     "curation",
     "citations",
 )
-
-_STAGE_FUNCS: dict[StageName, Any] = {
-    "search": run_search_stage,
-    "export": run_export_stage,
-    "translate": run_translate_stage,
-    "tokenize": run_tokenize_stage,
-    "author_disambiguation": run_author_disambiguation_stage,
-    "embeddings": run_embeddings_stage,
-    "reduction": run_reduction_stage,
-    "topic_fit": run_topic_fit_stage,
-    "topic_dataframe": run_topic_dataframe_stage,
-    "visualize": run_visualize_stage,
-    "curate": run_curate_stage,
-    "citations": run_citations_stage,
-}
 
 _ACTIVE_SESSION: NotebookSession | None = None
 
@@ -312,6 +286,7 @@ class NotebookSession:
                 project_root=self._project_root,
                 run_name=self._run_name,
                 start_time=self._start_time,
+                output_mode="notebook",
             )
         else:
             invalidation_stage = _earliest_invalidation_stage(self._last_config_data, config_data)
@@ -428,7 +403,7 @@ class NotebookSession:
         stage_name = validate_stage_name(stage)
         random.seed(self._context.config.run.random_seed)
         np.random.seed(self._context.config.run.random_seed)
-        _STAGE_FUNCS[stage_name](self._context)
+        _execute_stage(self._context, stage_name)
 
     def save_summary(self) -> None:
         assert self._context is not None

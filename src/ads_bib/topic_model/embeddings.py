@@ -14,6 +14,7 @@ from tqdm.auto import tqdm
 
 from ads_bib._utils.ads_api import retry_call
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
 from ads_bib._utils.openrouter_costs import (
     extract_generation_id,
     extract_response_cost,
@@ -282,7 +283,8 @@ def _embed_local(
 
     logger.info("  Loading local model: %s", model)
     try:
-        st = SentenceTransformer(model)
+        with capture_external_output(get_runtime_log_path()):
+            st = SentenceTransformer(model)
         emb = st.encode(documents, show_progress_bar=True, batch_size=batch_size)
     except Exception as exc:
         raise_with_local_hf_compat_hint(model=model, use_case="embeddings", exc=exc)

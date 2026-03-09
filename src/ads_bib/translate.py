@@ -231,6 +231,7 @@ def _translate_rows_openrouter(
     api_base: str,
     max_workers: int,
     max_tokens: int,
+    show_progress: bool = True,
 ) -> tuple[int, int, list[dict[str, str | float | None]], list[tuple[object, str]]]:
     """Translate selected rows with OpenRouter and return usage/call metadata."""
 
@@ -257,7 +258,12 @@ def _translate_rows_openrouter(
     items = list(zip(to_translate.index, to_translate[source_col]))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [pool.submit(_do_translate, item) for item in items]
-        for future in tqdm(as_completed(futures), total=len(items), desc=f"  {source_col}"):
+        for future in tqdm(
+            as_completed(futures),
+            total=len(items),
+            desc=f"  {source_col}",
+            disable=not show_progress,
+        ):
             idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
             if translated is not None:
                 df.at[idx, target_col] = translated
@@ -371,6 +377,7 @@ def _translate_rows_gguf(
     auto_chunk: bool,
     chunk_input_tokens: int,
     chunk_overlap_tokens: int,
+    show_progress: bool = True,
 ) -> tuple[list[tuple[object, str]], int, int, float]:
     """Translate selected rows with a local GGUF model (single-worker)."""
     lang_col = f"{source_col}_lang"
@@ -380,7 +387,12 @@ def _translate_rows_gguf(
     started = time.perf_counter()
 
     items = list(zip(to_translate.index, to_translate[source_col], to_translate[lang_col]))
-    for idx, text, src_lang in tqdm(items, total=len(items), desc=f"  {source_col}"):
+    for idx, text, src_lang in tqdm(
+        items,
+        total=len(items),
+        desc=f"  {source_col}",
+        disable=not show_progress,
+    ):
         try:
             translated, chunk_count = _translate_text_with_gguf(
                 str(text),
@@ -539,6 +551,7 @@ def _translate_rows_nllb(
     target_lang: str,
     model: str,
     cache_dir: Path | None = None,
+    show_progress: bool = True,
 ) -> tuple[list[tuple[object, str]], float]:
     """Translate selected rows with NLLB/CTranslate2 using batched inference."""
     lang_col = f"{source_col}_lang"
@@ -583,7 +596,11 @@ def _translate_rows_nllb(
     # padding minimization) and parallelizes across inter_threads workers.
     n = len(all_tokens)
     chunk_size = _NLLB_BATCH_SIZE
-    for start in tqdm(range(0, max(n, 1), chunk_size), desc=f"  {source_col}", disable=n == 0):
+    for start in tqdm(
+        range(0, max(n, 1), chunk_size),
+        desc=f"  {source_col}",
+        disable=(n == 0) or (not show_progress),
+    ):
         end = min(start + chunk_size, n)
         try:
             batch_results = translator.translate_batch(
@@ -678,6 +695,7 @@ def translate_dataframe(
     # OpenRouter cost tracking
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
+    show_progress: bool = True,
 ) -> tuple[pd.DataFrame, TranslationCostInfo]:
     """Translate non-English entries in *columns* and add ``{col}_en`` columns.
 
@@ -797,6 +815,7 @@ def translate_dataframe(
                 api_base=api_base,
                 max_workers=max_workers,
                 max_tokens=max_translation_tokens,
+                show_progress=show_progress,
             )
             total_pt += pt
             total_ct += ct
@@ -818,6 +837,7 @@ def translate_dataframe(
                 auto_chunk=gguf_auto_chunk,
                 chunk_input_tokens=gguf_chunk_input_tokens,
                 chunk_overlap_tokens=gguf_chunk_overlap_tokens,
+                show_progress=show_progress,
             )
             docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
             logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)
@@ -835,6 +855,7 @@ def translate_dataframe(
                 to_translate=to_translate,
                 target_lang=target_lang,
                 model=model,
+                show_progress=show_progress,
             )
             docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
             logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)

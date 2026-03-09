@@ -99,6 +99,14 @@ semantics. The CLI is dependency-aware and batch-oriented; the notebook is
 explicit and stage-oriented. A saved run config such as
 `runs/<run_id>/config_used.yaml` is a good template for future batch runs.
 
+Console behavior is also frontend-specific:
+
+- CLI output is compact and stage-first.
+- Notebook output stays slightly more explanatory.
+- Raw third-party model/load output is redirected to
+  `runs/<run_id>/logs/runtime.log` instead of cluttering the console.
+- Long-running stages use at most one primary progress bar per stage.
+
 Secrets stay out of notebook cells and committed YAML. Leave API-key/token
 fields as `None` and provide them via `.env`.
 

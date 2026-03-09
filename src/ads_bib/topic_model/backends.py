@@ -14,6 +14,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
 import os
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
@@ -958,11 +959,13 @@ def fit_bertopic(
     if "KeyBERT" in pipeline_models or "KeyBERT" in parallel_models:
         from sentence_transformers import SentenceTransformer
 
-        emb_model = SentenceTransformer(keybert_model)
+        with capture_external_output(get_runtime_log_path()):
+            emb_model = SentenceTransformer(keybert_model)
     elif embedding_model_name:
         from sentence_transformers import SentenceTransformer
 
-        emb_model = SentenceTransformer(embedding_model_name)
+        with capture_external_output(get_runtime_log_path()):
+            emb_model = SentenceTransformer(embedding_model_name)
 
     cluster_model = _create_cluster_model(clustering_method, clustering_params)
 
@@ -974,7 +977,7 @@ def fit_bertopic(
         ctfidf_model=ctfidf,
         representation_model=rep_model,
         top_n_words=top_n_words,
-        verbose=True,
+        verbose=False,
     )
 
     logger.info("Fitting BERTopic (LLM: %s/%s) ...", llm_provider, llm_model)

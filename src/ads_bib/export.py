@@ -7,7 +7,7 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -90,6 +90,8 @@ def export_bibcodes(
     max_workers: int = 5,
     max_retries: int = 5,
     backoff_factor: int = 2,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> str:
     """Export bibcodes via ADS custom export API in concurrent chunks.
 
@@ -132,7 +134,9 @@ def export_bibcodes(
         n_chunks,
         max_workers,
     )
-    pbar = tqdm(total=len(bibcodes), desc="Exporting")
+    pbar = None
+    if show_progress and progress_callback is None:
+        pbar = tqdm(total=len(bibcodes), desc="Exporting")
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
@@ -151,9 +155,13 @@ def export_bibcodes(
                     results[cidx] = data
             except Exception as exc:
                 errors.append((idx, str(exc)))
-            pbar.update(size)
+            if progress_callback is not None:
+                progress_callback(size)
+            elif pbar is not None:
+                pbar.update(size)
 
-    pbar.close()
+    if pbar is not None:
+        pbar.close()
     session.close()
 
     if errors:
@@ -231,6 +239,8 @@ def resolve_dataset(
     max_workers: int = 5,
     cache_dir: Path | None = None,
     force_refresh: bool = False,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the full export+parse+clean pipeline for publications and references.
 
@@ -263,7 +273,14 @@ def resolve_dataset(
 
     # --- Publications ---
     logger.info("=== Exporting publications ===")
-    raw_pubs = export_bibcodes(bibcodes, token, custom_format=custom_format, max_workers=max_workers)
+    raw_pubs = export_bibcodes(
+        bibcodes,
+        token,
+        custom_format=custom_format,
+        max_workers=max_workers,
+        show_progress=show_progress,
+        progress_callback=progress_callback,
+    )
     pubs = parse_export(raw_pubs)
     expected_publications = len(set(bibcodes))
     parsed_publications = int(pubs["Bibcode"].nunique()) if "Bibcode" in pubs.columns else 0
@@ -291,7 +308,14 @@ def resolve_dataset(
         ref for ref_list in references for ref in ref_list
     ))
     logger.info("=== Exporting references (%s unique) ===", f"{len(flat_refs):,}")
-    raw_refs = export_bibcodes(flat_refs, token, custom_format=custom_format, max_workers=max_workers)
+    raw_refs = export_bibcodes(
+        flat_refs,
+        token,
+        custom_format=custom_format,
+        max_workers=max_workers,
+        show_progress=show_progress,
+        progress_callback=progress_callback,
+    )
     refs = parse_export(raw_refs)
     expected_references = len(flat_refs)
     parsed_references = int(refs["Bibcode"].nunique()) if "Bibcode" in refs.columns else 0

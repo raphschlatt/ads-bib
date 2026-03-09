@@ -206,6 +206,7 @@ def create_direct_citations(
     *,
     min_count: int = 1,
     authors_filter: list[str] | None = None,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Build a direct-citation edge list (source → target).
 
@@ -237,6 +238,7 @@ def create_direct_citations(
         total=len(bibcodes),
         desc="Direct citations",
         leave=False,
+        disable=not show_progress,
     ):
         year = year_map.get(src)
         if year is None:
@@ -270,11 +272,12 @@ def create_co_citations(
     *,
     min_count: int = 1,
     authors_filter: list[str] | None = None,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Build a co-citation edge list (pairs of references cited together)."""
     pubs = _filter_by_authors(publications, authors_filter)
     year_map = pubs.set_index("Bibcode")["Year"].to_dict()
-    return _co_citation_fast(bibcodes, references, year_map, min_count)
+    return _co_citation_fast(bibcodes, references, year_map, min_count, show_progress=show_progress)
 
 
 # ---------------------------------------------------------------------------
@@ -286,10 +289,11 @@ def create_bibliographic_coupling(
     *,
     min_shared_refs: int = 1,
     authors_filter: list[str] | None = None,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Build a bibliographic-coupling edge list (publications sharing references)."""
     pubs = _filter_by_authors(publications, authors_filter)
-    return _bibliographic_coupling_fast(pubs, min_shared_refs)
+    return _bibliographic_coupling_fast(pubs, min_shared_refs, show_progress=show_progress)
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +307,7 @@ def create_author_co_citations(
     min_count: int = 1,
     authors_filter: list[str] | None = None,
     author_entities: pd.DataFrame | None = None,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Build a first-author co-citation edge list."""
     pubs = _filter_by_authors(publications, authors_filter)
@@ -332,7 +337,7 @@ def create_author_co_citations(
     df_exp = df_exp.dropna(subset=["author_id"])
 
     grouped = df_exp.groupby(["Bibcode", "Year"])["author_id"].agg(list).reset_index()
-    edges = _author_co_citation_fast(grouped, min_count)
+    edges = _author_co_citation_fast(grouped, min_count, show_progress=show_progress)
     if edges.empty:
         return edges
 
@@ -357,6 +362,8 @@ def export_to_gexf(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
     path: Path | str,
+    *,
+    show_progress: bool = True,
 ) -> Path:
     """Write edges and nodes to a GEXF file (native Gephi format)."""
     import networkx as nx
@@ -371,14 +378,14 @@ def export_to_gexf(
     node_records = nodes_out.to_dict(orient="records")
     G.add_nodes_from(
         (str(rec["id"]), {k: str(v) for k, v in rec.items() if k != "id" and _has_value(v)})
-        for rec in tqdm(node_records, desc="GEXF nodes", leave=False)
+        for rec in tqdm(node_records, desc="GEXF nodes", leave=False, disable=not show_progress)
     )
 
     edge_records = edges.to_dict(orient="records")
     G.add_edges_from(
         (str(rec["source"]), str(rec["target"]),
          {k: str(v) for k, v in rec.items() if k not in ("source", "target") and _has_value(v)})
-        for rec in tqdm(edge_records, desc="GEXF edges", leave=False)
+        for rec in tqdm(edge_records, desc="GEXF edges", leave=False, disable=not show_progress)
     )
 
     nx.write_gexf(G, str(path))
@@ -389,6 +396,8 @@ def export_to_graphology_json(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
     path: Path | str,
+    *,
+    show_progress: bool = True,
 ) -> Path:
     """Write edges and nodes to Graphology JSON format (Sigma.js compatible)."""
     import json
@@ -406,7 +415,7 @@ def export_to_graphology_json(
                 {k: v for k, v in rec.items() if k != "id" and _has_value(v)}
             ),
         }
-        for rec in tqdm(node_records, desc="Graphology nodes", leave=False)
+        for rec in tqdm(node_records, desc="Graphology nodes", leave=False, disable=not show_progress)
     ]
 
     edge_records = edges.to_dict(orient="records")
@@ -419,7 +428,7 @@ def export_to_graphology_json(
                  if k not in ("source", "target") and _has_value(v)}
             ),
         }
-        for rec in tqdm(edge_records, desc="Graphology edges", leave=False)
+        for rec in tqdm(edge_records, desc="Graphology edges", leave=False, disable=not show_progress)
     ]
 
     graph = {
@@ -548,6 +557,7 @@ def process_all_citations(
     output_format: ExportFormat = "gexf",
     output_dir: Path | str = "data/output",
     author_entities: pd.DataFrame | None = None,
+    show_progress: bool = True,
 ) -> dict[MetricName, pd.DataFrame]:
     """Compute selected citation metrics and export edge/node files.
 
@@ -591,13 +601,26 @@ def process_all_citations(
 
     _funcs: dict[MetricName, Callable[[int], pd.DataFrame]] = {
         "direct": lambda mc: create_direct_citations(
-            bibcodes, references, publications, min_count=mc, authors_filter=authors_filter
+            bibcodes,
+            references,
+            publications,
+            min_count=mc,
+            authors_filter=authors_filter,
+            show_progress=show_progress,
         ),
         "co_citation": lambda mc: create_co_citations(
-            bibcodes, references, publications, min_count=mc, authors_filter=authors_filter
+            bibcodes,
+            references,
+            publications,
+            min_count=mc,
+            authors_filter=authors_filter,
+            show_progress=show_progress,
         ),
         "bibliographic_coupling": lambda mc: create_bibliographic_coupling(
-            publications, min_shared_refs=mc, authors_filter=authors_filter
+            publications,
+            min_shared_refs=mc,
+            authors_filter=authors_filter,
+            show_progress=show_progress,
         ),
         "author_co_citation": lambda mc: create_author_co_citations(
             publications,
@@ -605,6 +628,7 @@ def process_all_citations(
             min_count=mc,
             authors_filter=authors_filter,
             author_entities=author_entities,
+            show_progress=show_progress,
         ),
     }
 
@@ -626,8 +650,13 @@ def process_all_citations(
         desc = _metric_labels.get(metric, str(metric).replace("_", " ").title())
         mc = min_counts_local.get(metric, 1)
 
-        with tqdm(total=2, desc=desc, leave=True,
-                  bar_format="{desc}: {bar} {n}/{total} [{elapsed}]") as pbar:
+        with tqdm(
+            total=2,
+            desc=desc,
+            leave=True,
+            disable=not show_progress,
+            bar_format="{desc}: {bar} {n}/{total} [{elapsed}]",
+        ) as pbar:
             # Step 1: Compute
             pbar.set_postfix_str("computing")
             edges = _funcs[metric](mc)
@@ -652,11 +681,21 @@ def process_all_citations(
             written: list[Path] = []
 
             if output_format in ("gexf", "all"):
-                p = export_to_gexf(edges, filtered_nodes, output_dir / f"{metric}{suffix}.gexf")
+                p = export_to_gexf(
+                    edges,
+                    filtered_nodes,
+                    output_dir / f"{metric}{suffix}.gexf",
+                    show_progress=show_progress,
+                )
                 if p is not None:
                     written.append(p)
             if output_format in ("graphology", "all"):
-                p = export_to_graphology_json(edges, filtered_nodes, output_dir / f"{metric}{suffix}.json")
+                p = export_to_graphology_json(
+                    edges,
+                    filtered_nodes,
+                    output_dir / f"{metric}{suffix}.json",
+                    show_progress=show_progress,
+                )
                 if p is not None:
                     written.append(p)
             if output_format in ("csv", "all"):
@@ -773,6 +812,8 @@ def _co_citation_fast(
     references: list[list[str]],
     year_map: dict[str, object],
     min_count: int,
+    *,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Sparse-matrix accelerated co-citation edge list construction."""
     _COLS = ["id", "year", "source", "target", "cocit_source"]
@@ -822,7 +863,12 @@ def _co_citation_fast(
 
     # Phase 2: reconstruct detail rows only for qualifying pairs
     rows: list[dict] = []
-    for src, year, refs in tqdm(valid_papers, desc="Co-citation detail", leave=False):
+    for src, year, refs in tqdm(
+        valid_papers,
+        desc="Co-citation detail",
+        leave=False,
+        disable=not show_progress,
+    ):
         ref_idxs = [ref_to_idx[r] for r in refs]
         for i in range(len(ref_idxs)):
             for j in range(i + 1, len(ref_idxs)):
@@ -847,6 +893,8 @@ def _co_citation_fast(
 def _bibliographic_coupling_fast(
     pubs: pd.DataFrame,
     min_shared_refs: int,
+    *,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Sparse-matrix accelerated bibliographic coupling edge list."""
     _COLS = ["id", "year", "source", "target", "shared_ref"]
@@ -907,7 +955,12 @@ def _bibliographic_coupling_fast(
     year_map = pubs.set_index("Bibcode")["Year"].to_dict()
 
     rows: list[dict] = []
-    for ref, sources in tqdm(ref_source_map.items(), desc="Bibliographic coupling detail", leave=False):
+    for ref, sources in tqdm(
+        ref_source_map.items(),
+        desc="Bibliographic coupling detail",
+        leave=False,
+        disable=not show_progress,
+    ):
         if len(sources) < 2:
             continue
         for s1, s2 in itertools.combinations(sources, 2):
@@ -928,6 +981,8 @@ def _bibliographic_coupling_fast(
 def _author_co_citation_fast(
     grouped: pd.DataFrame,
     min_count: int,
+    *,
+    show_progress: bool = True,
 ) -> pd.DataFrame:
     """Sparse-matrix accelerated first-author co-citation edge list."""
     _COLS = ["id", "year", "source", "target", "source_citation"]
@@ -975,7 +1030,12 @@ def _author_co_citation_fast(
 
     # Reconstruct detail rows
     rows: list[dict] = []
-    for _, bibcode, year, authors_set in tqdm(valid_rows, desc="Author co-citation detail", leave=False):
+    for _, bibcode, year, authors_set in tqdm(
+        valid_rows,
+        desc="Author co-citation detail",
+        leave=False,
+        disable=not show_progress,
+    ):
         aidxs = [author_to_idx[a] for a in authors_set]
         for i in range(len(aidxs)):
             for j in range(i + 1, len(aidxs)):
