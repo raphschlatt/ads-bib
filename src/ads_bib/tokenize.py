@@ -34,7 +34,7 @@ def _load_spacy_model(spacy_model: str, spacy_disable: tuple[str, ...]):
 def ensure_spacy_model(
     *,
     spacy_model: str = "en_core_web_md",
-    fallback_model: str = "en_core_web_lg",
+    fallback_model: str = "en_core_web_md",
     spacy_disable: tuple[str, ...] = ("ner", "parser", "textcat"),
     auto_download: bool = True,
 ) -> tuple[str, object]:

@@ -20,14 +20,14 @@ translate:
   fasttext_model: null
 tokenize:
   enabled: true
-  spacy_model: en_core_web_lg
+  spacy_model: en_core_web_md
   batch_size: 512
   n_process: 1
   disable:
     - ner
     - parser
     - textcat
-  fallback_model: en_core_web_lg
+  fallback_model: en_core_web_md
   auto_download: true
 author_disambiguation:
   enabled: false

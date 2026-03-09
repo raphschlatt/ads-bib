@@ -151,6 +151,7 @@ Seed entries:
 - Notebook config lives in explicit section dicts (`RUN`, `SEARCH`, `TRANSLATE`, `TOKENIZE`, `AUTHOR_DISAMBIGUATION`, `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`, `CITATIONS`).
 - Notebook session/state logic lives in `src/ads_bib/notebook.py`, not inline in notebook cells.
 - Notebook stage selection comes from running the corresponding cell; `START_STAGE` / `STOP_STAGE` are CLI/YAML controls, not notebook controls.
+- Fresh in-memory notebook state takes precedence over shared translated/tokenized/disambiguated snapshots after config invalidation.
 - Background logic (fallbacks, retries/backoff strategies, install/preflight mechanics, checkpoint internals, data-shaping helpers) belongs in `src/ads_bib/` modules, not inline notebook code.
 - Functions that access APIs or disk own their caching internally.
   Convention: accept `cache_dir: Path | None` and `force_refresh: bool` parameters.

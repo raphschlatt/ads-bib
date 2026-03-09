@@ -31,6 +31,7 @@ from ads_bib.pipeline import (
     run_topic_fit_stage,
     run_translate_stage,
     run_visualize_stage,
+    snapshot_block_from_invalidation,
     validate_stage_name,
 )
 from ads_bib.run_manager import RunManager
@@ -153,6 +154,7 @@ def _earliest_invalidation_stage(
 def _invalidate_context_from(context: PipelineContext, stage: StageName) -> None:
     stage_name = validate_stage_name(stage)
     stage_index = STAGE_ORDER.index(stage_name)
+    _set_resume_block(context, snapshot_block_from_invalidation(stage_name))
 
     if stage_index <= STAGE_ORDER.index("search"):
         context.bibcodes = None
@@ -212,6 +214,16 @@ def _invalidate_context_from(context: PipelineContext, stage: StageName) -> None
 
     if stage_index <= STAGE_ORDER.index("citations"):
         context.citation_results = None
+
+
+def _set_resume_block(context: PipelineContext, candidate: StageName | None) -> None:
+    if candidate is None:
+        return
+    if (
+        context.resume_blocked_from is None
+        or STAGE_ORDER.index(candidate) < STAGE_ORDER.index(context.resume_blocked_from)
+    ):
+        context.resume_blocked_from = candidate
 
 
 class NotebookSession:

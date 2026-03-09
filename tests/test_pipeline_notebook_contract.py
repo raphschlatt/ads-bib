@@ -85,6 +85,10 @@ def test_pipeline_notebook_code_contract():
 
     assert 'TRANSLATE = {' in code
     assert '"api_key": None' in code
+    assert '\nSEARCH["query"] = \'author:"Treder, H*"\'\n' not in code
+    assert '# SEARCH["query"] = \'author:"Treder, H*"\'\n' in code
+    assert '"spacy_model": "en_core_web_md"' in code
+    assert '"fallback_model": "en_core_web_md"' in code
     assert 'TOPIC_MODEL = {' in code
     assert '"llm_prompt_name": "physics"' in code
     assert 'CITATIONS = {' in code

@@ -168,7 +168,7 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
         clustering_method="hdbscan",
         clustering_params={"min_cluster_size": 10},
         top_n_words=33,
-        pos_spacy_model="en_core_web_lg",
+        pos_spacy_model="en_core_web_md",
         min_df=1,
         api_key="key",
         cost_tracker=object(),
@@ -181,7 +181,7 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert calls["init_kwargs"]["hdbscan_model"] is cluster_model
     assert calls["init_kwargs"]["top_n_words"] == 33
     assert calls["vectorizer_kwargs"]["min_df"] == 1
-    assert calls["rep_kwargs"]["pos_spacy_model"] == "en_core_web_lg"
+    assert calls["rep_kwargs"]["pos_spacy_model"] == "en_core_web_md"
     assert calls["record_kwargs"]["step"] == "llm_labeling"
     assert calls["record_kwargs"]["llm_provider"] == "openrouter"
     assert calls["usage"]["prompt_tokens"] == 9

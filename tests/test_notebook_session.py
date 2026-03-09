@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import ads_bib.notebook as notebook_module
@@ -125,6 +126,80 @@ def test_env_fallback_injection_uses_ads_and_openrouter_keys(tmp_path, monkeypat
     assert session.config.translate.api_key == "openrouter-token"
     assert session.config.topic_model.embedding_api_key == "openrouter-token"
     assert session.config.topic_model.llm_api_key == "openrouter-token"
+
+
+def test_notebook_session_loads_env_file_before_fallback_resolution(tmp_path, monkeypatch):
+    monkeypatch.delenv("ADS_TOKEN", raising=False)
+    monkeypatch.delenv("ADS_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    (tmp_path / ".env").write_text(
+        "ADS_API_KEY=ads-from-dotenv\nOPENROUTER_API_KEY=openrouter-from-dotenv\n",
+        encoding="utf-8",
+    )
+
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": None})
+    session.set_section(
+        "translate",
+        {
+            "provider": "openrouter",
+            "api_key": None,
+            "fasttext_model": str(tmp_path / "lid.176.bin"),
+        },
+    )
+
+    assert session.config.search.ads_token == "ads-from-dotenv"
+    assert session.config.translate.api_key == "openrouter-from-dotenv"
+
+
+def test_search_config_change_blocks_later_snapshot_resume(tmp_path):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "first", "ads_token": "token"})
+    assert session._context is not None
+    session._context.publications = pd.DataFrame([{"Bibcode": "old"}])
+    session._context.refs = pd.DataFrame([{"Bibcode": "old-ref"}])
+
+    session.set_section("search", {"query": "second", "ads_token": "token"})
+
+    assert session._context is not None
+    assert session._context.resume_blocked_from == "translate"
+    assert session._context.publications is None
+    assert session._context.refs is None
+
+
+def test_rerunning_translate_after_search_change_recomputes_instead_of_loading_snapshot(
+    tmp_path,
+    monkeypatch,
+):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "first", "ads_token": "token"})
+    session.set_section("translate", {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")})
+    assert session._context is not None
+    session._context.publications = pd.DataFrame([{"Bibcode": "old"}])
+    session._context.refs = pd.DataFrame([{"Bibcode": "old-ref"}])
+
+    session.set_section("search", {"query": "second", "ads_token": "token"})
+
+    def _fail_snapshot(**kwargs):
+        raise AssertionError("stale translated snapshot should not load")
+
+    def _fake_export(context):
+        context.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title": "T", "Abstract": "A"}])
+        context.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title": "RT", "Abstract": "RA"}])
+        return context
+
+    monkeypatch.setattr(pipeline, "load_translated_snapshot", _fail_snapshot)
+    monkeypatch.setattr(pipeline, "run_export_stage", _fake_export)
+    monkeypatch.setattr(pipeline, "save_translated_snapshot", lambda *args, **kwargs: None)
+
+    session.run_stage("translate")
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["fresh-pub"]
+    assert session.refs["Bibcode"].tolist() == ["fresh-ref"]
+    assert session._context is not None
+    assert session._context.resume_blocked_from == "tokenize"
 
 
 def test_llm_prompt_name_resolution_and_explicit_override(tmp_path, monkeypatch):

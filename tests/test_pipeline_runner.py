@@ -53,6 +53,8 @@ def test_default_pipeline_config_template_loads():
     assert data["run"]["stop_stage"] is None
     assert data["topic_model"]["llm_prompt_name"] == "physics"
     assert data["author_disambiguation"]["enabled"] is False
+    assert data["tokenize"]["spacy_model"] == "en_core_web_md"
+    assert data["tokenize"]["fallback_model"] == "en_core_web_md"
 
 
 def test_run_pipeline_respects_stage_slice(monkeypatch):
@@ -87,6 +89,128 @@ def test_run_pipeline_respects_stage_slice(monkeypatch):
         "reduction",
         "topic_fit",
     ]
+
+
+def test_run_translate_stage_prefers_current_export_results_over_snapshot(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {
+                "enabled": True,
+                "provider": "nllb",
+                "model": "stub",
+                "fasttext_model": str(tmp_path / "lid.176.bin"),
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title": "T", "Abstract": "A"}])
+    ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title": "RT", "Abstract": "RA"}])
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_translated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("stale translated snapshot should not load")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "detect_languages",
+        lambda df, columns, model_path: df.assign(
+            **{f"{col}_lang": "en" for col in columns}
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "translate_dataframe",
+        lambda df, columns, **kwargs: (
+            df.assign(**{f"{col}_en": df[col] for col in columns}),
+            {},
+        ),
+    )
+    monkeypatch.setattr(pipeline, "save_translated_snapshot", lambda *args, **kwargs: None)
+
+    pipeline.run_translate_stage(ctx)
+
+    assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
+    assert ctx.refs["Bibcode"].tolist() == ["fresh-ref"]
+    assert "Title_en" in ctx.publications.columns
+    assert "Title_en" in ctx.refs.columns
+
+
+def test_run_tokenize_stage_prefers_current_translated_results_over_snapshot(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title_en": "T", "Abstract_en": "A"}])
+    ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_tokenized_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("stale tokenized snapshot should not load")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "ensure_spacy_model",
+        lambda **kwargs: ("en_core_web_md", object()),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "tokenize_texts",
+        lambda df, **kwargs: df.assign(
+            full_text=[f"{row.Title_en}. {row.Abstract_en}" for row in df.itertuples()],
+            tokens=[["tok"] for _ in range(len(df))],
+        ),
+    )
+    monkeypatch.setattr(pipeline, "save_tokenized_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline, "save_parquet", lambda *args, **kwargs: None)
+
+    pipeline.run_tokenize_stage(ctx)
+
+    assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
+    assert ctx.publications["tokens"].tolist() == [["tok"]]
+
+
+def test_run_author_disambiguation_stage_prefers_current_tokenized_results_over_snapshot(
+    tmp_path,
+    monkeypatch,
+):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "author_disambiguation": {"enabled": False},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [{"Bibcode": "fresh-pub", "Title_en": "T", "Abstract_en": "A", "full_text": "T. A", "tokens": [["tok"]]}]
+    )
+    ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+    saved: dict[str, pd.DataFrame] = {}
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_disambiguated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("stale disambiguated snapshot should not load")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_disambiguated_snapshot",
+        lambda pubs, refs, **kwargs: saved.update({"pubs": pubs.copy(), "refs": refs.copy()}),
+    )
+
+    pipeline.run_author_disambiguation_stage(ctx)
+
+    assert saved["pubs"]["Bibcode"].tolist() == ["fresh-pub"]
+    assert saved["refs"]["Bibcode"].tolist() == ["fresh-ref"]
 
 
 def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkeypatch):

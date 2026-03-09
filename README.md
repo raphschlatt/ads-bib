@@ -69,6 +69,8 @@ parameters, and rerun only the cells that depend on your latest changes.
   - `CITATIONS`
 - The notebook uses `NotebookSession` from `ads_bib.notebook`; config diffing,
   invalidation, and run-state management live in the package, not inline cells.
+- Fresh in-memory notebook state wins over shared translated/tokenized snapshots;
+  shared snapshots are for true resume/restart, not for overriding a new query.
 - Topic-model experiments can restart by rerunning `topic_fit`,
   `topic_dataframe`, `visualize`, or `curate` after updating `TOPIC_MODEL`.
 - Start a fresh run directory only when you explicitly set `RESET_SESSION = True`.
@@ -129,6 +131,7 @@ Local model notes:
 - Secrets live only in `.env`.
 - Prompt selection uses `topic_model.llm_prompt_name` (`physics` or `generic`)
   unless you explicitly set `topic_model.llm_prompt`.
+- Tokenization defaults to `en_core_web_md` in both the notebook and the shared runner.
 - Notebook stays orchestration-only.
 - Modules in `src/ads_bib/` own retries, caching, validation, and summaries.
 - Functions touching API/disk should accept `cache_dir: Path | None` and `force_refresh: bool`.

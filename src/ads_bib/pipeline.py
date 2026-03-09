@@ -122,11 +122,11 @@ class TranslateConfig:
 @dataclass
 class TokenizeConfig:
     enabled: bool = True
-    spacy_model: str = "en_core_web_lg"
+    spacy_model: str = "en_core_web_md"
     batch_size: int = 512
     n_process: int = 1
     disable: tuple[str, ...] = ("ner", "parser", "textcat")
-    fallback_model: str = "en_core_web_lg"
+    fallback_model: str = "en_core_web_md"
     auto_download: bool = True
 
 
@@ -290,6 +290,7 @@ class PipelineContext:
     topic_df: pd.DataFrame | None = None
     curated_df: pd.DataFrame | None = None
     citation_results: dict[str, pd.DataFrame] | None = None
+    resume_blocked_from: StageName | None = None
 
     @classmethod
     def create(
@@ -328,6 +329,65 @@ def validate_stage_name(stage: StageName | str) -> StageName:
     return value  # type: ignore[return-value]
 
 
+def snapshot_block_from_invalidation(stage: StageName | str) -> StageName | None:
+    stage_name = validate_stage_name(stage)
+    if stage_name in {"search", "translate"}:
+        return "translate"
+    if stage_name == "tokenize":
+        return "tokenize"
+    if stage_name == "author_disambiguation":
+        return "author_disambiguation"
+    return None
+
+
+def _set_resume_block(ctx: PipelineContext, candidate: StageName | None) -> None:
+    if candidate is None:
+        return
+    if (
+        ctx.resume_blocked_from is None
+        or STAGE_ORDER.index(candidate) < STAGE_ORDER.index(ctx.resume_blocked_from)
+    ):
+        ctx.resume_blocked_from = candidate
+
+
+def _snapshot_allowed(ctx: PipelineContext, snapshot_stage: StageName) -> bool:
+    blocked_from = ctx.resume_blocked_from
+    if blocked_from is None:
+        return True
+    return STAGE_ORDER.index(snapshot_stage) < STAGE_ORDER.index(blocked_from)
+
+
+def _advance_resume_block(ctx: PipelineContext, completed_stage: StageName) -> None:
+    blocked_from = ctx.resume_blocked_from
+    if blocked_from is None:
+        return
+    if completed_stage == "translate" and blocked_from == "translate":
+        ctx.resume_blocked_from = "tokenize"
+        return
+    if completed_stage == "tokenize" and blocked_from in {"translate", "tokenize"}:
+        ctx.resume_blocked_from = "author_disambiguation"
+        return
+    if completed_stage == "author_disambiguation" and blocked_from in {
+        "translate",
+        "tokenize",
+        "author_disambiguation",
+    }:
+        ctx.resume_blocked_from = None
+
+
+def _has_source_frames(ctx: PipelineContext) -> bool:
+    return ctx.publications is not None and ctx.refs is not None
+
+
+def _has_translated_frames(ctx: PipelineContext) -> bool:
+    if not _has_source_frames(ctx):
+        return False
+    assert ctx.publications is not None
+    assert ctx.refs is not None
+    required = {"Title_en", "Abstract_en"}
+    return required.issubset(ctx.publications.columns) and required.issubset(ctx.refs.columns)
+
+
 def _stage_slice(start_stage: StageName, stop_stage: StageName | None) -> tuple[StageName, ...]:
     start_idx = STAGE_ORDER.index(validate_stage_name(start_stage))
     if stop_stage is None:
@@ -351,9 +411,10 @@ def _resolve_topic_prompt(cfg: TopicModelConfig) -> str:
 
 def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
     prepared = PipelineConfig.from_dict(config.to_dict())
+    load_env(project_root=prepared.run.project_root)
 
     if not prepared.search.ads_token:
-        prepared.search.ads_token = os.getenv("ADS_TOKEN")
+        prepared.search.ads_token = os.getenv("ADS_TOKEN") or os.getenv("ADS_API_KEY")
 
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
     if prepared.translate.provider == "openrouter" and not prepared.translate.api_key:
@@ -476,18 +537,19 @@ def run_export_stage(ctx: PipelineContext) -> PipelineContext:
 
 
 def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
-    if ctx.publications is not None and ctx.refs is not None and "Title_en" in ctx.publications.columns:
+    if _has_translated_frames(ctx):
         return ctx
 
     logger.info("=== Stage: translate ===")
-    try:
-        ctx.publications, ctx.refs = load_translated_snapshot(
-            cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
-        )
-        return ctx
-    except FileNotFoundError:
-        pass
+    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, "translate"):
+        try:
+            ctx.publications, ctx.refs = load_translated_snapshot(
+                cache_dir=ctx.paths["cache"],
+                run_data_dir=ctx.run.paths["data"],
+            )
+            return ctx
+        except FileNotFoundError:
+            pass
 
     run_export_stage(ctx)
     assert ctx.publications is not None
@@ -500,6 +562,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             cache_dir=ctx.paths["cache"],
             run_data_dir=ctx.run.paths["data"],
         )
+        _advance_resume_block(ctx, "translate")
         return ctx
 
     if not cfg.fasttext_model:
@@ -544,6 +607,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         cache_dir=ctx.paths["cache"],
         run_data_dir=ctx.run.paths["data"],
     )
+    _advance_resume_block(ctx, "translate")
     return ctx
 
 
@@ -552,14 +616,15 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: tokenize ===")
-    try:
-        ctx.publications, ctx.refs = load_tokenized_snapshot(
-            cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
-        )
-        return ctx
-    except FileNotFoundError:
-        pass
+    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, "tokenize"):
+        try:
+            ctx.publications, ctx.refs = load_tokenized_snapshot(
+                cache_dir=ctx.paths["cache"],
+                run_data_dir=ctx.run.paths["data"],
+            )
+            return ctx
+        except FileNotFoundError:
+            pass
 
     run_translate_stage(ctx)
     assert ctx.publications is not None
@@ -572,6 +637,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
             cache_dir=ctx.paths["cache"],
             run_data_dir=ctx.run.paths["data"],
         )
+        _advance_resume_block(ctx, "tokenize")
         return ctx
 
     model_to_use, preloaded_nlp = ensure_spacy_model(
@@ -595,6 +661,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         cache_dir=ctx.paths["cache"],
         run_data_dir=ctx.run.paths["data"],
     )
+    _advance_resume_block(ctx, "tokenize")
     return ctx
 
 
@@ -603,14 +670,15 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: author_disambiguation ===")
-    try:
-        ctx.publications, ctx.refs = load_disambiguated_snapshot(
-            cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
-        )
-        return ctx
-    except FileNotFoundError:
-        pass
+    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, "author_disambiguation"):
+        try:
+            ctx.publications, ctx.refs = load_disambiguated_snapshot(
+                cache_dir=ctx.paths["cache"],
+                run_data_dir=ctx.run.paths["data"],
+            )
+            return ctx
+        except FileNotFoundError:
+            pass
 
     run_tokenize_stage(ctx)
     assert ctx.publications is not None
@@ -635,6 +703,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
             run_data_dir=ctx.run.paths["data"],
         )
         logger.info("Author disambiguation disabled; passthrough snapshot saved.")
+    _advance_resume_block(ctx, "author_disambiguation")
     return ctx
 
 
