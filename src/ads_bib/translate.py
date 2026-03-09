@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
 import time
+from collections.abc import Callable
 from typing import Literal, TypeAlias, TypedDict
 
 import pandas as pd
@@ -232,6 +233,7 @@ def _translate_rows_openrouter(
     max_workers: int,
     max_tokens: int,
     show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[int, int, list[dict[str, str | float | None]], list[tuple[object, str]]]:
     """Translate selected rows with OpenRouter and return usage/call metadata."""
 
@@ -262,9 +264,11 @@ def _translate_rows_openrouter(
             as_completed(futures),
             total=len(items),
             desc=f"  {source_col}",
-            disable=not show_progress,
+            disable=(not show_progress) or (progress_callback is not None),
         ):
             idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
+            if progress_callback is not None:
+                progress_callback(1)
             if translated is not None:
                 df.at[idx, target_col] = translated
                 call_records.append({"generation_id": gen_id, "direct_cost": direct_cost})
@@ -378,6 +382,7 @@ def _translate_rows_gguf(
     chunk_input_tokens: int,
     chunk_overlap_tokens: int,
     show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[list[tuple[object, str]], int, int, float]:
     """Translate selected rows with a local GGUF model (single-worker)."""
     lang_col = f"{source_col}_lang"
@@ -391,8 +396,10 @@ def _translate_rows_gguf(
         items,
         total=len(items),
         desc=f"  {source_col}",
-        disable=not show_progress,
+        disable=(not show_progress) or (progress_callback is not None),
     ):
+        if progress_callback is not None:
+            progress_callback(1)
         try:
             translated, chunk_count = _translate_text_with_gguf(
                 str(text),
@@ -552,6 +559,7 @@ def _translate_rows_nllb(
     model: str,
     cache_dir: Path | None = None,
     show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[list[tuple[object, str]], float]:
     """Translate selected rows with NLLB/CTranslate2 using batched inference."""
     lang_col = f"{source_col}_lang"
@@ -599,9 +607,11 @@ def _translate_rows_nllb(
     for start in tqdm(
         range(0, max(n, 1), chunk_size),
         desc=f"  {source_col}",
-        disable=(n == 0) or (not show_progress),
+        disable=(n == 0) or (not show_progress) or (progress_callback is not None),
     ):
         end = min(start + chunk_size, n)
+        if progress_callback is not None:
+            progress_callback(end - start)
         try:
             batch_results = translator.translate_batch(
                 all_tokens[start:end],
@@ -696,6 +706,7 @@ def translate_dataframe(
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
     show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[pd.DataFrame, TranslationCostInfo]:
     """Translate non-English entries in *columns* and add ``{col}_en`` columns.
 
@@ -816,6 +827,7 @@ def translate_dataframe(
                 max_workers=max_workers,
                 max_tokens=max_translation_tokens,
                 show_progress=show_progress,
+                progress_callback=progress_callback,
             )
             total_pt += pt
             total_ct += ct
@@ -838,6 +850,7 @@ def translate_dataframe(
                 chunk_input_tokens=gguf_chunk_input_tokens,
                 chunk_overlap_tokens=gguf_chunk_overlap_tokens,
                 show_progress=show_progress,
+                progress_callback=progress_callback,
             )
             docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
             logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)
@@ -856,6 +869,7 @@ def translate_dataframe(
                 target_lang=target_lang,
                 model=model,
                 show_progress=show_progress,
+                progress_callback=progress_callback,
             )
             docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
             logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)

@@ -607,12 +607,25 @@ def run_search_stage(ctx: PipelineContext) -> PipelineContext:
     cfg = ctx.config.search
     if not cfg.ads_token:
         raise ValueError("search.ads_token is required.")
-    ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
-        cfg.query,
-        cfg.ads_token,
-        raw_dir=ctx.paths["raw"],
-        force_refresh=cfg.refresh_search,
-    )
+    reporter = ctx.reporter
+    if reporter is None or not cfg.refresh_search:
+        ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
+            cfg.query,
+            cfg.ads_token,
+            raw_dir=ctx.paths["raw"],
+            force_refresh=cfg.refresh_search,
+        )
+        return ctx
+
+    with reporter.progress(total=None, desc="fetch") as pbar:
+        progress_callback = None if pbar is None else pbar.update
+        ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
+            cfg.query,
+            cfg.ads_token,
+            raw_dir=ctx.paths["raw"],
+            force_refresh=cfg.refresh_search,
+            progress_callback=progress_callback,
+        )
     return ctx
 
 
@@ -701,8 +714,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         raise ValueError("translate.fasttext_model is required.")
 
     reporter = ctx.reporter
-    progress_cm = reporter.progress(total=4, desc="translate") if reporter is not None else None
-    if progress_cm is None:
+    if reporter is None:
         ctx.publications = detect_languages(
             ctx.publications,
             ["Title", "Abstract"],
@@ -736,40 +748,37 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             cost_tracker=ctx.tracker,
         )
     else:
+        ctx.publications = detect_languages(
+            ctx.publications,
+            ["Title", "Abstract"],
+            model_path=cfg.fasttext_model,
+        )
+        ctx.refs = detect_languages(
+            ctx.refs,
+            ["Title", "Abstract"],
+            model_path=cfg.fasttext_model,
+        )
+        pubs_title = int((ctx.publications["Title_lang"] != "en").sum())
+        pubs_abs = int((ctx.publications["Abstract_lang"] != "en").sum())
+        refs_title = int((ctx.refs["Title_lang"] != "en").sum())
+        refs_abs = int((ctx.refs["Abstract_lang"] != "en").sum())
+        reporter.detail(
+            "publications non-English: Title=%s | Abstract=%s",
+            f"{pubs_title:,}",
+            f"{pubs_abs:,}",
+        )
+        reporter.detail(
+            "references non-English: Title=%s | Abstract=%s",
+            f"{refs_title:,}",
+            f"{refs_abs:,}",
+        )
+
+        translate_total = pubs_title + pubs_abs + refs_title + refs_abs
+        progress_callback = None
+        progress_cm = reporter.progress(total=translate_total, desc="translate")
         with progress_cm as pbar:
-            ctx.publications = detect_languages(
-                ctx.publications,
-                ["Title", "Abstract"],
-                model_path=cfg.fasttext_model,
-            )
-            if reporter is not None:
-                pubs_title = int((ctx.publications["Title_lang"] != "en").sum())
-                pubs_abs = int((ctx.publications["Abstract_lang"] != "en").sum())
-                reporter.detail(
-                    "publications non-English: Title=%s | Abstract=%s",
-                    f"{pubs_title:,}",
-                    f"{pubs_abs:,}",
-                )
-            if pbar is not None:
-                pbar.update(1)
-
-            ctx.refs = detect_languages(
-                ctx.refs,
-                ["Title", "Abstract"],
-                model_path=cfg.fasttext_model,
-            )
-            if reporter is not None:
-                refs_title = int((ctx.refs["Title_lang"] != "en").sum())
-                refs_abs = int((ctx.refs["Abstract_lang"] != "en").sum())
-                reporter.detail(
-                    "references non-English: Title=%s | Abstract=%s",
-                    f"{refs_title:,}",
-                    f"{refs_abs:,}",
-                )
-            if pbar is not None:
-                pbar.update(1)
-
-            ctx.publications, _ = translate_dataframe(
+            progress_callback = None if pbar is None else pbar.update
+            ctx.publications, pub_cost_info = translate_dataframe(
                 ctx.publications,
                 ["Title", "Abstract"],
                 provider=cfg.provider,
@@ -780,11 +789,10 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
                 openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                 cost_tracker=ctx.tracker,
                 show_progress=False,
+                progress_callback=progress_callback,
             )
-            if pbar is not None:
-                pbar.update(1)
 
-            ctx.refs, _ = translate_dataframe(
+            ctx.refs, ref_cost_info = translate_dataframe(
                 ctx.refs,
                 ["Title", "Abstract"],
                 provider=cfg.provider,
@@ -795,9 +803,15 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
                 openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                 cost_tracker=ctx.tracker,
                 show_progress=False,
+                progress_callback=progress_callback,
             )
-            if pbar is not None:
-                pbar.update(1)
+        total_cost = sum(
+            cost or 0.0
+            for cost in (pub_cost_info.get("cost_usd"), ref_cost_info.get("cost_usd"))
+            if cost is not None
+        )
+        if total_cost > 0:
+            reporter.detail("cost: $%.4f", total_cost)
     save_translated_snapshot(
         ctx.publications,
         ctx.refs,
@@ -843,20 +857,45 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         _advance_resume_block(ctx, "tokenize")
         return ctx
 
-    model_to_use, preloaded_nlp = ensure_spacy_model(
-        spacy_model=cfg.spacy_model,
-        fallback_model=cfg.fallback_model,
-        spacy_disable=cfg.disable,
-        auto_download=cfg.auto_download,
-    )
-    ctx.publications = tokenize_texts(
-        ctx.publications,
-        spacy_model=model_to_use,
-        nlp=preloaded_nlp,
-        batch_size=cfg.batch_size,
-        n_process=cfg.n_process,
-        spacy_disable=cfg.disable,
-    )
+    reporter = ctx.reporter
+    if reporter is None:
+        model_to_use, preloaded_nlp = ensure_spacy_model(
+            spacy_model=cfg.spacy_model,
+            fallback_model=cfg.fallback_model,
+            spacy_disable=cfg.disable,
+            auto_download=cfg.auto_download,
+        )
+        ctx.publications = tokenize_texts(
+            ctx.publications,
+            spacy_model=model_to_use,
+            nlp=preloaded_nlp,
+            batch_size=cfg.batch_size,
+            n_process=cfg.n_process,
+            spacy_disable=cfg.disable,
+        )
+    else:
+        with reporter.progress(total=1, desc="init model") as init_pbar:
+            model_to_use, preloaded_nlp = ensure_spacy_model(
+                spacy_model=cfg.spacy_model,
+                fallback_model=cfg.fallback_model,
+                spacy_disable=cfg.disable,
+                auto_download=cfg.auto_download,
+            )
+            if init_pbar is not None:
+                init_pbar.update(1)
+
+        with reporter.progress(total=len(ctx.publications), desc="tokenize docs") as tokenize_pbar:
+            progress_callback = None if tokenize_pbar is None else tokenize_pbar.update
+            ctx.publications = tokenize_texts(
+                ctx.publications,
+                spacy_model=model_to_use,
+                nlp=preloaded_nlp,
+                batch_size=cfg.batch_size,
+                n_process=cfg.n_process,
+                spacy_disable=cfg.disable,
+                show_progress=False,
+                progress_callback=progress_callback,
+            )
     save_parquet(ctx.refs, ctx.run.paths["data"] / "references.parquet")
     save_tokenized_snapshot(
         ctx.publications,
@@ -894,16 +933,32 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
     assert ctx.refs is not None
     cfg = ctx.config.author_disambiguation
     if cfg.enabled:
-        ctx.publications, ctx.refs = apply_author_disambiguation(
-            ctx.publications,
-            ctx.refs,
-            model_bundle=cfg.model_bundle or "",
-            dataset_id=cfg.dataset_id or ctx.run.run_id,
-            cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
-            force_refresh=cfg.force_refresh,
-            infer_stage=cfg.infer_stage,
-        )
+        reporter = ctx.reporter
+        if reporter is None:
+            ctx.publications, ctx.refs = apply_author_disambiguation(
+                ctx.publications,
+                ctx.refs,
+                model_bundle=cfg.model_bundle or "",
+                dataset_id=cfg.dataset_id or ctx.run.run_id,
+                cache_dir=ctx.paths["cache"],
+                run_data_dir=ctx.run.paths["data"],
+                force_refresh=cfg.force_refresh,
+                infer_stage=cfg.infer_stage,
+            )
+        else:
+            with reporter.progress(total=1, desc="disambiguate") as pbar:
+                ctx.publications, ctx.refs = apply_author_disambiguation(
+                    ctx.publications,
+                    ctx.refs,
+                    model_bundle=cfg.model_bundle or "",
+                    dataset_id=cfg.dataset_id or ctx.run.run_id,
+                    cache_dir=ctx.paths["cache"],
+                    run_data_dir=ctx.run.paths["data"],
+                    force_refresh=cfg.force_refresh,
+                    infer_stage=cfg.infer_stage,
+                )
+                if pbar is not None:
+                    pbar.update(1)
     else:
         save_disambiguated_snapshot(
             ctx.publications,
@@ -911,7 +966,6 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
             cache_dir=ctx.paths["cache"],
             run_data_dir=ctx.run.paths["data"],
         )
-        logger.info("Author disambiguation disabled; passthrough snapshot saved.")
     _advance_resume_block(ctx, "author_disambiguation")
     return ctx
 
@@ -987,9 +1041,18 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
         )
     cfg = ctx.config.topic_model
     resolved = _resolve_topic_defaults(ctx)
+    reporter = ctx.reporter
+    if reporter is not None and reporter.output_mode == "notebook":
+        reporter.detail(
+            "Topic defaults | docs=%s | min_df=%s | min_cluster_size=%s | base_min_cluster_size=%s",
+            f"{len(ctx.documents):,}",
+            resolved["min_df"],
+            resolved["cluster_params"]["min_cluster_size"],
+            resolved["toponymy_cluster_params"]["base_min_cluster_size"],
+        )
 
     if cfg.backend == "bertopic":
-        if ctx.reporter is None:
+        if reporter is None:
             topic_model = fit_bertopic(
                 ctx.documents,
                 ctx.reduced_5d,
@@ -1020,7 +1083,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                 cost_tracker=ctx.tracker,
             )
         else:
-            with ctx.reporter.progress(total=2, desc="topic_fit") as pbar:
+            with reporter.progress(total=1, desc="fit") as fit_pbar:
                 with capture_external_output(ctx.runtime_log_path):
                     topic_model = fit_bertopic(
                         ctx.documents,
@@ -1039,9 +1102,10 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         cost_tracker=ctx.tracker,
                         show_progress=False,
                     )
-                if pbar is not None:
-                    pbar.update(1)
-                topics = np.array(topic_model.topics_)
+                if fit_pbar is not None:
+                    fit_pbar.update(1)
+            topics = np.array(topic_model.topics_)
+            with reporter.progress(total=1, desc="outlier refresh") as refresh_pbar:
                 with capture_external_output(ctx.runtime_log_path):
                     topics = reduce_outliers(
                         topic_model,
@@ -1056,8 +1120,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         cost_tracker=ctx.tracker,
                         show_progress=False,
                     )
-                if pbar is not None:
-                    pbar.update(1)
+                if refresh_pbar is not None:
+                    refresh_pbar.update(1)
         topic_info = topic_model.get_topic_info()
     elif cfg.backend in {"toponymy", "toponymy_evoc"}:
         clusterer_params = (
@@ -1065,23 +1129,45 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
             if cfg.backend == "toponymy_evoc"
             else resolved["toponymy_cluster_params"]
         )
-        with capture_external_output(ctx.runtime_log_path):
-            topic_model, topics, topic_info = fit_toponymy(
-                ctx.documents,
-                ctx.embeddings,
-                ctx.reduced_5d,
-                backend=cfg.backend,
-                layer_index=cfg.toponymy_layer_index,
-                llm_provider=cfg.llm_provider,
-                llm_model=cfg.llm_model,
-                embedding_model=resolved["toponymy_embedding_model"],
-                local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
-                api_key=cfg.llm_api_key,
-                openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
-                max_workers=cfg.toponymy_max_workers,
-                clusterer_params=clusterer_params,
-                cost_tracker=ctx.tracker,
-            )
+        if reporter is None:
+            with capture_external_output(ctx.runtime_log_path):
+                topic_model, topics, topic_info = fit_toponymy(
+                    ctx.documents,
+                    ctx.embeddings,
+                    ctx.reduced_5d,
+                    backend=cfg.backend,
+                    layer_index=cfg.toponymy_layer_index,
+                    llm_provider=cfg.llm_provider,
+                    llm_model=cfg.llm_model,
+                    embedding_model=resolved["toponymy_embedding_model"],
+                    local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
+                    api_key=cfg.llm_api_key,
+                    openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+                    max_workers=cfg.toponymy_max_workers,
+                    clusterer_params=clusterer_params,
+                    cost_tracker=ctx.tracker,
+                )
+        else:
+            with reporter.progress(total=1, desc="fit") as fit_pbar:
+                with capture_external_output(ctx.runtime_log_path):
+                    topic_model, topics, topic_info = fit_toponymy(
+                        ctx.documents,
+                        ctx.embeddings,
+                        ctx.reduced_5d,
+                        backend=cfg.backend,
+                        layer_index=cfg.toponymy_layer_index,
+                        llm_provider=cfg.llm_provider,
+                        llm_model=cfg.llm_model,
+                        embedding_model=resolved["toponymy_embedding_model"],
+                        local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
+                        api_key=cfg.llm_api_key,
+                        openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+                        max_workers=cfg.toponymy_max_workers,
+                        clusterer_params=clusterer_params,
+                        cost_tracker=ctx.tracker,
+                    )
+                if fit_pbar is not None:
+                    fit_pbar.update(1)
     else:
         raise ValueError(f"Invalid topic_model.backend '{cfg.backend}'.")
 

@@ -6,6 +6,7 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 from urllib.parse import parse_qsl
 
 from ._utils.ads_api import create_session, retry_request
@@ -34,6 +35,7 @@ def search_ads(
     sort: str = "date desc, id asc",
     raw_dir: Path | None = None,
     force_refresh: bool = False,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[list[str], list[list[str]], list[list[str]], list[str | None]]:
     """Run an ADS search and return bibcodes with their references.
 
@@ -106,6 +108,8 @@ def search_ads(
                 None,
             )
             fulltext_urls.append(pdf)
+        if progress_callback is not None:
+            progress_callback(len(docs))
 
         next_cursor = data.get("nextCursorMark")
         if next_cursor == cursor or not next_cursor:

@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from ads_bib._utils.costs import CostTracker
+from ads_bib._utils.logging import get_console_logger
 from ads_bib.pipeline import (
     _execute_stage,
     PipelineConfig,
@@ -26,6 +27,7 @@ from ads_bib.pipeline import (
 from ads_bib.run_manager import RunManager
 
 logger = logging.getLogger(__name__)
+console_logger = get_console_logger()
 
 SECTION_NAMES: tuple[str, ...] = (
     "run",
@@ -408,37 +410,37 @@ class NotebookSession:
     def save_summary(self) -> None:
         assert self._context is not None
 
-        logger.info("=" * 60)
-        logger.info("PIPELINE COMPLETE")
-        logger.info("=" * 60)
-        logger.info(
+        console_logger.info("=" * 60)
+        console_logger.info("PIPELINE COMPLETE")
+        console_logger.info("=" * 60)
+        console_logger.info(
             "Publications:     %s",
             f"{len(self.publications):,}" if self.publications is not None else "0",
         )
-        logger.info(
+        console_logger.info(
             "References:       %s",
             f"{len(self.refs):,}" if self.refs is not None else "0",
         )
         if self.curated_df is not None:
-            logger.info("Curated dataset:  %s", f"{len(self.curated_df):,}")
+            console_logger.info("Curated dataset:  %s", f"{len(self.curated_df):,}")
             if "topic_id" in self.curated_df.columns:
-                logger.info("Topics found:     %s", self.curated_df["topic_id"].nunique())
+                console_logger.info("Topics found:     %s", self.curated_df["topic_id"].nunique())
         else:
-            logger.info("Curated dataset:  n/a")
-        logger.info("")
-        logger.info("Output files:")
+            console_logger.info("Curated dataset:  n/a")
+        console_logger.info("")
+        console_logger.info("Output files:")
         for root, _dirs, files in os.walk(self.run.paths["root"]):
             for filename in sorted(files):
                 fpath = Path(root) / filename
                 size_mb = fpath.stat().st_size / 1024 / 1024
-                logger.info(
+                console_logger.info(
                     "  %s (%.1f MB)",
                     fpath.relative_to(self.run.paths["root"]),
                     size_mb,
                 )
-        logger.info("")
-        logger.info(self.tracker.compact_summary())
-        logger.info("Building and saving run summary...")
+        console_logger.info("")
+        console_logger.info(self.tracker.compact_summary())
+        console_logger.info("Building and saving run summary...")
         self.run.save_summary(
             cost_tracker=self.tracker,
             publications=self.publications,

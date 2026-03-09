@@ -15,40 +15,40 @@ OutputMode = Literal["cli", "notebook"]
 _CONSOLE_HANDLER_NAME = "ads_bib_console"
 _FILE_HANDLER_NAME = "ads_bib_runtime_file"
 _CONSOLE_LOGGER_NAME = "ads_bib.console"
+_PACKAGE_LOGGER_NAME = "ads_bib"
 _RUNTIME_LOG_PATH: Path | None = None
 
 
-class _ConsoleAllowList(logging.Filter):
-    """Allow only curated console records for the active frontend."""
-
-    def __init__(self, *, output_mode: OutputMode) -> None:
-        super().__init__()
-        self.output_mode = output_mode
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.name == _CONSOLE_LOGGER_NAME:
-            return True
-        if self.output_mode == "notebook" and record.name in {"pipeline", "ads_bib.notebook"}:
-            return True
-        return False
+def _remove_named_handler(logger: logging.Logger, handler_name: str) -> None:
+    for handler in list(logger.handlers):
+        if getattr(handler, "_ads_bib_handler_name", None) == handler_name:
+            logger.removeHandler(handler)
+            handler.close()
 
 
-def _get_or_create_console_handler(root_logger: logging.Logger) -> logging.Handler:
-    for handler in root_logger.handlers:
-        if getattr(handler, "_ads_bib_handler_name", None) == _CONSOLE_HANDLER_NAME:
+def _get_or_create_named_handler(
+    logger: logging.Logger,
+    *,
+    handler_name: str,
+    factory: type[logging.Handler],
+    factory_arg: Path | None = None,
+) -> logging.Handler:
+    for handler in logger.handlers:
+        if getattr(handler, "_ads_bib_handler_name", None) == handler_name:
             return handler
 
-    handler = logging.StreamHandler()
-    setattr(handler, "_ads_bib_handler_name", _CONSOLE_HANDLER_NAME)
-    root_logger.addHandler(handler)
+    if factory_arg is None:
+        handler = factory()
+    else:
+        handler = factory(factory_arg, encoding="utf-8")
+    setattr(handler, "_ads_bib_handler_name", handler_name)
+    logger.addHandler(handler)
     return handler
 
 
-def _replace_handler_filter(handler: logging.Handler, new_filter: logging.Filter) -> None:
-    for existing in list(handler.filters):
-        if isinstance(existing, _ConsoleAllowList):
-            handler.removeFilter(existing)
-    handler.addFilter(new_filter)
+def get_console_logger() -> logging.Logger:
+    """Return the dedicated frontend console logger."""
+    return logging.getLogger(_CONSOLE_LOGGER_NAME)
 
 
 def configure_runtime_logging(
@@ -60,42 +60,59 @@ def configure_runtime_logging(
     global _RUNTIME_LOG_PATH
 
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.WARNING)
+    _remove_named_handler(root_logger, _CONSOLE_HANDLER_NAME)
+    _remove_named_handler(root_logger, _FILE_HANDLER_NAME)
 
-    console_handler = _get_or_create_console_handler(root_logger)
+    package_logger = logging.getLogger(_PACKAGE_LOGGER_NAME)
+    package_logger.setLevel(logging.INFO)
+    package_logger.propagate = False
+
+    console_logger = get_console_logger()
+    console_logger.setLevel(logging.INFO)
+    console_logger.propagate = False
+
+    console_handler = _get_or_create_named_handler(
+        console_logger,
+        handler_name=_CONSOLE_HANDLER_NAME,
+        factory=logging.StreamHandler,
+    )
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter("%(message)s"))
-    _replace_handler_filter(console_handler, _ConsoleAllowList(output_mode=output_mode))
+    if output_mode == "cli":
+        console_handler.terminator = "\n"
 
-    file_handler: logging.Handler | None = None
-    for handler in list(root_logger.handlers):
-        if getattr(handler, "_ads_bib_handler_name", None) == _FILE_HANDLER_NAME:
-            file_handler = handler
-            break
+    file_handler_name = _FILE_HANDLER_NAME
 
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         resolved = log_file.resolve()
         _RUNTIME_LOG_PATH = resolved
+        for logger in (package_logger, console_logger):
+            current_path = None
+            for handler in logger.handlers:
+                if getattr(handler, "_ads_bib_handler_name", None) == file_handler_name:
+                    current_path = Path(getattr(handler, "baseFilename", "")).resolve()
+                    if current_path == resolved:
+                        break
+            else:
+                current_path = None
 
-        current_path = None
-        if file_handler is not None:
-            current_path = Path(getattr(file_handler, "baseFilename", "")).resolve()
-
-        if file_handler is None or current_path != resolved:
-            if file_handler is not None:
-                root_logger.removeHandler(file_handler)
-                file_handler.close()
-            file_handler = logging.FileHandler(resolved, encoding="utf-8")
-            setattr(file_handler, "_ads_bib_handler_name", _FILE_HANDLER_NAME)
-            file_handler.setLevel(logging.INFO)
-            file_handler.setFormatter(
-                logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-            )
-            root_logger.addHandler(file_handler)
-    elif file_handler is not None:
-        root_logger.removeHandler(file_handler)
-        file_handler.close()
+            if current_path != resolved:
+                _remove_named_handler(logger, file_handler_name)
+                file_handler = _get_or_create_named_handler(
+                    logger,
+                    handler_name=file_handler_name,
+                    factory=logging.FileHandler,
+                    factory_arg=resolved,
+                )
+                file_handler.setLevel(logging.INFO)
+                file_handler.setFormatter(
+                    logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+                )
+    else:
+        _remove_named_handler(package_logger, file_handler_name)
+        _remove_named_handler(console_logger, file_handler_name)
         _RUNTIME_LOG_PATH = None
 
     return _RUNTIME_LOG_PATH
@@ -125,7 +142,7 @@ class StageReporter:
 
     def __init__(self, *, output_mode: OutputMode) -> None:
         self.output_mode = output_mode
-        self._logger = logging.getLogger(_CONSOLE_LOGGER_NAME)
+        self._logger = get_console_logger()
         self._started_any = False
         self._stage_positions: dict[str, int] = {}
         self._stage_total: int | None = None
@@ -151,26 +168,42 @@ class StageReporter:
         self._logger.warning("  warning: " + message, *args)
 
     @contextmanager
-    def progress(self, *, total: int, desc: str):
-        if total <= 0:
+    def progress(self, *, total: int | None, desc: str):
+        if total is not None and total <= 0:
             yield None
             return
 
-        with tqdm(
-            total=total,
-            desc=f"  {desc}",
-            leave=True,
-            dynamic_ncols=False,
-            ncols=78,
-            bar_format="{desc:<18}{percentage:3.0f}%|{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-        ) as pbar:
+        kwargs: dict[str, object] = {"total": total, "desc": f"  {desc}", "leave": True}
+        if self.output_mode == "cli":
+            kwargs["dynamic_ncols"] = False
+            kwargs["ncols"] = 78
+            if total is None:
+                kwargs["bar_format"] = "{desc:<18}{n_fmt} [{elapsed}]"
+            else:
+                kwargs["bar_format"] = (
+                    "{desc:<18}{percentage:3.0f}%|{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+                )
+        else:
+            kwargs["dynamic_ncols"] = True
+            if total is None:
+                kwargs["bar_format"] = "{desc}: {n_fmt} [{elapsed}]"
+        with tqdm(**kwargs) as pbar:
             yield pbar
 
 
 def suppress_noisy_third_party_logs() -> None:
     """Suppress repetitive third-party transport logs while keeping pipeline logs."""
     try:
-        for noisy_logger_name in ("httpx", "httpcore", "LiteLLM", "litellm"):
+        for noisy_logger_name in (
+            "httpx",
+            "httpcore",
+            "LiteLLM",
+            "litellm",
+            "transformers",
+            "sentence_transformers",
+            "BERTopic",
+            "bertopic",
+        ):
             logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
 
         os.environ.setdefault("LITELLM_LOG", "WARNING")

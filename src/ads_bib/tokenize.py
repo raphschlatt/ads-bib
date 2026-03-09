@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -91,6 +92,7 @@ def tokenize_texts(
     n_process: int | None = None,
     spacy_disable: tuple[str, ...] = ("ner", "parser", "textcat"),
     show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> pd.DataFrame:
     """Create *full_text* from title + abstract, then tokenize.
 
@@ -154,8 +156,10 @@ def tokenize_texts(
             docs,
             total=len(texts),
             desc="Tokenization",
-            disable=not show_progress,
+            disable=(not show_progress) or (progress_callback is not None),
         ):
+            if progress_callback is not None:
+                progress_callback(1)
             tokens.append(
                 [
                     token.lemma_.lower()

@@ -76,6 +76,36 @@ def test_search_ads_paginates_and_builds_fulltext_links(monkeypatch):
     assert session.closed is True
 
 
+def test_search_ads_reports_fetch_progress(monkeypatch):
+    session = _FakeSession()
+    progress_updates: list[int] = []
+    payloads = iter(
+        [
+            {
+                "response": {
+                    "docs": [
+                        {"bibcode": "b1", "reference": [], "esources": []},
+                        {"bibcode": "b2", "reference": [], "esources": []},
+                    ]
+                },
+                "nextCursorMark": "CUR2",
+            },
+            {
+                "response": {"docs": [{"bibcode": "b3", "reference": [], "esources": []}]},
+                "nextCursorMark": "CUR2",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(search, "create_session", lambda _: session)
+    monkeypatch.setattr(search, "retry_request", lambda *args, **kwargs: _FakeResponse(next(payloads)))
+
+    bibcodes, *_ = search.search_ads("q", "tok", progress_callback=progress_updates.append)
+
+    assert bibcodes == ["b1", "b2", "b3"]
+    assert progress_updates == [2, 1]
+
+
 def test_save_search_results_writes_timestamped_and_latest_files(tmp_path):
     data = (["b1"], [["r1"]], [["ADS_PDF"]], ["https://example.org"])
 

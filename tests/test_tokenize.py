@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import sys
 import types
 
@@ -159,8 +158,28 @@ def test_tokenize_texts_caches_spacy_model(monkeypatch):
     assert calls["count"] == 1
 
 
-def test_tokenize_texts_falls_back_to_single_process(monkeypatch, caplog):
-    caplog.set_level(logging.INFO, logger="ads_bib.tokenize")
+def test_tokenize_texts_reports_progress_via_callback(monkeypatch):
+    fake_nlp = _FakeNLP()
+    _install_fake_spacy(monkeypatch, fake_nlp)
+    df = pd.DataFrame(
+        {
+            "Title_en": ["Alpha", "Gamma"],
+            "Abstract_en": ["Beta", "Delta"],
+        }
+    )
+    updates: list[int] = []
+
+    tok.tokenize_texts(
+        df,
+        n_process=1,
+        show_progress=False,
+        progress_callback=updates.append,
+    )
+
+    assert updates == [1, 1]
+
+
+def test_tokenize_texts_falls_back_to_single_process(monkeypatch):
     fake_nlp = _FakeNLP(fail_on_n_process=4)
     _install_fake_spacy(monkeypatch, fake_nlp)
     df = pd.DataFrame({"Title_en": ["Alpha"], "Abstract_en": ["Beta"]})
@@ -169,8 +188,6 @@ def test_tokenize_texts_falls_back_to_single_process(monkeypatch, caplog):
 
     assert out.loc[0, "tokens"] == ["alpha", "beta"]
     assert [c["n_process"] for c in fake_nlp.pipe_calls] == [4, 1]
-    assert "Retrying with n_process=1" in caplog.text
-    assert "fallback n_process=1" in caplog.text
 
 
 def test_ensure_spacy_model_returns_requested_when_available(monkeypatch):
