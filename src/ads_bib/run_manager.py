@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from dataclasses import asdict, is_dataclass
 import logging
 import re
 import subprocess
@@ -22,6 +23,38 @@ _SECRET_NAME_PATTERN = re.compile(
 def _is_secret_key(name: str) -> bool:
     """Return True when config key name should be redacted."""
     return bool(_SECRET_NAME_PATTERN.search(name))
+
+
+def _serialize_config_value(value: Any) -> Any:
+    """Convert config values into YAML-safe primitives recursively."""
+    if is_dataclass(value):
+        value = asdict(value)
+
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _serialize_config_value(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_serialize_config_value(v) for v in value]
+    if isinstance(value, list):
+        return [_serialize_config_value(v) for v in value]
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return str(value)
+
+
+def _redact_config_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if _is_secret_key(str(key)):
+                redacted[str(key)] = "<redacted>"
+            else:
+                redacted[str(key)] = _redact_config_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_config_value(item) for item in value]
+    return value
 
 
 def _git_info(project_root: Path) -> tuple[str | None, bool | None]:
@@ -103,45 +136,26 @@ class RunManager:
         for path in self.paths.values():
             path.mkdir(parents=True, exist_ok=True)
 
-    def save_config(self, globals_dict: dict[str, Any], prefix: str = "") -> None:
-        """Snapshot configuration parameters from notebook globals.
-
-        Captures ALL_CAPS variables (or those matching *prefix*) and saves
-        them as YAML to ensure the run is reproducible.
+    def save_config(self, config_obj: Any) -> None:
+        """Snapshot a structured pipeline configuration to YAML.
 
         Parameters
         ----------
-        globals_dict : dict[str, Any]
-            The ``globals()`` dictionary from the notebook.
-        prefix : str
-            Optional prefix to filter variables. If empty, captures
-            standard ALL_CAPS variables holding atomic types.
+        config_obj : Any
+            Structured config object. Expected to be a mapping, dataclass, or
+            object exposing ``to_dict()``.
         """
-        config = {}
-        for key, value in globals_dict.items():
-            # Skip built-ins, modules, callables, and complex objects
-            if key.startswith("_") or callable(value) or "module" in str(type(value)):
-                continue
-                
-            # Strategy: if prefix is provided, match it. Else, capture ALL_CAPS.
-            match = False
-            if prefix and key.startswith(prefix):
-                match = True
-            elif not prefix and key.isupper():
-                match = True
+        if isinstance(config_obj, dict):
+            raw_config = config_obj
+        elif is_dataclass(config_obj):
+            raw_config = asdict(config_obj)
+        else:
+            to_dict = getattr(config_obj, "to_dict", None)
+            if not callable(to_dict):
+                raise TypeError("save_config expects a dict, dataclass, or object with to_dict().")
+            raw_config = to_dict()
 
-            if match:
-                if _is_secret_key(key):
-                    config[key] = "<redacted>"
-                    continue
-                # Ensure the value is serializable (e.g., Path to str)
-                if isinstance(value, Path):
-                    config[key] = str(value)
-                elif isinstance(value, (str, int, float, bool, list, dict, type(None))):
-                    config[key] = value
-                else:
-                    # Fallback for complex objects: convert to string representation
-                    config[key] = str(value)
+        config = _redact_config_value(_serialize_config_value(raw_config))
 
         config_path = self.paths["root"] / "config_used.yaml"
         with open(config_path, "w", encoding="utf-8") as f:

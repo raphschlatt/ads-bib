@@ -7,16 +7,15 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 ### Added
-- Internal release-candidate gates: packaging metadata completion, CI workflow, and install smoke checks.
-- SDist smoke verification alongside wheel smoke for distribution readiness.
+- Shared package runner in `ads_bib.pipeline` with structured `PipelineConfig`, named stages, and reusable stage functions.
+- Thin CLI batch entrypoint: `ads-bib run --config ...` with optional `--from`, `--to`, `--run-name`, and `--set` overrides.
 
 ### Changed
-- Packaging metadata in `pyproject.toml` aligned to PEP 621 (`readme`, `license`, `authors`, `classifiers`, `project.urls`).
-- Dependency policy tightened: `PyYAML` added as explicit core dependency, `plotly` removed from core dependencies.
-- Backlog governance clarified: `Package_ToDo.md` is the active release backlog.
-- Notebook output cleanup is now enforced again for contract compliance before final release.
+- `pipeline.ipynb` now delegates orchestration to shared package stage functions instead of carrying its own numeric phase-resume logic.
+- Resume semantics are stage-based (`START_STAGE` / `STOP_STAGE`) and align notebook, CLI, and saved run configs.
+- Run config snapshots are now serialized from structured pipeline config instead of raw notebook globals.
+- AND integration remains optional, but the active path is now the source-based external adapter rather than a placeholder notebook contract.
 
 ### Docs
-- `Review_ToDo.md` archived after completion (`archive/Review_ToDo_2026-02-25_closed.md`).
-- Product boundaries reaffirmed: AND stays placeholder; no BERTopic+EVoC path.
-- Third-party attribution section added to `README.md`.
+- `README.md` now separates notebook exploration, CLI batch runs, and the shared-runner architecture.
+- `AGENTS.md` architecture notes now record the shared runner / named-stage decision and the source-based AND step.

@@ -10,7 +10,8 @@ Engineering rules and operating conventions for this repository.
 
 ## 1) Architecture Map
 
-- Primary orchestrator: `pipeline.ipynb`
+- Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
+- Shared runner: `src/ads_bib/pipeline.py`
 - Package root: `src/ads_bib/`
 - Core pipeline modules:
   - `search.py`: ADS API retrieval
@@ -64,10 +65,11 @@ Seed entries:
 - `2026-02-25 | README as single user entrypoint | avoid split docs/README drift in notebook-first workflow | one source for happy path + troubleshooting + stability scope | no parallel docs tree to maintain`
 - `2026-02-25 | Conservative quality gate (ruff + pytest) | enforce baseline quality without large cleanup churn | deterministic local/CI check command with low friction | tighten rules later only with explicit payoff`
 - `2026-02-25 | Consolidated topic_model subpackage path | removed legacy aliases/wrappers after migration | one active implementation path under src/ads_bib/topic_model/ | fewer compatibility leftovers to carry`
-- `2026-02-25 | AND stays placeholder for RC | external package is not yet a stable dependency target | avoid premature integration hooks in runtime modules | revisit only when external API/dependency is stable`
+- `2026-03-09 | AND as optional external source step | external package is now integrated through one source-based adapter path | no mention-based placeholder path remains in notebook/runtime modules | keep only source-level contract in ads_bib`
 - `2026-02-25 | No BERTopic+EVoC path | EVoC already covered by toponymy_evoc; avoid duplicate backend behavior | lower maintenance and test matrix complexity | require explicit benchmark evidence before reconsidering`
 - `2026-02-27 | GGUF for local translation, HF for embeddings/labeling | autoregressive gen on CPU via torch is too slow; llama-cpp-python 10-50x faster | translate.py uses gguf_backend, topic labeling keeps transformers option | llama-cpp-python is optional dep with pre-built wheels`
 - `2026-03-03 | 3 translation backends: openrouter/gguf/nllb | GGUF overengineered for CPU (~750 lines calibration/pools removed); NLLB via CTranslate2 is 10-50x faster on CPU for seq2seq | gguf stays for GPU, nllb is default for CPU (200+ languages), openrouter for API | ctranslate2+sentencepiece as optional dep [translate-nllb]`
+- `2026-03-09 | Shared package runner with named stages | notebook-only orchestration drifted from CLI/testing needs | notebook and CLI now call the same pipeline functions with stage-based resume | remove numeric phase logic and duplicate orchestration paths`
 
 ## 3) DataFrame Schema Conventions
 
@@ -140,9 +142,11 @@ Seed entries:
 ## 8) Notebook Policy
 
 - `pipeline.ipynb` is a first-class entrypoint and must stay synchronized with package APIs.
+- `pipeline.ipynb` and the CLI are frontends over the same package runner; orchestration rules live in `src/ads_bib/pipeline.py`.
 - When API contracts change, update notebook cells in the same change set.
 - Clear stale outputs when they encode outdated schema names or misleading historical logs.
 - Notebook cells should stay orchestration-only (top layer).
+- Prefer named stage controls over numeric phase gates in notebook orchestration.
 - Background logic (fallbacks, retries/backoff strategies, install/preflight mechanics, checkpoint internals, data-shaping helpers) belongs in `src/ads_bib/` modules, not inline notebook code.
 - Functions that access APIs or disk own their caching internally.
   Convention: accept `cache_dir: Path | None` and `force_refresh: bool` parameters.

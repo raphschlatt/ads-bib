@@ -1,0 +1,925 @@
+"""Shared pipeline orchestration for notebook and CLI frontends."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field, is_dataclass
+import logging
+from pathlib import Path
+import random
+from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
+import yaml
+
+from . import prompts
+from ads_bib._utils.checkpoints import (
+    load_disambiguated_snapshot,
+    load_tokenized_snapshot,
+    load_translated_snapshot,
+    save_disambiguated_snapshot,
+    save_tokenized_snapshot,
+    save_translated_snapshot,
+)
+from ads_bib._utils.costs import CostTracker
+from ads_bib._utils.io import load_parquet, save_parquet
+from ads_bib.author_disambiguation import apply_author_disambiguation
+from ads_bib.citations import (
+    build_all_nodes,
+    build_citation_inputs_from_publications,
+    export_wos_format,
+    process_all_citations,
+)
+from ads_bib.config import init_paths, load_env
+from ads_bib.curate import get_cluster_summary, remove_clusters
+from ads_bib.export import resolve_dataset
+from ads_bib.run_manager import RunManager
+from ads_bib.search import search_ads
+from ads_bib.tokenize import ensure_spacy_model, tokenize_texts
+from ads_bib.topic_model import (
+    build_topic_dataframe,
+    compute_embeddings,
+    fit_bertopic,
+    fit_toponymy,
+    reduce_dimensions,
+    reduce_outliers,
+)
+from ads_bib.translate import detect_languages, translate_dataframe
+
+logger = logging.getLogger(__name__)
+
+StageName = Literal[
+    "search",
+    "export",
+    "translate",
+    "tokenize",
+    "author_disambiguation",
+    "embeddings",
+    "reduction",
+    "topic_fit",
+    "topic_dataframe",
+    "visualize",
+    "curate",
+    "citations",
+]
+
+STAGE_ORDER: tuple[StageName, ...] = (
+    "search",
+    "export",
+    "translate",
+    "tokenize",
+    "author_disambiguation",
+    "embeddings",
+    "reduction",
+    "topic_fit",
+    "topic_dataframe",
+    "visualize",
+    "curate",
+    "citations",
+)
+
+
+def _prompt_value(name: str) -> str:
+    return str(getattr(prompts, name))
+
+
+@dataclass
+class RunConfig:
+    run_name: str = "ADS_Curation_Run"
+    start_stage: StageName = "search"
+    stop_stage: StageName | None = None
+    random_seed: int = 42
+    openrouter_cost_mode: str = "hybrid"
+    project_root: str | None = None
+
+
+@dataclass
+class SearchConfig:
+    query: str = ""
+    ads_token: str | None = None
+    refresh_search: bool = True
+    refresh_export: bool = True
+
+
+@dataclass
+class TranslateConfig:
+    enabled: bool = True
+    provider: str = "openrouter"
+    model: str = "google/gemini-3-flash-preview"
+    api_key: str | None = None
+    max_workers: int = 10
+    max_tokens: int = 2048
+    fasttext_model: str | None = None
+
+
+@dataclass
+class TokenizeConfig:
+    enabled: bool = True
+    spacy_model: str = "en_core_web_lg"
+    batch_size: int = 512
+    n_process: int = 1
+    disable: tuple[str, ...] = ("ner", "parser", "textcat")
+    fallback_model: str = "en_core_web_lg"
+    auto_download: bool = True
+
+
+@dataclass
+class AuthorDisambiguationConfig:
+    enabled: bool = False
+    model_bundle: str | None = None
+    dataset_id: str | None = None
+    force_refresh: bool = False
+    infer_stage: str = "full"
+
+
+@dataclass
+class TopicModelConfig:
+    sample_size: int | None = None
+    embedding_provider: str = "openrouter"
+    embedding_model: str = "google/gemini-embedding-001"
+    embedding_api_key: str | None = None
+    embedding_batch_size: int = 64
+    embedding_max_workers: int = 20
+    reduction_method: str = "pacmap"
+    params_5d: dict[str, Any] = field(default_factory=dict)
+    params_2d: dict[str, Any] = field(default_factory=dict)
+    backend: str = "bertopic"
+    clustering_method: str = "fast_hdbscan"
+    cluster_params: dict[str, Any] = field(default_factory=dict)
+    toponymy_cluster_params: dict[str, Any] = field(default_factory=dict)
+    toponymy_evoc_cluster_params: dict[str, Any] = field(default_factory=dict)
+    toponymy_layer_index: int = 1
+    llm_prompt: str = field(default_factory=lambda: _prompt_value("BERTOPIC_LABELING_PHYSICS"))
+    llm_provider: str = "openrouter"
+    llm_model: str = "google/gemini-3-flash-preview"
+    llm_api_key: str | None = None
+    bertopic_label_max_tokens: int = 128
+    toponymy_local_label_max_tokens: int = 256
+    pipeline_models: list[str] = field(default_factory=lambda: ["POS", "KeyBERT", "MMR"])
+    parallel_models: list[str] = field(default_factory=lambda: ["MMR", "POS", "KeyBERT"])
+    toponymy_embedding_model: str | None = None
+    toponymy_max_workers: int = 10
+    min_df: int | None = None
+    outlier_threshold: float = 0.5
+
+
+@dataclass
+class VisualizationConfig:
+    enabled: bool = True
+    title: str = "ADS Bibliometric Map"
+    subtitle_template: str = "Topics labeled with {provider}/{model}"
+    dark_mode: bool = True
+
+
+@dataclass
+class CurationConfig:
+    clusters_to_remove: list[int] = field(default_factory=list)
+
+
+@dataclass
+class CitationsConfig:
+    metrics: list[str] = field(
+        default_factory=lambda: [
+            "direct",
+            "co_citation",
+            "bibliographic_coupling",
+            "author_co_citation",
+        ]
+    )
+    min_counts: dict[str, int] = field(
+        default_factory=lambda: {
+            "direct": 1,
+            "co_citation": 1,
+            "bibliographic_coupling": 1,
+            "author_co_citation": 1,
+        }
+    )
+    authors_filter: list[str] | None = None
+    output_format: str = "gexf"
+
+
+@dataclass
+class PipelineConfig:
+    run: RunConfig = field(default_factory=RunConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
+    translate: TranslateConfig = field(default_factory=TranslateConfig)
+    tokenize: TokenizeConfig = field(default_factory=TokenizeConfig)
+    author_disambiguation: AuthorDisambiguationConfig = field(default_factory=AuthorDisambiguationConfig)
+    topic_model: TopicModelConfig = field(default_factory=TopicModelConfig)
+    visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
+    curation: CurationConfig = field(default_factory=CurationConfig)
+    citations: CitationsConfig = field(default_factory=CitationsConfig)
+
+    def __post_init__(self) -> None:
+        self.run.start_stage = validate_stage_name(self.run.start_stage)
+        if self.run.stop_stage is not None:
+            self.run.stop_stage = validate_stage_name(self.run.stop_stage)
+
+        if self.author_disambiguation.enabled and not self.author_disambiguation.model_bundle:
+            raise ValueError(
+                "author_disambiguation.model_bundle is required when author_disambiguation.enabled=true."
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
+        return cls(
+            run=RunConfig(**data.get("run", {})),
+            search=SearchConfig(**data.get("search", {})),
+            translate=TranslateConfig(**data.get("translate", {})),
+            tokenize=TokenizeConfig(
+                **{
+                    **data.get("tokenize", {}),
+                    "disable": tuple(data.get("tokenize", {}).get("disable", ("ner", "parser", "textcat"))),
+                }
+            ),
+            author_disambiguation=AuthorDisambiguationConfig(
+                **data.get("author_disambiguation", {})
+            ),
+            topic_model=TopicModelConfig(**data.get("topic_model", {})),
+            visualization=VisualizationConfig(**data.get("visualization", {})),
+            curation=CurationConfig(**data.get("curation", {})),
+            citations=CitationsConfig(**data.get("citations", {})),
+        )
+
+    @classmethod
+    def from_yaml(cls, path: Path | str) -> PipelineConfig:
+        with Path(path).open("r", encoding="utf-8") as fh:
+            payload = yaml.safe_load(fh) or {}
+        return cls.from_dict(payload)
+
+
+@dataclass
+class PipelineContext:
+    config: PipelineConfig
+    paths: dict[str, Path]
+    run: RunManager
+    tracker: CostTracker
+    project_root: Path
+    start_time: float | None = None
+    bibcodes: list[str] | None = None
+    references: list[list[str]] | None = None
+    esources: list[list[str]] | None = None
+    fulltext_urls: list[str | None] | None = None
+    publications: pd.DataFrame | None = None
+    refs: pd.DataFrame | None = None
+    topic_input_df: pd.DataFrame | None = None
+    documents: list[str] | None = None
+    embeddings: np.ndarray | None = None
+    reduced_5d: np.ndarray | None = None
+    reduced_2d: np.ndarray | None = None
+    topic_model: Any | None = None
+    topics: np.ndarray | None = None
+    topic_info: pd.DataFrame | None = None
+    topic_df: pd.DataFrame | None = None
+    curated_df: pd.DataFrame | None = None
+    citation_results: dict[str, pd.DataFrame] | None = None
+
+    @classmethod
+    def create(
+        cls,
+        config: PipelineConfig,
+        *,
+        project_root: Path | str | None = None,
+        run_name: str | None = None,
+        paths: dict[str, Path] | None = None,
+        run: RunManager | None = None,
+        tracker: CostTracker | None = None,
+        start_time: float | None = None,
+        load_environment: bool = True,
+    ) -> PipelineContext:
+        root = Path(project_root or config.run.project_root or Path.cwd())
+        if load_environment:
+            load_env(project_root=root)
+        resolved_paths = paths or init_paths(project_root=root)
+        resolved_run = run or RunManager(run_name=run_name or config.run.run_name, project_root=root)
+        resolved_tracker = tracker or CostTracker()
+        return cls(
+            config=config,
+            paths=resolved_paths,
+            run=resolved_run,
+            tracker=resolved_tracker,
+            project_root=root,
+            start_time=start_time,
+        )
+
+
+def validate_stage_name(stage: StageName | str) -> StageName:
+    value = str(stage)
+    if value not in STAGE_ORDER:
+        allowed = ", ".join(STAGE_ORDER)
+        raise ValueError(f"Invalid stage '{stage}'. Expected one of: {allowed}.")
+    return value  # type: ignore[return-value]
+
+
+def _stage_slice(start_stage: StageName, stop_stage: StageName | None) -> tuple[StageName, ...]:
+    start_idx = STAGE_ORDER.index(validate_stage_name(start_stage))
+    if stop_stage is None:
+        return STAGE_ORDER[start_idx:]
+    stop_idx = STAGE_ORDER.index(validate_stage_name(stop_stage))
+    if stop_idx < start_idx:
+        raise ValueError("stop_stage must be after or equal to start_stage.")
+    return STAGE_ORDER[start_idx : stop_idx + 1]
+
+
+def _set_random_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def _topic_subtitle(config: PipelineConfig) -> str:
+    return config.visualization.subtitle_template.format(
+        provider=config.topic_model.llm_provider,
+        model=config.topic_model.llm_model,
+    )
+
+
+def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
+    if ctx.documents is None:
+        raise ValueError("documents are not available.")
+    cfg = ctx.config.topic_model
+    n_docs = len(ctx.documents)
+    min_cluster_size = max(15, int(n_docs * 0.001))
+    base_min_cluster_size = max(55, int(n_docs * 0.0007))
+    min_df = cfg.min_df if cfg.min_df is not None else max(1, min(5, n_docs // 100))
+
+    cluster_params = {
+        "min_cluster_size": min_cluster_size,
+        "min_samples": 3,
+        "cluster_selection_method": "eom",
+        "cluster_selection_epsilon": 0.05,
+        **cfg.cluster_params,
+    }
+    toponymy_cluster_params = {
+        "min_clusters": 10,
+        "min_samples": 3,
+        "base_min_cluster_size": base_min_cluster_size,
+        **cfg.toponymy_cluster_params,
+    }
+    toponymy_evoc_cluster_params = {
+        "min_clusters": 10,
+        "min_samples": 3,
+        "base_min_cluster_size": base_min_cluster_size,
+        "noise_level": 0.35,
+        "n_neighbors": 15,
+        "n_epochs": 35,
+        **cfg.toponymy_evoc_cluster_params,
+    }
+
+    logger.info("Topic defaults | docs=%s | min_df=%s | min_cluster_size=%s | base_min_cluster_size=%s",
+                f"{n_docs:,}", min_df, cluster_params["min_cluster_size"], base_min_cluster_size)
+    return {
+        "min_df": min_df,
+        "cluster_params": cluster_params,
+        "toponymy_cluster_params": toponymy_cluster_params,
+        "toponymy_evoc_cluster_params": toponymy_evoc_cluster_params,
+        "toponymy_embedding_model": cfg.toponymy_embedding_model or cfg.embedding_model,
+    }
+
+
+def _save_curated_dataset(ctx: PipelineContext) -> Path:
+    if ctx.curated_df is None:
+        raise ValueError("curated_df is not available.")
+    curated_path = ctx.run.paths["data"] / "publications.parquet"
+    save_parquet(ctx.curated_df, curated_path)
+    logger.info("Curated dataset saved: %s records", f"{len(ctx.curated_df):,}")
+    return curated_path
+
+
+def _load_curated_dataset(ctx: PipelineContext) -> pd.DataFrame:
+    curated_path = ctx.run.paths["data"] / "publications.parquet"
+    if curated_path.exists():
+        return load_parquet(curated_path)
+    raise FileNotFoundError(f"Curated dataset not found at {curated_path}")
+
+
+def run_search_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.bibcodes is not None:
+        return ctx
+
+    cfg = ctx.config.search
+    if not cfg.ads_token:
+        raise ValueError("search.ads_token is required.")
+    logger.info("=== Stage: search ===")
+    ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
+        cfg.query,
+        cfg.ads_token,
+        raw_dir=ctx.paths["raw"],
+        force_refresh=cfg.refresh_search,
+    )
+    return ctx
+
+
+def run_export_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.publications is not None and ctx.refs is not None:
+        return ctx
+
+    logger.info("=== Stage: export ===")
+    run_search_stage(ctx)
+    assert ctx.bibcodes is not None
+    assert ctx.references is not None
+    assert ctx.esources is not None
+    assert ctx.fulltext_urls is not None
+    cfg = ctx.config.search
+    ctx.publications, ctx.refs = resolve_dataset(
+        ctx.bibcodes,
+        ctx.references,
+        ctx.esources,
+        ctx.fulltext_urls,
+        cfg.ads_token or "",
+        cache_dir=ctx.paths["raw"],
+        force_refresh=cfg.refresh_export,
+    )
+    return ctx
+
+
+def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.publications is not None and ctx.refs is not None and "Title_en" in ctx.publications.columns:
+        return ctx
+
+    logger.info("=== Stage: translate ===")
+    try:
+        ctx.publications, ctx.refs = load_translated_snapshot(
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+        )
+        return ctx
+    except FileNotFoundError:
+        pass
+
+    run_export_stage(ctx)
+    assert ctx.publications is not None
+    assert ctx.refs is not None
+    cfg = ctx.config.translate
+    if not cfg.enabled:
+        save_translated_snapshot(
+            ctx.publications,
+            ctx.refs,
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+        )
+        return ctx
+
+    if not cfg.fasttext_model:
+        raise ValueError("translate.fasttext_model is required.")
+
+    ctx.publications = detect_languages(
+        ctx.publications,
+        ["Title", "Abstract"],
+        model_path=cfg.fasttext_model,
+    )
+    ctx.refs = detect_languages(
+        ctx.refs,
+        ["Title", "Abstract"],
+        model_path=cfg.fasttext_model,
+    )
+
+    ctx.publications, _ = translate_dataframe(
+        ctx.publications,
+        ["Title", "Abstract"],
+        provider=cfg.provider,
+        model=cfg.model,
+        api_key=cfg.api_key,
+        max_workers=cfg.max_workers,
+        max_translation_tokens=cfg.max_tokens,
+        openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+        cost_tracker=ctx.tracker,
+    )
+    ctx.refs, _ = translate_dataframe(
+        ctx.refs,
+        ["Title", "Abstract"],
+        provider=cfg.provider,
+        model=cfg.model,
+        api_key=cfg.api_key,
+        max_workers=cfg.max_workers,
+        max_translation_tokens=cfg.max_tokens,
+        openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+        cost_tracker=ctx.tracker,
+    )
+    save_translated_snapshot(
+        ctx.publications,
+        ctx.refs,
+        cache_dir=ctx.paths["cache"],
+        run_data_dir=ctx.run.paths["data"],
+    )
+    return ctx
+
+
+def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.publications is not None and "tokens" in ctx.publications.columns:
+        return ctx
+
+    logger.info("=== Stage: tokenize ===")
+    try:
+        ctx.publications, ctx.refs = load_tokenized_snapshot(
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+        )
+        return ctx
+    except FileNotFoundError:
+        pass
+
+    run_translate_stage(ctx)
+    assert ctx.publications is not None
+    assert ctx.refs is not None
+    cfg = ctx.config.tokenize
+    if not cfg.enabled:
+        save_tokenized_snapshot(
+            ctx.publications,
+            ctx.refs,
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+        )
+        return ctx
+
+    model_to_use, preloaded_nlp = ensure_spacy_model(
+        spacy_model=cfg.spacy_model,
+        fallback_model=cfg.fallback_model,
+        spacy_disable=cfg.disable,
+        auto_download=cfg.auto_download,
+    )
+    ctx.publications = tokenize_texts(
+        ctx.publications,
+        spacy_model=model_to_use,
+        nlp=preloaded_nlp,
+        batch_size=cfg.batch_size,
+        n_process=cfg.n_process,
+        spacy_disable=cfg.disable,
+    )
+    save_parquet(ctx.refs, ctx.run.paths["data"] / "references.parquet")
+    save_tokenized_snapshot(
+        ctx.publications,
+        ctx.refs,
+        cache_dir=ctx.paths["cache"],
+        run_data_dir=ctx.run.paths["data"],
+    )
+    return ctx
+
+
+def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.publications is not None and "author_uids" in ctx.publications.columns:
+        return ctx
+
+    logger.info("=== Stage: author_disambiguation ===")
+    try:
+        ctx.publications, ctx.refs = load_disambiguated_snapshot(
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+        )
+        return ctx
+    except FileNotFoundError:
+        pass
+
+    run_tokenize_stage(ctx)
+    assert ctx.publications is not None
+    assert ctx.refs is not None
+    cfg = ctx.config.author_disambiguation
+    if cfg.enabled:
+        ctx.publications, ctx.refs = apply_author_disambiguation(
+            ctx.publications,
+            ctx.refs,
+            model_bundle=cfg.model_bundle or "",
+            dataset_id=cfg.dataset_id or ctx.run.run_id,
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+            force_refresh=cfg.force_refresh,
+            infer_stage=cfg.infer_stage,
+        )
+    else:
+        save_disambiguated_snapshot(
+            ctx.publications,
+            ctx.refs,
+            cache_dir=ctx.paths["cache"],
+            run_data_dir=ctx.run.paths["data"],
+        )
+        logger.info("Author disambiguation disabled; passthrough snapshot saved.")
+    return ctx
+
+
+def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.embeddings is not None and ctx.documents is not None and ctx.topic_input_df is not None:
+        return ctx
+
+    logger.info("=== Stage: embeddings ===")
+    run_author_disambiguation_stage(ctx)
+    assert ctx.publications is not None
+    cfg = ctx.config.topic_model
+    df = ctx.publications.copy()
+    if cfg.sample_size is not None:
+        df = df.sample(
+            n=min(cfg.sample_size, len(df)),
+            random_state=ctx.config.run.random_seed,
+        ).reset_index(drop=True)
+        logger.info("Sampling topic input: %s documents", f"{len(df):,}")
+    ctx.topic_input_df = df
+    ctx.documents = df["full_text"].tolist()
+    ctx.embeddings = compute_embeddings(
+        ctx.documents,
+        provider=cfg.embedding_provider,
+        model=cfg.embedding_model,
+        cache_dir=ctx.paths["embeddings_cache"],
+        batch_size=cfg.embedding_batch_size,
+        max_workers=cfg.embedding_max_workers,
+        api_key=cfg.embedding_api_key,
+        openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+        cost_tracker=ctx.tracker,
+    )
+    return ctx
+
+
+def run_reduction_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.reduced_5d is not None and ctx.reduced_2d is not None:
+        return ctx
+
+    logger.info("=== Stage: reduction ===")
+    run_embeddings_stage(ctx)
+    assert ctx.embeddings is not None
+    cfg = ctx.config.topic_model
+    ctx.reduced_5d, ctx.reduced_2d = reduce_dimensions(
+        ctx.embeddings,
+        method=cfg.reduction_method,
+        params_5d=cfg.params_5d,
+        params_2d=cfg.params_2d,
+        random_state=ctx.config.run.random_seed,
+        cache_dir=ctx.paths["dim_reduction_cache"],
+        embedding_id=f"{cfg.embedding_provider}/{cfg.embedding_model}",
+    )
+    return ctx
+
+
+def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.topic_model is not None and ctx.topics is not None and ctx.topic_info is not None:
+        return ctx
+
+    logger.info("=== Stage: topic_fit ===")
+    run_reduction_stage(ctx)
+    assert ctx.documents is not None
+    assert ctx.reduced_5d is not None
+    assert ctx.embeddings is not None
+    cfg = ctx.config.topic_model
+    resolved = _resolve_topic_defaults(ctx)
+
+    if cfg.backend == "bertopic":
+        topic_model = fit_bertopic(
+            ctx.documents,
+            ctx.reduced_5d,
+            llm_provider=cfg.llm_provider,
+            llm_model=cfg.llm_model,
+            llm_prompt=cfg.llm_prompt,
+            llm_max_new_tokens=cfg.bertopic_label_max_tokens,
+            pipeline_models=cfg.pipeline_models,
+            parallel_models=cfg.parallel_models,
+            min_df=resolved["min_df"],
+            clustering_method=cfg.clustering_method,
+            clustering_params=resolved["cluster_params"],
+            api_key=cfg.llm_api_key,
+            openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+            cost_tracker=ctx.tracker,
+        )
+        topics = np.array(topic_model.topics_)
+        topics = reduce_outliers(
+            topic_model,
+            ctx.documents,
+            topics,
+            ctx.reduced_5d,
+            threshold=cfg.outlier_threshold,
+            llm_provider=cfg.llm_provider,
+            llm_model=cfg.llm_model,
+            api_key=cfg.llm_api_key,
+            openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+            cost_tracker=ctx.tracker,
+        )
+        topic_info = topic_model.get_topic_info()
+    elif cfg.backend in {"toponymy", "toponymy_evoc"}:
+        clusterer_params = (
+            resolved["toponymy_evoc_cluster_params"]
+            if cfg.backend == "toponymy_evoc"
+            else resolved["toponymy_cluster_params"]
+        )
+        topic_model, topics, topic_info = fit_toponymy(
+            ctx.documents,
+            ctx.embeddings,
+            ctx.reduced_5d,
+            backend=cfg.backend,
+            layer_index=cfg.toponymy_layer_index,
+            llm_provider=cfg.llm_provider,
+            llm_model=cfg.llm_model,
+            embedding_model=resolved["toponymy_embedding_model"],
+            local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
+            api_key=cfg.llm_api_key,
+            openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+            max_workers=cfg.toponymy_max_workers,
+            clusterer_params=clusterer_params,
+            cost_tracker=ctx.tracker,
+        )
+    else:
+        raise ValueError(f"Invalid topic_model.backend '{cfg.backend}'.")
+
+    ctx.topic_model = topic_model
+    ctx.topics = np.asarray(topics)
+    ctx.topic_info = topic_info
+    ctx.tracker.log_steps_summary(
+        [
+            "llm_labeling",
+            "llm_labeling_post_outliers",
+            "llm_labeling_toponymy",
+            "llm_labeling_toponymy_evoc",
+            "toponymy_embeddings",
+        ]
+    )
+    return ctx
+
+
+def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.topic_df is not None:
+        return ctx
+
+    logger.info("=== Stage: topic_dataframe ===")
+    run_topic_fit_stage(ctx)
+    assert ctx.topic_input_df is not None
+    assert ctx.topic_model is not None
+    assert ctx.topics is not None
+    assert ctx.reduced_2d is not None
+    ctx.topic_df = build_topic_dataframe(
+        ctx.topic_input_df,
+        ctx.topic_model,
+        ctx.topics,
+        ctx.reduced_2d,
+        embeddings=None,
+        topic_info=ctx.topic_info,
+    )
+    return ctx
+
+
+def run_visualize_stage(ctx: PipelineContext) -> PipelineContext:
+    logger.info("=== Stage: visualize ===")
+    if not ctx.config.visualization.enabled:
+        logger.info("Visualization disabled.")
+        return ctx
+
+    from ads_bib.visualize import create_topic_map
+
+    run_topic_dataframe_stage(ctx)
+    assert ctx.topic_df is not None
+    create_topic_map(
+        ctx.topic_df,
+        title=ctx.config.visualization.title,
+        subtitle=_topic_subtitle(ctx.config),
+        dark_mode=ctx.config.visualization.dark_mode,
+        output_path=ctx.run.paths["plots"] / "topic_map.html",
+    )
+    return ctx
+
+
+def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.curated_df is not None:
+        return ctx
+
+    logger.info("=== Stage: curate ===")
+    run_topic_dataframe_stage(ctx)
+    assert ctx.topic_df is not None
+    ctx.curated_df = ctx.topic_df.copy()
+    display_summary = get_cluster_summary(ctx.curated_df)
+    logger.info("Cluster summary rows: %s", f"{len(display_summary):,}")
+    if ctx.config.curation.clusters_to_remove:
+        ctx.curated_df = remove_clusters(
+            ctx.curated_df,
+            ctx.config.curation.clusters_to_remove,
+        )
+    _save_curated_dataset(ctx)
+    return ctx
+
+
+def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
+    if ctx.citation_results is not None:
+        return ctx
+
+    logger.info("=== Stage: citations ===")
+    try:
+        ctx.curated_df = ctx.curated_df if ctx.curated_df is not None else _load_curated_dataset(ctx)
+    except FileNotFoundError:
+        run_curate_stage(ctx)
+    assert ctx.curated_df is not None
+    run_author_disambiguation_stage(ctx)
+    assert ctx.refs is not None
+
+    bibcodes, references = build_citation_inputs_from_publications(ctx.curated_df)
+    all_nodes = build_all_nodes(ctx.curated_df, ctx.refs)
+    cfg = ctx.config.citations
+    ctx.citation_results = process_all_citations(
+        bibcodes=bibcodes,
+        references=references,
+        publications=ctx.curated_df,
+        ref_df=ctx.refs,
+        all_nodes=all_nodes,
+        metrics=cfg.metrics,
+        min_counts=cfg.min_counts,
+        authors_filter=cfg.authors_filter,
+        output_format=cfg.output_format,
+        output_dir=ctx.run.paths["data"],
+    )
+    suffix = "_filtered" if cfg.authors_filter else ""
+    export_wos_format(
+        ctx.curated_df,
+        ctx.refs,
+        output_path=ctx.run.paths["data"] / f"download_wos_export{suffix}.txt",
+    )
+    return ctx
+
+
+_STAGE_FUNCS: dict[StageName, Any] = {
+    "search": run_search_stage,
+    "export": run_export_stage,
+    "translate": run_translate_stage,
+    "tokenize": run_tokenize_stage,
+    "author_disambiguation": run_author_disambiguation_stage,
+    "embeddings": run_embeddings_stage,
+    "reduction": run_reduction_stage,
+    "topic_fit": run_topic_fit_stage,
+    "topic_dataframe": run_topic_dataframe_stage,
+    "visualize": run_visualize_stage,
+    "curate": run_curate_stage,
+    "citations": run_citations_stage,
+}
+
+
+def run_pipeline(
+    config: PipelineConfig,
+    *,
+    start_stage: StageName | None = None,
+    stop_stage: StageName | None = None,
+    project_root: Path | str | None = None,
+    run_name: str | None = None,
+    paths: dict[str, Path] | None = None,
+    run: RunManager | None = None,
+    tracker: CostTracker | None = None,
+    start_time: float | None = None,
+    load_environment: bool = True,
+) -> PipelineContext:
+    resolved_start = validate_stage_name(start_stage or config.run.start_stage)
+    resolved_stop = validate_stage_name(stop_stage) if stop_stage is not None else config.run.stop_stage
+    _set_random_seed(config.run.random_seed)
+    ctx = PipelineContext.create(
+        config,
+        project_root=project_root,
+        run_name=run_name,
+        paths=paths,
+        run=run,
+        tracker=tracker,
+        start_time=start_time,
+        load_environment=load_environment,
+    )
+    ctx.run.save_config(config)
+    for stage in _stage_slice(resolved_start, resolved_stop):
+        _STAGE_FUNCS[stage](ctx)
+    return ctx
+
+
+def pipeline_config_to_dict(config: PipelineConfig | dict[str, Any] | Any) -> dict[str, Any]:
+    if isinstance(config, dict):
+        return config
+    if isinstance(config, PipelineConfig):
+        return config.to_dict()
+    if is_dataclass(config):
+        return asdict(config)
+    to_dict = getattr(config, "to_dict", None)
+    if callable(to_dict):
+        result = to_dict()
+        if not isinstance(result, dict):
+            raise TypeError("to_dict() must return a dict.")
+        return result
+    raise TypeError("Expected PipelineConfig, dataclass, dict, or object with to_dict().")
+
+
+__all__ = [
+    "AuthorDisambiguationConfig",
+    "CitationsConfig",
+    "CurationConfig",
+    "PipelineConfig",
+    "PipelineContext",
+    "RunConfig",
+    "SearchConfig",
+    "STAGE_ORDER",
+    "StageName",
+    "TokenizeConfig",
+    "TopicModelConfig",
+    "TranslateConfig",
+    "VisualizationConfig",
+    "pipeline_config_to_dict",
+    "run_author_disambiguation_stage",
+    "run_citations_stage",
+    "run_curate_stage",
+    "run_embeddings_stage",
+    "run_export_stage",
+    "run_pipeline",
+    "run_reduction_stage",
+    "run_search_stage",
+    "run_tokenize_stage",
+    "run_topic_dataframe_stage",
+    "run_topic_fit_stage",
+    "run_translate_stage",
+    "run_visualize_stage",
+    "validate_stage_name",
+]

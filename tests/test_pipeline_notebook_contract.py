@@ -36,15 +36,35 @@ def test_pipeline_notebook_code_contract():
     nb = _load_notebook()
     code = _all_code_source(nb)
 
+    assert "START_STAGE =" in code
+    assert "STOP_STAGE =" in code
+    assert "START_AT_PHASE" not in code
+    assert "build_pipeline_config()" in code
+    assert "current_context(reset=True)" in code
+    assert "ctx = current_context()" in code
+    assert "invalidate_context_from(" in code
+    assert "_earliest_invalidation_stage(" in code
+    assert "execute_stage(" in code
+    assert 'execute_stage("search", run_search_stage)' in code
+    assert 'execute_stage("export", run_export_stage)' in code
+    assert 'execute_stage("translate", run_translate_stage)' in code
+    assert 'execute_stage("tokenize", run_tokenize_stage)' in code
+    assert 'execute_stage("author_disambiguation", run_author_disambiguation_stage)' in code
+    assert 'execute_stage("embeddings", run_embeddings_stage)' in code
+    assert 'execute_stage("reduction", run_reduction_stage)' in code
+    assert 'execute_stage("topic_fit", run_topic_fit_stage)' in code
+    assert 'execute_stage("topic_dataframe", run_topic_dataframe_stage)' in code
+    assert 'execute_stage("visualize", run_visualize_stage)' in code
+    assert 'execute_stage("curate", run_curate_stage)' in code
+    assert 'execute_stage("citations", run_citations_stage)' in code
+
     assert "CITE_METRICS =" in code
-    assert "metrics=CITE_METRICS" in code
     assert "CITE_CITE_METRICS" not in code
 
     assert "MIN_DF =" in code
     assert "CLUSTER_PARAMS =" in code
     assert "TOPONYMY_CLUSTER_PARAMS =" in code
     assert "TOPONYMY_EVOC_CLUSTER_PARAMS =" in code
-    assert "clusterer_params=_cluster_params" in code
 
     assert "paths[\"output\"]" not in code
     assert "paths['output']" not in code
@@ -52,23 +72,27 @@ def test_pipeline_notebook_code_contract():
     assert "run.paths[\"data\"]" in code
     assert "download_wos_export{suffix}.txt" in code
     assert "output_path=run.paths[\"plots\"] / f\"download_wos_export" not in code
-    assert "run.save_config(globals())" in code
+    assert "run.save_config(globals())" not in code
     assert "references_translated_tokenized.json" not in code
-    assert "references_translated.json" not in code  # moved to load_phase3_checkpoint
-    assert "build_citation_inputs_from_publications(df)" in code
+    assert "load_phase3_checkpoint" not in code
+    assert "save_phase3_checkpoint" not in code
+    assert "load_phase4_checkpoint" not in code
+    assert "save_phase4_checkpoint" not in code
     assert 'ENABLE_AUTHOR_DISAMBIGUATION = False' in code
     assert 'AND_MODEL_BUNDLE = None' in code
-    assert 'load_phase4_checkpoint' in code
-    assert 'save_phase4_checkpoint' in code
-    assert "apply_author_disambiguation(" in code
     assert "AND step skipped (placeholder)" not in code
     assert "AND PLACEHOLDER" not in code
 
-    # Notebook is a thin command layer — no inline cache logic or cost snapshots
+    # Notebook is a thin command layer — no inline cache logic, checkpoint wiring,
+    # or direct runtime orchestration beyond stage wrapper calls.
     assert "load_pickle(latest)" not in code
     assert "save_json_lines(publications" not in code
     assert "Cost Snapshot" not in code
     assert "publications.info()" not in code
+    assert "apply_author_disambiguation(" not in code
+    assert "process_all_citations(" not in code
+    assert "build_citation_inputs_from_publications(" not in code
+    assert "export_wos_format(" not in code
 
     # Phase 2: No provider validation in notebook (moved to functions)
     assert "validate_provider" not in code
@@ -85,8 +109,8 @@ def test_pipeline_notebook_code_contract():
     assert "BERTOPIC_LABELING_GENERIC as LLM_PROMPT" in code  # kept as commented fallback
     assert "BERTOPIC_LABEL_MAX_TOKENS =" in code
     assert "TOPONYMY_LOCAL_LABEL_MAX_TOKENS =" in code
-    assert "llm_max_new_tokens=BERTOPIC_LABEL_MAX_TOKENS" in code
-    assert "local_llm_max_new_tokens=TOPONYMY_LOCAL_LABEL_MAX_TOKENS" in code
+    assert "Topic stages resume via the shared pipeline runner and stage snapshots." in code
+    assert "Config changed; invalidated in-memory state from stage" in code
 
 
 def test_pipeline_notebook_has_expected_config_sections():

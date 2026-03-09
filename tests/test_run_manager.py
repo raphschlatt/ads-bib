@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from ads_bib._utils.costs import CostTracker
+from ads_bib.pipeline import PipelineConfig
 from ads_bib.run_manager import RunManager
 
 
@@ -29,52 +30,59 @@ def test_run_manager_save_config_serializes_supported_values(tmp_path, caplog):
     run = RunManager(run_name="config_test", project_root=tmp_path)
     caplog.clear()
 
-    globals_dict = {
-        "ALPHA": 7,
-        "BETA": True,
-        "DELTA": ["x", "y"],
-        "PATH_VALUE": Path("relative/file.txt"),
-        "lowercase": "ignored",
-        "_PRIVATE": "ignored",
-        "CALLABLE": lambda: None,
+    config = {
+        "run": {"run_name": "config_test"},
+        "topic_model": {
+            "min_df": 7,
+            "pipeline_models": ["x", "y"],
+            "cache_path": Path("relative/file.txt"),
+        },
     }
 
-    run.save_config(globals_dict)
+    run.save_config(config)
 
     assert "Snapshot of configuration saved" in caplog.text
 
     config_path = run.paths["root"] / "config_used.yaml"
     parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert parsed["ALPHA"] == 7
-    assert parsed["BETA"] is True
-    assert parsed["DELTA"] == ["x", "y"]
-    assert Path(parsed["PATH_VALUE"]) == Path("relative/file.txt")
-    assert "lowercase" not in parsed
-    assert "_PRIVATE" not in parsed
-    assert "CALLABLE" not in parsed
+    assert parsed["run"]["run_name"] == "config_test"
+    assert parsed["topic_model"]["min_df"] == 7
+    assert parsed["topic_model"]["pipeline_models"] == ["x", "y"]
+    assert Path(parsed["topic_model"]["cache_path"]) == Path("relative/file.txt")
 
 
 def test_run_manager_save_config_redacts_secret_like_keys(tmp_path):
     run = RunManager(run_name="redaction_test", project_root=tmp_path)
-    globals_dict = {
-        "ADS_TOKEN": "abc",
-        "EMBEDDING_API_KEY": "sk-xxx",
-        "PASSWORD_STORE": "p@ss",
-        "MIN_DF": 5,
+    config = {
+        "search": {"ads_token": "abc"},
+        "topic_model": {"embedding_api_key": "sk-xxx"},
+        "auth": {"PASSWORD_STORE": "p@ss"},
+        "topic_model_meta": {"MIN_DF": 5},
     }
 
-    run.save_config(globals_dict)
+    run.save_config(config)
 
     config_path = run.paths["root"] / "config_used.yaml"
     parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     rendered = config_path.read_text(encoding="utf-8")
-    assert parsed["ADS_TOKEN"] == "<redacted>"
-    assert parsed["EMBEDDING_API_KEY"] == "<redacted>"
-    assert parsed["PASSWORD_STORE"] == "<redacted>"
-    assert parsed["MIN_DF"] == 5
+    assert parsed["search"]["ads_token"] == "<redacted>"
+    assert parsed["topic_model"]["embedding_api_key"] == "<redacted>"
+    assert parsed["auth"]["PASSWORD_STORE"] == "<redacted>"
+    assert parsed["topic_model_meta"]["MIN_DF"] == 5
     assert "sk-xxx" not in rendered
     assert "abc" not in rendered
     assert "p@ss" not in rendered
+
+
+def test_run_manager_save_config_accepts_pipeline_config(tmp_path):
+    run = RunManager(run_name="pipeline_config", project_root=tmp_path)
+    config = PipelineConfig.from_dict({"search": {"query": "author:test"}})
+
+    run.save_config(config)
+
+    config_path = run.paths["root"] / "config_used.yaml"
+    parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert parsed["search"]["query"] == "author:test"
 
 
 def test_run_manager_get_path_validates_asset_type(tmp_path):
@@ -89,7 +97,7 @@ def test_run_manager_get_path_validates_asset_type(tmp_path):
 
 def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
     run = RunManager(run_name="summary_test", project_root=tmp_path)
-    run.save_config({"MIN_DF": 5})
+    run.save_config({"topic_model": {"min_df": 5}})
 
     tracker = CostTracker()
     tracker.add(

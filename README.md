@@ -17,19 +17,10 @@ Technical colleagues who want to reuse selected `ads_bib` modules as a Python li
 
 ## Project Context
 
-- Orchestrator: `pipeline.ipynb`
+- Frontends: `pipeline.ipynb` and `ads-bib run --config ...`
+- Shared runner: `src/ads_bib/pipeline.py`
 - Runtime logic: `src/ads_bib/`
 - Philosophy: KISS, DRY, YAGNI, consolidation-first
-
-## Review Status
-
-- Consolidation review backlog completed on `2026-02-25`.
-- Ongoing quality is enforced via `AGENTS.md` rules plus `ads-bib check`.
-
-## Backlog Status
-
-- Active release backlog: `Package_ToDo.md`.
-- Closed review backlog archive: `archive/Review_ToDo_2026-02-25_closed.md`.
 
 ## Happy Path (Minimal)
 
@@ -54,8 +45,41 @@ ADS_TOKEN=...
 OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
 ```
 
-4. Run `pipeline.ipynb` top-to-bottom for the standard flow:
-   Search -> Export -> Translate -> Tokenize -> Topics -> Visualize -> Citations.
+4. Choose one entrypoint:
+   - Notebook: `pipeline.ipynb`
+   - CLI: `ads-bib run --config path/to/config.yaml`
+
+## Entrypoints
+
+### Notebook: interactive exploration
+
+Use `pipeline.ipynb` when you want to inspect intermediate results, tweak
+parameters, and rerun from a named stage without replaying the full workflow.
+
+- Configure the run in the notebook cells.
+- Use `START_STAGE` / `STOP_STAGE` for targeted reruns.
+- Topic-model experiments can restart from `embeddings`, `reduction`, or `topic_fit`
+  while reusing earlier snapshots and module caches.
+
+### CLI: reproducible batch runs
+
+Use the CLI when you want one config-driven run without notebook interaction.
+
+```bash
+ads-bib run --config path/to/config.yaml
+```
+
+Useful overrides:
+
+```bash
+ads-bib run --config path/to/config.yaml --from topic_fit --to citations
+ads-bib run --config path/to/config.yaml --run-name my_run
+ads-bib run --config path/to/config.yaml --set topic_model.backend=toponymy
+```
+
+The CLI and notebook call the same runner in `ads_bib.pipeline`. A saved run
+config such as `runs/<run_id>/config_used.yaml` is a good template for future
+batch runs.
 
 ## Provider Parity Runbook
 
@@ -94,6 +118,7 @@ Use top-level `ads_bib` exports as stable imports:
 
 ```python
 from ads_bib import (
+    PipelineConfig,
     RunManager,
     apply_author_disambiguation,
     build_all_nodes,
@@ -110,6 +135,7 @@ from ads_bib import (
     reduce_outliers,
     remove_clusters,
     resolve_dataset,
+    run_pipeline,
     search_ads,
     tokenize_texts,
     translate_dataframe,
@@ -145,13 +171,13 @@ from ads_bib.topic_model import (
 
 ## AND Integration Contract
 
-This repository will keep AND as an external package.
+This repository keeps AND as an optional external package step.
 `ads-bib` owns only the source-level adapter layer:
 
 - stage ADS-shaped `publications` / `references` as source files
 - call an external source-based disambiguation function
 - validate source-mirrored outputs and map them back into pipeline DataFrames
-- persist Phase-4 checkpoints as Parquet snapshots
+- persist disambiguated source snapshots
 - pass disambiguated author IDs into author-based citation exports
 
 The external AND package is expected to accept source datasets with:
@@ -177,7 +203,9 @@ Mapped pipeline outputs normalize these into aligned list columns:
 
 ## Package vs Notebook Usage
 
-- `pipeline.ipynb` remains the main orchestration entrypoint for end-to-end ADS workflows.
+- `pipeline.ipynb` remains the main exploratory entrypoint for end-to-end ADS workflows.
+- `ads-bib run --config ...` provides the same pipeline path for unattended batch runs.
+- `ads_bib.pipeline` is the single orchestration path used by both frontends.
 - The installable package provides reusable building blocks plus repository-local quality checks.
 - Author disambiguation runs as an optional Phase-4 step between tokenization and topic/citation processing.
 - Notebook output cleanliness is treated as a release-freeze task, not an everyday development gate.

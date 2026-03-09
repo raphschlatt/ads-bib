@@ -10,7 +10,10 @@ from typing import Any
 import pandas as pd
 
 from ads_bib._utils.authors import author_list as _author_list
-from ads_bib._utils.checkpoints import load_phase4_checkpoint, save_phase4_checkpoint
+from ads_bib._utils.checkpoints import (
+    load_disambiguated_snapshot,
+    save_disambiguated_snapshot,
+)
 from ads_bib._utils.io import load_parquet, save_parquet
 
 logger = logging.getLogger(__name__)
@@ -247,7 +250,7 @@ def apply_author_disambiguation(
 
     if not force_refresh:
         try:
-            pubs_cached, refs_cached = load_phase4_checkpoint(
+            pubs_cached, refs_cached = load_disambiguated_snapshot(
                 cache_dir=cache_dir,
                 run_data_dir=run_data_dir,
             )
@@ -263,7 +266,7 @@ def apply_author_disambiguation(
     if publications.empty and references.empty:
         pubs_out = _prepare_passthrough_frame(publications)
         refs_out = _prepare_passthrough_frame(references)
-        save_phase4_checkpoint(
+        save_disambiguated_snapshot(
             pubs_out,
             refs_out,
             cache_dir=cache_dir,
@@ -301,7 +304,7 @@ def apply_author_disambiguation(
         references_output_path=_result_value(result, "references_disambiguated_path"),
     )
 
-    save_phase4_checkpoint(
+    save_disambiguated_snapshot(
         pubs_out,
         refs_out,
         cache_dir=cache_dir,

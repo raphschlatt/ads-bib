@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 import ads_bib.cli as cli
@@ -39,3 +40,47 @@ def test_run_quality_checks_stops_after_first_failure():
 def test_main_dispatches_check(monkeypatch):
     monkeypatch.setattr(cli, "run_quality_checks", lambda **_: 7)
     assert cli.main(["check"]) == 7
+
+
+def test_main_dispatches_run(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("run:\n  run_name: test\nsearch:\n  query: q\n", encoding="utf-8")
+    calls: dict[str, object] = {}
+
+    def _fake_run_pipeline(config, **kwargs):
+        calls["config"] = config
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "run_pipeline", _fake_run_pipeline)
+    rc = cli.main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--from",
+            "translate",
+            "--to",
+            "citations",
+            "--run-name",
+            "cli-test",
+            "--set",
+            "search.query=author:test",
+        ]
+    )
+
+    assert rc == 0
+    assert calls["config"].search.query == "author:test"
+    assert calls["kwargs"] == {
+        "start_stage": "translate",
+        "stop_stage": "citations",
+        "run_name": "cli-test",
+    }
+
+
+def test_parse_override_requires_equals():
+    try:
+        cli._parse_override("invalid")
+    except ValueError as exc:
+        assert "key=value" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")

@@ -1,4 +1,4 @@
-"""Minimal CLI for repository-local quality checks."""
+"""Thin CLI for quality checks and config-driven pipeline runs."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
+
+from ads_bib.pipeline import PipelineConfig, run_pipeline
 
 CommandRunner = Callable[[Sequence[str], dict[str, str] | None], int]
 
@@ -38,6 +40,47 @@ def _handle_check(_args: argparse.Namespace) -> int:
     return run_quality_checks()
 
 
+def _parse_override(raw: str) -> tuple[str, object]:
+    if "=" not in raw:
+        raise ValueError(f"Invalid override '{raw}'. Expected key=value.")
+    key, value = raw.split("=", 1)
+    import yaml
+
+    return key.strip(), yaml.safe_load(value)
+
+
+def _apply_override(data: dict[str, object], key: str, value: object) -> None:
+    current: dict[str, object] = data
+    parts = [part for part in key.split(".") if part]
+    if not parts:
+        raise ValueError("Override key cannot be empty.")
+    for part in parts[:-1]:
+        next_value = current.get(part)
+        if not isinstance(next_value, dict):
+            next_value = {}
+            current[part] = next_value
+        current = next_value
+    current[parts[-1]] = value
+
+
+def _handle_run(args: argparse.Namespace) -> int:
+    config = PipelineConfig.from_yaml(args.config)
+    config_data = config.to_dict()
+
+    for raw in args.set_values or []:
+        key, value = _parse_override(raw)
+        _apply_override(config_data, key, value)
+
+    config = PipelineConfig.from_dict(config_data)
+    run_pipeline(
+        config,
+        start_stage=args.from_stage,
+        stop_stage=args.to_stage,
+        run_name=args.run_name,
+    )
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ads-bib",
@@ -50,6 +93,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run local quality gates (ruff + pytest).",
     )
     check_parser.set_defaults(handler=_handle_check)
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run the ADS pipeline from a structured config file.",
+    )
+    run_parser.add_argument("--config", required=True, help="Path to YAML pipeline config.")
+    run_parser.add_argument("--from", dest="from_stage", help="Optional stage to start from.")
+    run_parser.add_argument("--to", dest="to_stage", help="Optional stage to stop after.")
+    run_parser.add_argument("--run-name", help="Optional run name override.")
+    run_parser.add_argument(
+        "--set",
+        dest="set_values",
+        action="append",
+        default=[],
+        help="Override config values via dotted key=value pairs.",
+    )
+    run_parser.set_defaults(handler=_handle_run)
     return parser
 
 
