@@ -163,9 +163,49 @@ def _invalidate_context_from(context: PipelineContext, stage: StageName) -> None
         context.fulltext_urls = None
         context.publications = None
         context.refs = None
-    elif stage_index <= STAGE_ORDER.index("author_disambiguation"):
-        context.publications = None
-        context.refs = None
+    elif stage_name == "translate":
+        context.publications = _drop_columns(
+            context.publications,
+            (
+                "Title_lang",
+                "Abstract_lang",
+                "Title_en",
+                "Abstract_en",
+                "full_text",
+                "tokens",
+                "author_uids",
+                "author_display_names",
+            ),
+        )
+        context.refs = _drop_columns(
+            context.refs,
+            (
+                "Title_lang",
+                "Abstract_lang",
+                "Title_en",
+                "Abstract_en",
+                "author_uids",
+                "author_display_names",
+            ),
+        )
+    elif stage_name == "tokenize":
+        context.publications = _drop_columns(
+            context.publications,
+            ("full_text", "tokens", "author_uids", "author_display_names"),
+        )
+        context.refs = _drop_columns(
+            context.refs,
+            ("author_uids", "author_display_names"),
+        )
+    elif stage_name == "author_disambiguation":
+        context.publications = _drop_columns(
+            context.publications,
+            ("author_uids", "author_display_names"),
+        )
+        context.refs = _drop_columns(
+            context.refs,
+            ("author_uids", "author_display_names"),
+        )
 
     if stage_index <= STAGE_ORDER.index("embeddings"):
         context.topic_input_df = None
@@ -224,6 +264,15 @@ def _set_resume_block(context: PipelineContext, candidate: StageName | None) -> 
         or STAGE_ORDER.index(candidate) < STAGE_ORDER.index(context.resume_blocked_from)
     ):
         context.resume_blocked_from = candidate
+
+
+def _drop_columns(
+    frame: pd.DataFrame | None,
+    columns: tuple[str, ...],
+) -> pd.DataFrame | None:
+    if frame is None:
+        return None
+    return frame.drop(columns=list(columns), errors="ignore")
 
 
 class NotebookSession:

@@ -69,8 +69,11 @@ parameters, and rerun only the cells that depend on your latest changes.
   - `CITATIONS`
 - The notebook uses `NotebookSession` from `ads_bib.notebook`; config diffing,
   invalidation, and run-state management live in the package, not inline cells.
-- Fresh in-memory notebook state wins over shared translated/tokenized snapshots;
-  shared snapshots are for true resume/restart, not for overriding a new query.
+- Notebook stage cells are explicit: they run the named stage only, or resume a
+  valid snapshot of that same stage.
+- Missing notebook prerequisites fail clearly instead of silently chaining
+  earlier stages.
+- Fresh in-memory notebook state wins over same-stage snapshots.
 - Topic-model experiments can restart by rerunning `topic_fit`,
   `topic_dataframe`, `visualize`, or `curate` after updating `TOPIC_MODEL`.
 - Start a fresh run directory only when you explicitly set `RESET_SESSION = True`.
@@ -91,9 +94,10 @@ ads-bib run --config configs/pipeline/default.yaml --run-name my_run
 ads-bib run --config configs/pipeline/default.yaml --set topic_model.backend=toponymy
 ```
 
-The CLI and notebook call the same runner in `ads_bib.pipeline`. A saved run
-config such as `runs/<run_id>/config_used.yaml` is a good template for future
-batch runs.
+The CLI and notebook share the same package logic, but not the same control
+semantics. The CLI is dependency-aware and batch-oriented; the notebook is
+explicit and stage-oriented. A saved run config such as
+`runs/<run_id>/config_used.yaml` is a good template for future batch runs.
 
 Secrets stay out of notebook cells and committed YAML. Leave API-key/token
 fields as `None` and provide them via `.env`.
@@ -131,7 +135,7 @@ Local model notes:
 - Secrets live only in `.env`.
 - Prompt selection uses `topic_model.llm_prompt_name` (`physics` or `generic`)
   unless you explicitly set `topic_model.llm_prompt`.
-- Tokenization defaults to `en_core_web_md` in both the notebook and the shared runner.
+- Tokenization defaults to `en_core_web_md` in both notebook and CLI runs.
 - Notebook stays orchestration-only.
 - Modules in `src/ads_bib/` own retries, caching, validation, and summaries.
 - Functions touching API/disk should accept `cache_dir: Path | None` and `force_refresh: bool`.
@@ -143,8 +147,10 @@ Use top-level `ads_bib` exports as stable imports:
 
 ```python
 from ads_bib import (
+    NotebookSession,
     PipelineConfig,
     RunManager,
+    StagePrerequisiteError,
     apply_author_disambiguation,
     build_all_nodes,
     build_topic_dataframe,
@@ -152,6 +158,7 @@ from ads_bib import (
     detect_languages,
     fit_bertopic,
     fit_toponymy,
+    get_notebook_session,
     get_cluster_summary,
     init_paths,
     load_env,
@@ -229,9 +236,9 @@ Mapped pipeline outputs normalize these into aligned list columns:
 ## Package vs Notebook Usage
 
 - `pipeline.ipynb` remains the main exploratory entrypoint for end-to-end ADS workflows.
-- `ads-bib run --config ...` provides the same pipeline path for unattended batch runs.
+- `ads-bib run --config ...` provides the unattended batch runner with dependency-aware orchestration.
 - `configs/pipeline/default.yaml` is the committed CLI template; saved run configs are reusable copies.
-- `ads_bib.pipeline` is the single orchestration path used by both frontends.
+- `NotebookSession.run_stage(...)` is explicit and stage-oriented; `ads_bib.run_pipeline(...)` is the batch orchestrator.
 - The installable package provides reusable building blocks plus repository-local quality checks.
 - Author disambiguation runs as an optional Phase-4 step between tokenization and topic/citation processing.
 - Notebook output cleanliness is treated as a release-freeze task, not an everyday development gate.

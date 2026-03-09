@@ -85,8 +85,6 @@ def test_pipeline_notebook_code_contract():
 
     assert 'TRANSLATE = {' in code
     assert '"api_key": None' in code
-    assert '\nSEARCH["query"] = \'author:"Treder, H*"\'\n' not in code
-    assert '# SEARCH["query"] = \'author:"Treder, H*"\'\n' in code
     assert '"spacy_model": "en_core_web_md"' in code
     assert '"fallback_model": "en_core_web_md"' in code
     assert 'TOPIC_MODEL = {' in code
@@ -106,13 +104,15 @@ def test_pipeline_notebook_has_expected_config_sections():
 
     assert "### 1.1 Search Configuration" in markdown
     assert "### 2.1 Translation Configuration" in markdown
+    assert "### 2.2 Language Detection + Translation" in markdown
+    assert "### 2.3 Preview Translated Fields" in markdown
     assert "# Phase 4: Author Name Disambiguation" in markdown
-    assert "### Phase 3 Snapshot" in markdown
     assert "### 5.1 Embedding Configuration" in markdown
     assert "### 5.3 Dimensionality Reduction Configuration" in markdown
     assert "### 5.4 Clustering Configuration" in markdown
     assert "### 5.5a LLM Prompt for Topic Labels" in markdown
     assert "### 6.1 Citation Configuration" in markdown
+    assert "Save Translation Checkpoint" not in markdown
     assert "placeholder" not in markdown.lower()
 
 

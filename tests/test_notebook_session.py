@@ -167,7 +167,103 @@ def test_search_config_change_blocks_later_snapshot_resume(tmp_path):
     assert session._context.refs is None
 
 
-def test_rerunning_translate_after_search_change_recomputes_instead_of_loading_snapshot(
+def test_translate_config_change_preserves_export_state(tmp_path):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    assert session._context is not None
+    session._context.publications = pd.DataFrame(
+        [{"Bibcode": "pub", "Title": "T", "Abstract": "A", "Year": 1971}]
+    )
+    session._context.refs = pd.DataFrame(
+        [{"Bibcode": "ref", "Title": "RT", "Abstract": "RA", "Year": 1970}]
+    )
+
+    session.set_section(
+        "translate",
+        {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+    )
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["pub"]
+    assert session.refs["Bibcode"].tolist() == ["ref"]
+    assert "Title_en" not in session.publications.columns
+    assert "Title_en" not in session.refs.columns
+
+
+def test_translate_without_export_raises_prerequisite_error(tmp_path, monkeypatch):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    session.set_section("translate", {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")})
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_translated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+
+    with pytest.raises(pipeline.StagePrerequisiteError) as excinfo:
+        session.run_stage("translate")
+
+    assert excinfo.value.required_stage == "export"
+
+
+def test_translate_uses_same_stage_snapshot_when_valid(tmp_path, monkeypatch):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    session.set_section("translate", {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")})
+    assert session._context is not None
+    session._context.resume_blocked_from = None
+
+    pubs = pd.DataFrame([{"Bibcode": "snap-pub", "Title_en": "T", "Abstract_en": "A"}])
+    refs = pd.DataFrame([{"Bibcode": "snap-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+    monkeypatch.setattr(pipeline, "load_translated_snapshot", lambda **kwargs: (pubs.copy(), refs.copy()))
+
+    session.run_stage("translate")
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["snap-pub"]
+    assert session.refs["Bibcode"].tolist() == ["snap-ref"]
+
+
+def test_translate_after_export_uses_current_export_state_without_snapshot(tmp_path, monkeypatch):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    assert session._context is not None
+    session._context.publications = pd.DataFrame([{"Bibcode": "pub", "Title": "T", "Abstract": "A"}])
+    session._context.refs = pd.DataFrame([{"Bibcode": "ref", "Title": "RT", "Abstract": "RA"}])
+
+    session.set_section(
+        "translate",
+        {
+            "enabled": False,
+            "provider": "nllb",
+            "model": "stub",
+            "fasttext_model": str(tmp_path / "lid.176.bin"),
+        },
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_translated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("snapshot should not load")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_translated_snapshot",
+        lambda pubs, refs, **kwargs: None,
+    )
+
+    session.run_stage("translate")
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["pub"]
+    assert session.refs["Bibcode"].tolist() == ["ref"]
+
+
+def test_translate_after_search_change_requires_fresh_export_and_does_not_load_snapshot(
     tmp_path,
     monkeypatch,
 ):
@@ -183,23 +279,98 @@ def test_rerunning_translate_after_search_change_recomputes_instead_of_loading_s
     def _fail_snapshot(**kwargs):
         raise AssertionError("stale translated snapshot should not load")
 
-    def _fake_export(context):
-        context.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title": "T", "Abstract": "A"}])
-        context.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title": "RT", "Abstract": "RA"}])
-        return context
-
     monkeypatch.setattr(pipeline, "load_translated_snapshot", _fail_snapshot)
-    monkeypatch.setattr(pipeline, "run_export_stage", _fake_export)
-    monkeypatch.setattr(pipeline, "save_translated_snapshot", lambda *args, **kwargs: None)
 
-    session.run_stage("translate")
+    with pytest.raises(pipeline.StagePrerequisiteError) as excinfo:
+        session.run_stage("translate")
+
+    assert excinfo.value.required_stage == "export"
+
+
+def test_tokenize_config_change_preserves_translated_inputs_and_drops_tokens(tmp_path):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    assert session._context is not None
+    session._context.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "pub",
+                "Title_en": "T",
+                "Abstract_en": "A",
+                "full_text": "T. A",
+                "tokens": [["tok"]],
+                "author_uids": [["u1"]],
+                "author_display_names": [["Name"]],
+            }
+        ]
+    )
+    session._context.refs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "ref",
+                "Title_en": "RT",
+                "Abstract_en": "RA",
+                "author_uids": [["u2"]],
+                "author_display_names": [["Ref Name"]],
+            }
+        ]
+    )
+
+    session.set_section("tokenize", {"batch_size": 128})
 
     assert session.publications is not None
     assert session.refs is not None
-    assert session.publications["Bibcode"].tolist() == ["fresh-pub"]
-    assert session.refs["Bibcode"].tolist() == ["fresh-ref"]
+    assert "Title_en" in session.publications.columns
+    assert "Abstract_en" in session.publications.columns
+    assert "Title_en" in session.refs.columns
+    assert "Abstract_en" in session.refs.columns
+    assert "full_text" not in session.publications.columns
+    assert "tokens" not in session.publications.columns
+    assert "author_uids" not in session.publications.columns
+    assert "author_display_names" not in session.publications.columns
+    assert "author_uids" not in session.refs.columns
+    assert "author_display_names" not in session.refs.columns
+
+
+def test_author_disambiguation_config_change_preserves_tokens_and_drops_author_columns(tmp_path):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
     assert session._context is not None
-    assert session._context.resume_blocked_from == "tokenize"
+    session._context.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "pub",
+                "Title_en": "T",
+                "Abstract_en": "A",
+                "full_text": "T. A",
+                "tokens": [["tok"]],
+                "author_uids": [["u1"]],
+                "author_display_names": [["Name"]],
+            }
+        ]
+    )
+    session._context.refs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "ref",
+                "Title_en": "RT",
+                "Abstract_en": "RA",
+                "author_uids": [["u2"]],
+                "author_display_names": [["Ref Name"]],
+            }
+        ]
+    )
+
+    session.set_section("author_disambiguation", {"force_refresh": True})
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert "tokens" in session.publications.columns
+    assert "full_text" in session.publications.columns
+    assert "author_uids" not in session.publications.columns
+    assert "author_display_names" not in session.publications.columns
+    assert "author_uids" not in session.refs.columns
+    assert "author_display_names" not in session.refs.columns
 
 
 def test_llm_prompt_name_resolution_and_explicit_override(tmp_path, monkeypatch):

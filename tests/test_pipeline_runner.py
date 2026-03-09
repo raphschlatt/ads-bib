@@ -72,16 +72,73 @@ def test_run_pipeline_respects_stage_slice(monkeypatch):
         "create",
         classmethod(lambda cls, config, **kwargs: fake_ctx),
     )
-    monkeypatch.setattr(
-        pipeline,
-        "_STAGE_FUNCS",
-        {name: (lambda ctx, stage=name: events.append(stage) or ctx) for name in pipeline.STAGE_ORDER},
-    )
+    completed: set[str] = set()
+
+    def _runner(stage_name):
+        def _run(_ctx):
+            if stage_name == "search":
+                completed.add("search")
+                events.append("search")
+                return _ctx
+            if stage_name == "export":
+                if "search" not in completed:
+                    raise pipeline.StagePrerequisiteError("export", "search", "need search")
+                completed.add("export")
+                events.append("export")
+                return _ctx
+            if stage_name == "translate":
+                if "export" not in completed:
+                    raise pipeline.StagePrerequisiteError("translate", "export", "need export")
+                completed.add("translate")
+                events.append("translate")
+                return _ctx
+            if stage_name == "tokenize":
+                if "translate" not in completed:
+                    raise pipeline.StagePrerequisiteError("tokenize", "translate", "need translate")
+                completed.add("tokenize")
+                events.append("tokenize")
+                return _ctx
+            if stage_name == "author_disambiguation":
+                if "tokenize" not in completed:
+                    raise pipeline.StagePrerequisiteError(
+                        "author_disambiguation",
+                        "tokenize",
+                        "need tokenize",
+                    )
+                completed.add("author_disambiguation")
+                events.append("author_disambiguation")
+                return _ctx
+            if stage_name == "embeddings":
+                if "author_disambiguation" not in completed:
+                    raise pipeline.StagePrerequisiteError("embeddings", "author_disambiguation", "need and")
+                completed.add("embeddings")
+                events.append("embeddings")
+                return _ctx
+            if stage_name == "reduction":
+                if "embeddings" not in completed:
+                    raise pipeline.StagePrerequisiteError("reduction", "embeddings", "need embeddings")
+                completed.add("reduction")
+                events.append("reduction")
+                return _ctx
+            if stage_name == "topic_fit":
+                if "reduction" not in completed:
+                    raise pipeline.StagePrerequisiteError("topic_fit", "reduction", "need reduction")
+                completed.add("topic_fit")
+                events.append("topic_fit")
+                return _ctx
+            events.append(stage_name)
+            return _ctx
+
+        return _run
+
+    monkeypatch.setattr(pipeline, "_STAGE_FUNCS", {name: _runner(name) for name in pipeline.STAGE_ORDER})
 
     pipeline.run_pipeline(config, start_stage="translate", stop_stage="topic_fit", load_environment=False)
 
     assert events == [
         "save_config",
+        "search",
+        "export",
         "translate",
         "tokenize",
         "author_disambiguation",
@@ -138,6 +195,28 @@ def test_run_translate_stage_prefers_current_export_results_over_snapshot(tmp_pa
     assert "Title_en" in ctx.refs.columns
 
 
+def test_run_translate_stage_requires_export_when_no_inputs(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_translated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+
+    with pytest.raises(pipeline.StagePrerequisiteError) as excinfo:
+        pipeline.run_translate_stage(ctx)
+
+    assert excinfo.value.required_stage == "export"
+
+
 def test_run_tokenize_stage_prefers_current_translated_results_over_snapshot(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
@@ -177,6 +256,28 @@ def test_run_tokenize_stage_prefers_current_translated_results_over_snapshot(tmp
     assert ctx.publications["tokens"].tolist() == [["tok"]]
 
 
+def test_run_tokenize_stage_requires_translate_when_no_inputs(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_tokenized_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+
+    with pytest.raises(pipeline.StagePrerequisiteError) as excinfo:
+        pipeline.run_tokenize_stage(ctx)
+
+    assert excinfo.value.required_stage == "translate"
+
+
 def test_run_author_disambiguation_stage_prefers_current_tokenized_results_over_snapshot(
     tmp_path,
     monkeypatch,
@@ -213,7 +314,30 @@ def test_run_author_disambiguation_stage_prefers_current_tokenized_results_over_
     assert saved["refs"]["Bibcode"].tolist() == ["fresh-ref"]
 
 
-def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkeypatch):
+def test_run_author_disambiguation_stage_requires_tokenize_when_no_inputs(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "author_disambiguation": {"enabled": False},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_disambiguated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+
+    with pytest.raises(pipeline.StagePrerequisiteError) as excinfo:
+        pipeline.run_author_disambiguation_stage(ctx)
+
+    assert excinfo.value.required_stage == "tokenize"
+
+
+def test_run_pipeline_topic_fit_uses_tokenized_snapshot_and_caches(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
@@ -232,8 +356,8 @@ def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkey
     ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
     pubs = pd.DataFrame(
         [
-            {"Bibcode": "b1", "Author": ["Doe, A."], "full_text": "alpha beta", "Title_en": "A", "Abstract_en": "alpha", "Year": 2020},
-            {"Bibcode": "b2", "Author": ["Roe, B."], "full_text": "gamma delta", "Title_en": "B", "Abstract_en": "beta", "Year": 2021},
+            {"Bibcode": "b1", "Author": ["Doe, A."], "full_text": "alpha beta", "tokens": [["alpha", "beta"]], "Title_en": "A", "Abstract_en": "alpha", "Year": 2020},
+            {"Bibcode": "b2", "Author": ["Roe, B."], "full_text": "gamma delta", "tokens": [["gamma", "delta"]], "Title_en": "B", "Abstract_en": "beta", "Year": 2021},
         ]
     )
     refs = pd.DataFrame(
@@ -296,7 +420,7 @@ def test_run_topic_fit_stage_uses_tokenized_snapshot_and_caches(tmp_path, monkey
         lambda topic_model, documents, topics, reduced_5d, **kwargs: np.asarray(topics),
     )
 
-    pipeline.run_topic_fit_stage(ctx)
+    pipeline._run_stage_for_pipeline(ctx, "topic_fit")
 
     assert events == ["embeddings", "reduction", "fit"]
     assert ctx.documents == ["alpha beta", "gamma delta"]

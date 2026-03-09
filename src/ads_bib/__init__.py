@@ -11,22 +11,12 @@ suppress_noisy_third_party_logs()
 from ads_bib.author_disambiguation import apply_author_disambiguation
 from ads_bib.citations import build_all_nodes, process_all_citations
 from ads_bib.config import init_paths, load_env
+from ads_bib.notebook import NotebookSession, get_notebook_session
 from ads_bib.pipeline import (
     PipelineConfig,
     PipelineContext,
+    StagePrerequisiteError,
     run_pipeline,
-    run_author_disambiguation_stage,
-    run_citations_stage,
-    run_curate_stage,
-    run_embeddings_stage,
-    run_export_stage,
-    run_reduction_stage,
-    run_search_stage,
-    run_tokenize_stage,
-    run_topic_dataframe_stage,
-    run_topic_fit_stage,
-    run_translate_stage,
-    run_visualize_stage,
 )
 from ads_bib.curate import get_cluster_summary, remove_clusters
 from ads_bib.export import resolve_dataset
@@ -53,7 +43,9 @@ __all__ = [
     "apply_author_disambiguation",
     "PipelineConfig",
     "PipelineContext",
+    "NotebookSession",
     "RunManager",
+    "StagePrerequisiteError",
     "build_all_nodes",
     "build_topic_dataframe",
     "compute_embeddings",
@@ -63,6 +55,7 @@ __all__ = [
     "get_cluster_summary",
     "init_paths",
     "load_env",
+    "get_notebook_session",
     "process_all_citations",
     "reduce_dimensions",
     "reduce_outliers",
@@ -70,18 +63,6 @@ __all__ = [
     "resolve_dataset",
     "search_ads",
     "run_pipeline",
-    "run_author_disambiguation_stage",
-    "run_citations_stage",
-    "run_curate_stage",
-    "run_embeddings_stage",
-    "run_export_stage",
-    "run_reduction_stage",
-    "run_search_stage",
-    "run_tokenize_stage",
-    "run_topic_dataframe_stage",
-    "run_topic_fit_stage",
-    "run_translate_stage",
-    "run_visualize_stage",
     "tokenize_texts",
     "translate_dataframe",
 ]

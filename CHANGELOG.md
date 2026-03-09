@@ -15,11 +15,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Changed
 - `pipeline.ipynb` now uses explicit section dicts plus `NotebookSession`; it no longer owns config assembly, invalidation, `globals()` syncing, or `START_STAGE` / `STOP_STAGE`.
 - Stage slicing remains a CLI/YAML concern; notebook reruns are driven by executing the corresponding stage cell.
-- Fresh in-memory notebook state now takes precedence over translated/tokenized/disambiguated shared snapshots when a config change invalidates later stages.
+- Notebook stage cells are now strict and no longer auto-chain earlier stages such as `translate -> export`.
+- Fresh in-memory notebook state now takes precedence over same-stage translated/tokenized/disambiguated snapshots when a config change invalidates later stages.
 - Run config snapshots are now serialized from structured pipeline config instead of raw notebook globals.
 - Prompt selection now supports `topic_model.llm_prompt_name` with package-side resolution and `.env` fallbacks for ADS/OpenRouter secrets.
 - Tokenization defaults now use `en_core_web_md` rather than `en_core_web_lg`.
 - AND integration remains optional, but the active path is now the source-based external adapter rather than a placeholder notebook contract.
+- `run_pipeline()` remains the dependency-aware batch path; notebook stage execution now has intentionally different UX semantics.
 
 ### Docs
 - `README.md` now documents inline notebook section configs, `configs/pipeline/default.yaml`, and `.env` as the only secret location.

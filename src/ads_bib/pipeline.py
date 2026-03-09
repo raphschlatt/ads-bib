@@ -80,6 +80,20 @@ STAGE_ORDER: tuple[StageName, ...] = (
 )
 
 
+class StagePrerequisiteError(RuntimeError):
+    """Raised when a strict stage is missing its required upstream state."""
+
+    def __init__(
+        self,
+        stage: StageName,
+        required_stage: StageName | None,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.required_stage = required_stage
+
+
 def _prompt_value(name: str) -> str:
     return str(getattr(prompts, name))
 
@@ -496,6 +510,10 @@ def _load_curated_dataset(ctx: PipelineContext) -> pd.DataFrame:
     raise FileNotFoundError(f"Curated dataset not found at {curated_path}")
 
 
+def _require_stage(stage: StageName, required_stage: StageName, message: str) -> StagePrerequisiteError:
+    return StagePrerequisiteError(stage, required_stage, message)
+
+
 def run_search_stage(ctx: PipelineContext) -> PipelineContext:
     if ctx.bibcodes is not None:
         return ctx
@@ -518,11 +536,17 @@ def run_export_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: export ===")
-    run_search_stage(ctx)
-    assert ctx.bibcodes is not None
-    assert ctx.references is not None
-    assert ctx.esources is not None
-    assert ctx.fulltext_urls is not None
+    if (
+        ctx.bibcodes is None
+        or ctx.references is None
+        or ctx.esources is None
+        or ctx.fulltext_urls is None
+    ):
+        raise _require_stage(
+            "export",
+            "search",
+            "Export stage requires search results in memory. Run the search stage first.",
+        )
     cfg = ctx.config.search
     ctx.publications, ctx.refs = resolve_dataset(
         ctx.bibcodes,
@@ -551,7 +575,14 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         except FileNotFoundError:
             pass
 
-    run_export_stage(ctx)
+    if not _has_source_frames(ctx):
+        raise _require_stage(
+            "translate",
+            "export",
+            "Translate stage requires exported publications and references in memory, "
+            "or a valid translated snapshot for the same stage.",
+        )
+
     assert ctx.publications is not None
     assert ctx.refs is not None
     cfg = ctx.config.translate
@@ -612,7 +643,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
 
 
 def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
-    if ctx.publications is not None and "tokens" in ctx.publications.columns:
+    if ctx.publications is not None and ctx.refs is not None and "tokens" in ctx.publications.columns:
         return ctx
 
     logger.info("=== Stage: tokenize ===")
@@ -626,7 +657,14 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         except FileNotFoundError:
             pass
 
-    run_translate_stage(ctx)
+    if not _has_translated_frames(ctx):
+        raise _require_stage(
+            "tokenize",
+            "translate",
+            "Tokenize stage requires translated publications and references in memory, "
+            "or a valid tokenized snapshot for the same stage.",
+        )
+
     assert ctx.publications is not None
     assert ctx.refs is not None
     cfg = ctx.config.tokenize
@@ -666,7 +704,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
 
 
 def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
-    if ctx.publications is not None and "author_uids" in ctx.publications.columns:
+    if ctx.publications is not None and ctx.refs is not None and "author_uids" in ctx.publications.columns:
         return ctx
 
     logger.info("=== Stage: author_disambiguation ===")
@@ -680,7 +718,14 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
         except FileNotFoundError:
             pass
 
-    run_tokenize_stage(ctx)
+    if ctx.publications is None or "tokens" not in ctx.publications.columns or ctx.refs is None:
+        raise _require_stage(
+            "author_disambiguation",
+            "tokenize",
+            "Author disambiguation stage requires tokenized publications and references in memory, "
+            "or a valid disambiguated snapshot for the same stage.",
+        )
+
     assert ctx.publications is not None
     assert ctx.refs is not None
     cfg = ctx.config.author_disambiguation
@@ -712,8 +757,13 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: embeddings ===")
-    run_author_disambiguation_stage(ctx)
-    assert ctx.publications is not None
+    if ctx.publications is None or "full_text" not in ctx.publications.columns:
+        raise _require_stage(
+            "embeddings",
+            "author_disambiguation",
+            "Embeddings stage requires tokenized publications in memory. "
+            "Run the author_disambiguation stage first.",
+        )
     cfg = ctx.config.topic_model
     df = ctx.publications.copy()
     if cfg.sample_size is not None:
@@ -743,8 +793,12 @@ def run_reduction_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: reduction ===")
-    run_embeddings_stage(ctx)
-    assert ctx.embeddings is not None
+    if ctx.embeddings is None:
+        raise _require_stage(
+            "reduction",
+            "embeddings",
+            "Reduction stage requires embeddings in memory. Run the embeddings stage first.",
+        )
     cfg = ctx.config.topic_model
     ctx.reduced_5d, ctx.reduced_2d = reduce_dimensions(
         ctx.embeddings,
@@ -763,10 +817,13 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: topic_fit ===")
-    run_reduction_stage(ctx)
-    assert ctx.documents is not None
-    assert ctx.reduced_5d is not None
-    assert ctx.embeddings is not None
+    if ctx.documents is None or ctx.reduced_5d is None or ctx.embeddings is None:
+        raise _require_stage(
+            "topic_fit",
+            "reduction",
+            "Topic-fit stage requires reduced embeddings and documents in memory. "
+            "Run the reduction stage first.",
+        )
     cfg = ctx.config.topic_model
     resolved = _resolve_topic_defaults(ctx)
 
@@ -846,11 +903,18 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: topic_dataframe ===")
-    run_topic_fit_stage(ctx)
-    assert ctx.topic_input_df is not None
-    assert ctx.topic_model is not None
-    assert ctx.topics is not None
-    assert ctx.reduced_2d is not None
+    if (
+        ctx.topic_input_df is None
+        or ctx.topic_model is None
+        or ctx.topics is None
+        or ctx.reduced_2d is None
+    ):
+        raise _require_stage(
+            "topic_dataframe",
+            "topic_fit",
+            "Topic-dataframe stage requires a fitted topic model and reduced 2D embeddings in memory. "
+            "Run the topic_fit stage first.",
+        )
     ctx.topic_df = build_topic_dataframe(
         ctx.topic_input_df,
         ctx.topic_model,
@@ -870,8 +934,12 @@ def run_visualize_stage(ctx: PipelineContext) -> PipelineContext:
 
     from ads_bib.visualize import create_topic_map
 
-    run_topic_dataframe_stage(ctx)
-    assert ctx.topic_df is not None
+    if ctx.topic_df is None:
+        raise _require_stage(
+            "visualize",
+            "topic_dataframe",
+            "Visualize stage requires topic_df in memory. Run the topic_dataframe stage first.",
+        )
     create_topic_map(
         ctx.topic_df,
         title=ctx.config.visualization.title,
@@ -887,8 +955,12 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: curate ===")
-    run_topic_dataframe_stage(ctx)
-    assert ctx.topic_df is not None
+    if ctx.topic_df is None:
+        raise _require_stage(
+            "curate",
+            "topic_dataframe",
+            "Curate stage requires topic_df in memory. Run the topic_dataframe stage first.",
+        )
     ctx.curated_df = ctx.topic_df.copy()
     display_summary = get_cluster_summary(ctx.curated_df)
     logger.info("Cluster summary rows: %s", f"{len(display_summary):,}")
@@ -906,13 +978,13 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     logger.info("=== Stage: citations ===")
-    try:
-        ctx.curated_df = ctx.curated_df if ctx.curated_df is not None else _load_curated_dataset(ctx)
-    except FileNotFoundError:
-        run_curate_stage(ctx)
-    assert ctx.curated_df is not None
-    run_author_disambiguation_stage(ctx)
-    assert ctx.refs is not None
+    if ctx.curated_df is None or ctx.refs is None:
+        raise _require_stage(
+            "citations",
+            "curate",
+            "Citations stage requires a curated dataset and reference table in memory. "
+            "Run the curate stage first.",
+        )
 
     bibcodes, references = build_citation_inputs_from_publications(ctx.curated_df)
     all_nodes = build_all_nodes(ctx.curated_df, ctx.refs)
@@ -954,6 +1026,18 @@ _STAGE_FUNCS: dict[StageName, Any] = {
 }
 
 
+def _run_stage_for_pipeline(ctx: PipelineContext, stage: StageName) -> PipelineContext:
+    runner = _STAGE_FUNCS[stage]
+    try:
+        return runner(ctx)
+    except StagePrerequisiteError as exc:
+        required_stage = exc.required_stage
+        if required_stage is None:
+            raise
+        _run_stage_for_pipeline(ctx, required_stage)
+        return runner(ctx)
+
+
 def run_pipeline(
     config: PipelineConfig,
     *,
@@ -985,7 +1069,7 @@ def run_pipeline(
     )
     ctx.run.save_config(prepared_config)
     for stage in _stage_slice(resolved_start, resolved_stop):
-        _STAGE_FUNCS[stage](ctx)
+        _run_stage_for_pipeline(ctx, stage)
     return ctx
 
 
@@ -1013,6 +1097,7 @@ __all__ = [
     "PipelineContext",
     "RunConfig",
     "SearchConfig",
+    "StagePrerequisiteError",
     "STAGE_ORDER",
     "StageName",
     "TokenizeConfig",
@@ -1021,18 +1106,6 @@ __all__ = [
     "VisualizationConfig",
     "pipeline_config_to_dict",
     "prepare_pipeline_config",
-    "run_author_disambiguation_stage",
-    "run_citations_stage",
-    "run_curate_stage",
-    "run_embeddings_stage",
-    "run_export_stage",
     "run_pipeline",
-    "run_reduction_stage",
-    "run_search_stage",
-    "run_tokenize_stage",
-    "run_topic_dataframe_stage",
-    "run_topic_fit_stage",
-    "run_translate_stage",
-    "run_visualize_stage",
     "validate_stage_name",
 ]
