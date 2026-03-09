@@ -56,6 +56,13 @@ def test_pipeline_notebook_code_contract():
     assert "references_translated_tokenized.json" not in code
     assert "references_translated.json" not in code  # moved to load_phase3_checkpoint
     assert "build_citation_inputs_from_publications(df)" in code
+    assert 'ENABLE_AUTHOR_DISAMBIGUATION = False' in code
+    assert 'AND_MODEL_BUNDLE = None' in code
+    assert 'load_phase4_checkpoint' in code
+    assert 'save_phase4_checkpoint' in code
+    assert "apply_author_disambiguation(" in code
+    assert "AND step skipped (placeholder)" not in code
+    assert "AND PLACEHOLDER" not in code
 
     # Notebook is a thin command layer — no inline cache logic or cost snapshots
     assert "load_pickle(latest)" not in code
@@ -88,11 +95,13 @@ def test_pipeline_notebook_has_expected_config_sections():
 
     assert "### 1.1 Search Configuration" in markdown
     assert "### 2.1 Translation Configuration" in markdown
+    assert "# Phase 4: Author Name Disambiguation" in markdown
     assert "### 5.1 Embedding Configuration" in markdown
     assert "### 5.3 Dimensionality Reduction Configuration" in markdown
     assert "### 5.4 Clustering Configuration" in markdown
     assert "### 5.5 Backend & LLM Configuration" in markdown
     assert "### 6.1 Citation Configuration" in markdown
+    assert "placeholder" not in markdown.lower()
 
 
 def test_pipeline_notebook_is_output_clean():

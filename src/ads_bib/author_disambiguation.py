@@ -1,218 +1,253 @@
-"""Author name disambiguation adapter for external AND packages."""
+"""Source-based author disambiguation adapter for external AND packages."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 import logging
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from ads_bib._utils.authors import author_list as _author_list
 from ads_bib._utils.checkpoints import load_phase4_checkpoint, save_phase4_checkpoint
-from ads_bib._utils.io import save_parquet
+from ads_bib._utils.io import load_parquet, save_parquet
 
 logger = logging.getLogger(__name__)
 
-_MENTION_ASSIGNMENT_COLUMNS = {
-    "mention_id",
-    "author_uid",
-    "author_display_name",
-}
-_AUTHOR_ENTITY_COLUMNS = {
-    "author_uid",
-    "author_display_name",
-    "aliases",
-    "mention_count",
-    "document_count",
-    "unique_mention_count",
-    "display_name_method",
+_REQUIRED_SOURCE_COLUMNS = {"Bibcode", "Author", "Year"}
+_AUTHOR_UID_COLUMN = "AuthorUID"
+_AUTHOR_DISPLAY_NAME_COLUMN = "AuthorDisplayName"
+_LIST_OUTPUT_COLUMNS = {
+    _AUTHOR_UID_COLUMN: "author_uids",
+    _AUTHOR_DISPLAY_NAME_COLUMN: "author_display_names",
 }
 
-DisambiguateMentions = Callable[[pd.DataFrame], tuple[pd.DataFrame, pd.DataFrame]]
+SourceAndRunner = Callable[..., Any]
 
 
-def _resolve_affiliation(value: object, position: int) -> object:
-    if isinstance(value, list):
-        return value[position] if position < len(value) else None
-    if isinstance(value, tuple):
-        return value[position] if position < len(value) else None
-    if isinstance(value, pd.Series):
-        return value.iloc[position] if position < len(value) else None
-    return value
+def _load_default_and_runner() -> SourceAndRunner:
+    try:
+        from author_name_disambiguation import run_infer_sources
+    except ImportError as exc:
+        raise ImportError(
+            "Author disambiguation requires the optional `author_name_disambiguation` "
+            "package with a `run_infer_sources` export."
+        ) from exc
+    return run_infer_sources
 
 
-def _build_author_mentions(
-    publications: pd.DataFrame,
-    references: pd.DataFrame,
-) -> pd.DataFrame:
-    rows: list[dict[str, object]] = []
-    frames = (
-        ("publication", publications),
-        ("reference", references),
-    )
-    for document_type, frame in frames:
-        if "Author" not in frame.columns:
-            raise ValueError(f"{document_type}s DataFrame must contain an 'Author' column.")
-        for record_row, row in enumerate(frame.itertuples(index=False), start=0):
-            row_dict = row._asdict()
-            authors = _author_list(row_dict.get("Author"))
-            document_id = str(row_dict.get("Bibcode") or f"{document_type}:{record_row}")
-            for author_position, raw_mention in enumerate(authors):
-                rows.append(
-                    {
-                        "mention_id": f"{document_type}:{record_row}:{author_position}",
-                        "document_id": document_id,
-                        "document_type": document_type,
-                        "record_row": record_row,
-                        "author_position": author_position,
-                        "raw_mention": raw_mention,
-                        "affiliation": _resolve_affiliation(
-                            row_dict.get("Affiliation"),
-                            author_position,
-                        ),
-                        "year": row_dict.get("Year"),
-                    }
-                )
-    return pd.DataFrame(
-        rows,
-        columns=[
-            "mention_id",
-            "document_id",
-            "document_type",
-            "record_row",
-            "author_position",
-            "raw_mention",
-            "affiliation",
-            "year",
-        ],
-    )
-
-
-def _validate_mention_assignments(
-    mentions: pd.DataFrame,
-    mention_assignments: pd.DataFrame,
-) -> pd.DataFrame:
-    missing = _MENTION_ASSIGNMENT_COLUMNS.difference(mention_assignments.columns)
-    if missing:
-        raise ValueError(
-            "mention_assignments is missing required columns: "
-            f"{', '.join(sorted(missing))}"
-        )
-
-    assignments = mention_assignments.copy()
-    if assignments["mention_id"].isna().any():
-        raise ValueError("mention_assignments contains null mention_id values.")
-    if assignments["mention_id"].duplicated().any():
-        raise ValueError("mention_assignments must contain unique mention_id values.")
-    if assignments["author_uid"].isna().any():
-        raise ValueError("mention_assignments contains null author_uid values.")
-    if assignments["author_display_name"].isna().any():
-        raise ValueError("mention_assignments contains null author_display_name values.")
-
-    expected = set(mentions["mention_id"].tolist())
-    actual = set(assignments["mention_id"].tolist())
-    if actual != expected:
-        missing_ids = sorted(expected - actual)
-        extra_ids = sorted(actual - expected)
-        problems: list[str] = []
-        if missing_ids:
-            problems.append(f"missing mention_id(s): {missing_ids[:5]}")
-        if extra_ids:
-            problems.append(f"unexpected mention_id(s): {extra_ids[:5]}")
-        raise ValueError("mention_assignments does not cover the mention contract: " + "; ".join(problems))
-
-    return assignments
-
-
-def _validate_author_entities(authors: pd.DataFrame) -> pd.DataFrame:
-    missing = _AUTHOR_ENTITY_COLUMNS.difference(authors.columns)
-    if missing:
-        raise ValueError(
-            "authors is missing required columns: "
-            f"{', '.join(sorted(missing))}"
-        )
-
-    author_entities = authors.copy()
-    if author_entities["author_uid"].isna().any():
-        raise ValueError("authors contains null author_uid values.")
-    if author_entities["author_uid"].duplicated().any():
-        raise ValueError("authors must contain unique author_uid values.")
-    if author_entities["author_display_name"].isna().any():
-        raise ValueError("authors contains null author_display_name values.")
-    return author_entities
-
-
-def _apply_assignments_to_frame(
-    frame: pd.DataFrame,
-    *,
-    document_type: str,
-    mention_assignments: pd.DataFrame,
-) -> pd.DataFrame:
-    frame_out = frame.copy()
-    grouped = (
-        mention_assignments.loc[mention_assignments["document_type"] == document_type]
-        .sort_values(["record_row", "author_position"])
-        .groupby("record_row", sort=True)
-    )
-
-    author_uids: list[list[str]] = [[] for _ in range(len(frame_out))]
-    author_display_names: list[list[str]] = [[] for _ in range(len(frame_out))]
-
-    for record_row, group in grouped:
-        idx = int(record_row)
-        author_uids[idx] = group["author_uid"].astype(str).tolist()
-        author_display_names[idx] = group["author_display_name"].astype(str).tolist()
-
-    frame_out["author_uids"] = author_uids
-    frame_out["author_display_names"] = author_display_names
-    return frame_out
-
-
-def _save_run_snapshot_only(
-    publications: pd.DataFrame,
-    references: pd.DataFrame,
-    authors: pd.DataFrame,
-    *,
-    run_data_dir: Path | str,
-) -> None:
-    run_data_dir = Path(run_data_dir)
-    save_parquet(publications, run_data_dir / "publications_disambiguated.parquet")
-    save_parquet(references, run_data_dir / "references_disambiguated.parquet")
-    save_parquet(authors, run_data_dir / "authors.parquet")
+def _result_value(result: Any, key: str) -> Any:
+    if isinstance(result, dict):
+        return result.get(key)
+    return getattr(result, key, None)
 
 
 def _normalize_list_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Convert cached array-like cells back to plain Python lists."""
     frame_out = frame.copy()
     for column in columns:
         if column not in frame_out.columns:
             continue
-        frame_out[column] = frame_out[column].apply(
-            lambda value: list(value)
-            if isinstance(value, (list, tuple, pd.Series))
-            else value.tolist()
-            if hasattr(value, "tolist")
-            else []
-            if pd.isna(value)
-            else value
+        normalized: list[list[str]] = []
+        for value in frame_out[column].tolist():
+            if isinstance(value, (list, tuple, pd.Series)):
+                items = list(value)
+            elif hasattr(value, "tolist") and not isinstance(value, (str, bytes, dict)):
+                items = list(value.tolist())
+            elif pd.isna(value):
+                items = []
+            else:
+                items = [value]
+            normalized.append([str(item) for item in items])
+        frame_out[column] = normalized
+    return frame_out
+
+
+def _normalize_output_list(value: object, *, column: str, expected_len: int) -> list[str]:
+    if isinstance(value, (list, tuple, pd.Series)):
+        items = list(value)
+    elif hasattr(value, "tolist") and not isinstance(value, (str, bytes, dict)):
+        items = list(value.tolist())
+    elif pd.isna(value):
+        items = []
+    else:
+        raise ValueError(f"{column} must contain list-like values.")
+
+    if len(items) != expected_len:
+        raise ValueError(
+            f"{column} length must match Author length for every row "
+            f"(expected {expected_len}, got {len(items)})."
+        )
+    if any(item is None or pd.isna(item) for item in items):
+        raise ValueError(f"{column} contains null entries.")
+    return [str(item) for item in items]
+
+
+def _validate_source_frame(frame: pd.DataFrame, *, frame_name: str) -> None:
+    if frame.empty and len(frame.columns) == 0:
+        return
+
+    missing = sorted(_REQUIRED_SOURCE_COLUMNS.difference(frame.columns))
+    if missing:
+        raise ValueError(f"{frame_name} is missing required columns: {', '.join(missing)}")
+    if "Title_en" not in frame.columns and "Title" not in frame.columns:
+        raise ValueError(f"{frame_name} must contain Title_en or Title.")
+    if "Abstract_en" not in frame.columns and "Abstract" not in frame.columns:
+        raise ValueError(f"{frame_name} must contain Abstract_en or Abstract.")
+
+
+def _resolve_dataset_id(dataset_id: str | None, run_data_dir: Path | str | None) -> str:
+    if dataset_id is not None and str(dataset_id).strip():
+        return str(dataset_id).strip()
+    if run_data_dir is not None:
+        return Path(run_data_dir).name
+    raise ValueError("dataset_id is required when run_data_dir is not available.")
+
+
+def _prepare_passthrough_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    frame_out = frame.copy()
+    if "Author" in frame_out.columns:
+        frame_out["author_uids"] = frame_out["Author"].apply(lambda value: [""] * len(_author_list(value)))
+        frame_out["author_display_names"] = frame_out["Author"].apply(_author_list)
+        frame_out["author_uids"] = frame_out["author_uids"].apply(
+            lambda values: [] if all(value == "" for value in values) else values
         )
     return frame_out
 
 
-def apply_author_disambiguation(
+def _stage_source_frames(
     publications: pd.DataFrame,
     references: pd.DataFrame,
     *,
-    disambiguate_mentions: DisambiguateMentions,
-    cache_dir: Path | str | None = None,
+    bridge_root: Path,
+) -> tuple[Path, Path | None]:
+    inputs_dir = bridge_root / "inputs"
+    publications_path = inputs_dir / "publications.parquet"
+    save_parquet(publications, publications_path)
+
+    references_path: Path | None = None
+    if not references.empty:
+        references_path = inputs_dir / "references.parquet"
+        save_parquet(references, references_path)
+
+    return publications_path, references_path
+
+
+def _validate_and_normalize_output(
+    staged_input: pd.DataFrame,
+    output_frame: pd.DataFrame,
+    *,
+    frame_name: str,
+) -> pd.DataFrame:
+    if len(output_frame) != len(staged_input):
+        raise ValueError(
+            f"{frame_name} output row count must match staged input "
+            f"(expected {len(staged_input)}, got {len(output_frame)})."
+        )
+
+    staged_bibcodes = staged_input.get("Bibcode", pd.Series(dtype=object)).astype(str).tolist()
+    output_bibcodes = output_frame.get("Bibcode", pd.Series(dtype=object)).astype(str).tolist()
+    if output_bibcodes != staged_bibcodes:
+        raise ValueError(f"{frame_name} output Bibcode order must match staged input.")
+
+    missing = [column for column in _LIST_OUTPUT_COLUMNS if column not in output_frame.columns]
+    if missing:
+        raise ValueError(f"{frame_name} output is missing required columns: {', '.join(missing)}")
+
+    frame_out = output_frame.copy()
+    expected_lengths = staged_input["Author"].apply(lambda value: len(_author_list(value))).tolist()
+    for source_column, target_column in _LIST_OUTPUT_COLUMNS.items():
+        normalized_rows: list[list[str]] = []
+        for value, expected_len in zip(frame_out[source_column].tolist(), expected_lengths, strict=False):
+            normalized_rows.append(
+                _normalize_output_list(value, column=source_column, expected_len=expected_len)
+            )
+        frame_out[target_column] = normalized_rows
+        frame_out = frame_out.drop(columns=[source_column])
+    return frame_out
+
+
+def _load_disambiguated_outputs(
+    *,
+    publications_input: pd.DataFrame,
+    references_input: pd.DataFrame,
+    publications_output_path: Path | str,
+    references_output_path: Path | str | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    publications_output = load_parquet(publications_output_path)
+    pubs_out = _validate_and_normalize_output(
+        publications_input,
+        publications_output,
+        frame_name="publications",
+    )
+
+    if references_input.empty:
+        refs_out = references_input.copy()
+        if "Author" in refs_out.columns:
+            refs_out["author_uids"] = [[] for _ in range(len(refs_out))]
+            refs_out["author_display_names"] = [[] for _ in range(len(refs_out))]
+        return pubs_out, refs_out
+
+    if references_output_path is None:
+        raise ValueError("references output path is required when references were provided.")
+
+    references_output = load_parquet(references_output_path)
+    refs_out = _validate_and_normalize_output(
+        references_input,
+        references_output,
+        frame_name="references",
+    )
+    return pubs_out, refs_out
+
+
+def _copy_optional_source_assignments(result: Any, *, run_data_dir: Path | str | None) -> None:
+    if run_data_dir is None:
+        return
+
+    source_assignments_path = _result_value(result, "source_author_assignments_path")
+    if source_assignments_path is None:
+        return
+
+    source_path = Path(str(source_assignments_path))
+    if not source_path.exists():
+        return
+
+    target_dir = Path(run_data_dir) / "and"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    save_parquet(load_parquet(source_path), target_dir / source_path.name)
+
+
+def apply_author_disambiguation(
+    publications: pd.DataFrame,
+    references: pd.DataFrame | None = None,
+    *,
+    model_bundle: str | Path,
+    cache_dir: Path | str,
+    dataset_id: str | None = None,
     force_refresh: bool = False,
     run_data_dir: Path | str | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Apply an external mention-based AND runner and map results back to ADS frames."""
-    if cache_dir is not None and not force_refresh:
+    infer_stage: str = "full",
+    and_runner: SourceAndRunner | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run an external source-based AND package and load disambiguated ADS frames.
+
+    Required source columns:
+    - ``Bibcode``
+    - ``Author``
+    - ``Year``
+    - ``Title_en`` or ``Title``
+    - ``Abstract_en`` or ``Abstract``
+
+    Optional source columns:
+    - ``Affiliation``
+    """
+    references = pd.DataFrame() if references is None else references.copy()
+    _validate_source_frame(publications, frame_name="publications")
+    _validate_source_frame(references, frame_name="references")
+
+    if not force_refresh:
         try:
-            pubs_cached, refs_cached, authors_cached = load_phase4_checkpoint(
+            pubs_cached, refs_cached = load_phase4_checkpoint(
                 cache_dir=cache_dir,
                 run_data_dir=run_data_dir,
             )
@@ -223,79 +258,63 @@ def apply_author_disambiguation(
             return (
                 _normalize_list_columns(pubs_cached, ["author_uids", "author_display_names"]),
                 _normalize_list_columns(refs_cached, ["author_uids", "author_display_names"]),
-                authors_cached,
             )
 
-    mentions = _build_author_mentions(publications, references)
-    if mentions.empty:
-        pubs_out = publications.copy()
-        refs_out = references.copy()
-        pubs_out["author_uids"] = [[] for _ in range(len(pubs_out))]
-        pubs_out["author_display_names"] = [[] for _ in range(len(pubs_out))]
-        refs_out["author_uids"] = [[] for _ in range(len(refs_out))]
-        refs_out["author_display_names"] = [[] for _ in range(len(refs_out))]
-        authors = pd.DataFrame(columns=sorted(_AUTHOR_ENTITY_COLUMNS))
-        if cache_dir is not None:
-            save_phase4_checkpoint(
-                pubs_out,
-                refs_out,
-                authors,
-                cache_dir=cache_dir,
-                run_data_dir=run_data_dir,
-            )
-        elif run_data_dir is not None:
-            _save_run_snapshot_only(
-                pubs_out,
-                refs_out,
-                authors,
-                run_data_dir=run_data_dir,
-            )
-        logger.info("Author disambiguation skipped: no author mentions found.")
-        return pubs_out, refs_out, authors
-
-    mention_assignments, authors = disambiguate_mentions(mentions.copy())
-    mention_assignments = _validate_mention_assignments(mentions, mention_assignments)
-    authors = _validate_author_entities(authors)
-    mention_assignments = mention_assignments.merge(
-        mentions[["mention_id", "document_type", "record_row", "author_position"]],
-        on="mention_id",
-        how="left",
-        validate="one_to_one",
-    )
-
-    pubs_out = _apply_assignments_to_frame(
-        publications,
-        document_type="publication",
-        mention_assignments=mention_assignments,
-    )
-    refs_out = _apply_assignments_to_frame(
-        references,
-        document_type="reference",
-        mention_assignments=mention_assignments,
-    )
-
-    if cache_dir is not None:
+    if publications.empty and references.empty:
+        pubs_out = _prepare_passthrough_frame(publications)
+        refs_out = _prepare_passthrough_frame(references)
         save_phase4_checkpoint(
             pubs_out,
             refs_out,
-            authors,
             cache_dir=cache_dir,
             run_data_dir=run_data_dir,
         )
-    elif run_data_dir is not None:
-        _save_run_snapshot_only(
-            pubs_out,
-            refs_out,
-            authors,
-            run_data_dir=run_data_dir,
-        )
+        logger.info("Author disambiguation skipped: no source rows available.")
+        return pubs_out, refs_out
+
+    runner = and_runner or _load_default_and_runner()
+    resolved_dataset_id = _resolve_dataset_id(dataset_id, run_data_dir)
+    bridge_root = Path(cache_dir) / "and_bridge" / resolved_dataset_id
+    publications_path, references_path = _stage_source_frames(
+        publications,
+        references,
+        bridge_root=bridge_root,
+    )
+
+    result = runner(
+        publications_path=publications_path,
+        references_path=references_path,
+        output_root=bridge_root / "output",
+        dataset_id=resolved_dataset_id,
+        model_bundle=model_bundle,
+        force=force_refresh,
+        infer_stage=infer_stage,
+    )
+    publications_output_path = _result_value(result, "publications_disambiguated_path")
+    if publications_output_path is None:
+        raise ValueError("AND runner result is missing publications_disambiguated_path.")
+
+    pubs_out, refs_out = _load_disambiguated_outputs(
+        publications_input=publications,
+        references_input=references,
+        publications_output_path=publications_output_path,
+        references_output_path=_result_value(result, "references_disambiguated_path"),
+    )
+
+    save_phase4_checkpoint(
+        pubs_out,
+        refs_out,
+        cache_dir=cache_dir,
+        run_data_dir=run_data_dir,
+    )
+    _copy_optional_source_assignments(result, run_data_dir=run_data_dir)
 
     logger.info(
-        "Author disambiguation complete | mentions=%s | unique authors=%s",
-        f"{len(mentions):,}",
-        f"{len(authors):,}",
+        "Author disambiguation complete | publications=%s | references=%s",
+        f"{len(pubs_out):,}",
+        f"{len(refs_out):,}",
     )
-    return pubs_out, refs_out, authors
+    return pubs_out, refs_out
 
 
 __all__ = ["apply_author_disambiguation"]

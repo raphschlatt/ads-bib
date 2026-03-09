@@ -136,57 +136,50 @@ def load_phase3_checkpoint(
 def save_phase4_checkpoint(
     publications: pd.DataFrame,
     references: pd.DataFrame,
-    authors: pd.DataFrame,
     *,
     cache_dir: Path | str,
     run_data_dir: Path | str | None = None,
-) -> tuple[Path, Path, Path]:
-    """Save Phase-4 outputs (disambiguated publications, refs, authors)."""
+) -> tuple[Path, Path]:
+    """Save Phase-4 outputs (disambiguated publications, refs)."""
     cache_dir = Path(cache_dir)
     pub_path = cache_dir / "publications_disambiguated.parquet"
     ref_path = cache_dir / "references_disambiguated.parquet"
-    authors_path = cache_dir / "authors.parquet"
 
     save_parquet(publications, pub_path)
     save_parquet(references, ref_path)
-    save_parquet(authors, authors_path)
 
     if run_data_dir is not None:
         run_data_dir = Path(run_data_dir)
         run_data_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(pub_path, run_data_dir / pub_path.name)
         shutil.copy(ref_path, run_data_dir / ref_path.name)
-        shutil.copy(authors_path, run_data_dir / authors_path.name)
 
-    logger.info("Phase 4 checkpoint saved (publications, references, authors).")
-    return pub_path, ref_path, authors_path
+    logger.info("Phase 4 checkpoint saved (publications, references).")
+    return pub_path, ref_path
 
 
 def load_phase4_checkpoint(
     *,
     cache_dir: Path | str,
     run_data_dir: Path | str | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Load Phase-4 outputs (disambiguated publications, refs, authors)."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load Phase-4 outputs (disambiguated publications, refs)."""
     cache_dir = Path(cache_dir)
     pub_path = cache_dir / "publications_disambiguated.parquet"
     ref_path = cache_dir / "references_disambiguated.parquet"
-    authors_path = cache_dir / "authors.parquet"
 
-    if not pub_path.exists() or not ref_path.exists() or not authors_path.exists():
+    if not pub_path.exists() or not ref_path.exists():
         raise FileNotFoundError(
             "Missing Phase 4 cache files: "
-            f"{pub_path}, {ref_path}, and/or {authors_path}"
+            f"{pub_path} and/or {ref_path}"
         )
 
     pubs = load_parquet(pub_path)
     refs = load_parquet(ref_path)
-    authors = load_parquet(authors_path)
     logger.info(
-        "Loaded Phase 4 checkpoint: %s publications, %s references, %s authors",
+        "Loaded Phase 4 checkpoint: %s publications, %s references",
         f"{len(pubs):,}",
         f"{len(refs):,}",
-        f"{len(authors):,}",
     )
 
     if run_data_dir is not None:
@@ -194,6 +187,5 @@ def load_phase4_checkpoint(
         run_data_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(pub_path, run_data_dir / pub_path.name)
         shutil.copy(ref_path, run_data_dir / ref_path.name)
-        shutil.copy(authors_path, run_data_dir / authors_path.name)
 
-    return pubs, refs, authors
+    return pubs, refs

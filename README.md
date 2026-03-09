@@ -140,37 +140,46 @@ from ads_bib.topic_model import (
 ### More experimental / dependency-sensitive
 - `toponymy_evoc` backend (optional stack and higher variability)
 - interactive visualization polish details and optional UI dependencies
-- AND remains a notebook placeholder until a stable external package is adopted.
+- AND is an optional external package step and not a core package dependency.
 - BERTopic+EVoC is intentionally out of scope; EVoC is only supported via `toponymy_evoc`.
 
 ## AND Integration Contract
 
 This repository will keep AND as an external package.
-`ads-bib` owns the ADS-specific adapter layer:
+`ads-bib` owns only the source-level adapter layer:
 
-- extract author mentions from ADS-shaped `publications` / `references`
-- call an external mention-based disambiguation function
-- validate and map outputs back into pipeline DataFrames
+- stage ADS-shaped `publications` / `references` as source files
+- call an external source-based disambiguation function
+- validate source-mirrored outputs and map them back into pipeline DataFrames
 - persist Phase-4 checkpoints as Parquet snapshots
 - pass disambiguated author IDs into author-based citation exports
 
-The external AND package is expected to stay source-agnostic and return:
+The external AND package is expected to accept source datasets with:
 
-- `mention_assignments` with `mention_id`, `author_uid`, `author_display_name`
-- `authors` with `author_uid`, `author_display_name`, `aliases`, `mention_count`, `document_count`, `unique_mention_count`, `display_name_method`
+- `Bibcode`
+- `Author`
+- `Year`
+- `Title_en` or `Title`
+- `Abstract_en` or `Abstract`
+- optional `Affiliation`
 
-Mapped pipeline outputs use aligned list columns:
+The source-mirrored outputs keep all input columns and add:
+
+- `AuthorUID`
+- `AuthorDisplayName`
+
+Mapped pipeline outputs normalize these into aligned list columns:
 
 - `author_uids`
 - `author_display_names`
 
-The human-readable representative name belongs in the external AND package,
-not in `ads-bib`.
+`ads-bib` does not build mentions, blocks, or author entity tables for AND.
 
 ## Package vs Notebook Usage
 
 - `pipeline.ipynb` remains the main orchestration entrypoint for end-to-end ADS workflows.
 - The installable package provides reusable building blocks plus repository-local quality checks.
+- Author disambiguation runs as an optional Phase-4 step between tokenization and topic/citation processing.
 - Notebook output cleanliness is treated as a release-freeze task, not an everyday development gate.
 
 ## Troubleshooting
