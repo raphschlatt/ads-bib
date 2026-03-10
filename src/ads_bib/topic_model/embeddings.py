@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import logging
@@ -122,6 +123,8 @@ def compute_embeddings(
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> np.ndarray:
     """Compute document embeddings with optional cache reuse.
 
@@ -150,6 +153,12 @@ def compute_embeddings(
         ``"fast"``).
     cost_tracker : CostTracker, optional
         When provided, records embedding token/cost summaries.
+    show_progress : bool
+        Show provider-native progress bars when no *progress_callback* is set.
+    progress_callback : callable, optional
+        Callback receiving completed document counts. When provided, internal
+        provider progress bars stay hidden so the frontend can render a single
+        stage-level bar.
 
     Returns
     -------
@@ -169,6 +178,7 @@ def compute_embeddings(
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     target_dtype = np.dtype(dtype)
+    internal_show_progress = bool(show_progress) and progress_callback is None
 
     model_safe = model.replace("/", "_")
     cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
@@ -189,6 +199,8 @@ def compute_embeddings(
         )
         if is_valid:
             logger.info("  Loaded embeddings from cache: %s", cache_file.name)
+            if progress_callback is not None and len(documents) > 0:
+                progress_callback(len(documents))
             return cached.astype(target_dtype, copy=False)
         logger.warning(
             "  Embedding cache mismatch for %s. Recomputing "
@@ -231,7 +243,11 @@ def compute_embeddings(
             max_workers=max_workers,
             dtype=target_dtype,
         )
-        emb = embedder.encode(documents, show_progress_bar=True)
+        emb = embedder.encode(
+            documents,
+            show_progress_bar=internal_show_progress,
+            progress_callback=progress_callback,
+        )
         usage = embedder.usage
         if cost_tracker is not None and usage["total_tokens"] > 0:
             cost_usd, _ = resolve_openrouter_costs(
@@ -432,6 +448,7 @@ class OpenRouterEmbedder:
         texts: list[str],
         verbose: bool | None = None,
         show_progress_bar: bool | None = None,
+        progress_callback: Callable[[int], None] | None = None,
         **kwargs: Any,
     ) -> np.ndarray:
         """Embed texts via OpenRouter using LiteLLM with retries and parallel workers."""
@@ -463,7 +480,10 @@ class OpenRouterEmbedder:
                 effective_max,
             )
         worker_count = max(1, min(effective_max, len(batches)))
-        show_progress = self._resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
+        show_progress = (
+            self._resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
+            and progress_callback is None
+        )
 
         def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
             """Embed one batch and return validated embeddings plus usage metadata."""
@@ -555,6 +575,8 @@ class OpenRouterEmbedder:
                     f"expected {out.shape[1]}, got {batch_embeddings.shape[1]}."
                 )
             out[start:end] = batch_embeddings
+            if progress_callback is not None:
+                progress_callback(expected_rows)
             usage_by_batch[batch_index] = {
                 "prompt_tokens": int(result["prompt_tokens"]),
                 "total_tokens": int(result["total_tokens"]),

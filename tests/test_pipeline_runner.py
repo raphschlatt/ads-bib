@@ -337,6 +337,79 @@ def test_run_author_disambiguation_stage_requires_tokenize_when_no_inputs(tmp_pa
     assert excinfo.value.required_stage == "tokenize"
 
 
+def test_run_embeddings_stage_uses_reporter_progress(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "topic_model": {
+                "embedding_provider": "openrouter",
+                "embedding_model": "google/gemini-embedding-001",
+                "embedding_api_key": "key",
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {"Bibcode": "b1", "full_text": "alpha"},
+            {"Bibcode": "b2", "full_text": "beta"},
+            {"Bibcode": "b3", "full_text": "gamma"},
+        ]
+    )
+
+    calls: dict[str, object] = {}
+
+    class _FakeProgress:
+        def __init__(self) -> None:
+            self.updates: list[int] = []
+
+        def update(self, amount: int = 1) -> None:
+            self.updates.append(int(amount))
+
+    class _FakeProgressContext:
+        def __init__(self, progress: _FakeProgress) -> None:
+            self._progress = progress
+
+        def __enter__(self) -> _FakeProgress:
+            return self._progress
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            del exc_type, exc, tb
+            return None
+
+    class _FakeReporter:
+        def __init__(self) -> None:
+            self.progress_bar = _FakeProgress()
+
+        def progress(self, *, total: int | None, desc: str):
+            calls["total"] = total
+            calls["desc"] = desc
+            return _FakeProgressContext(self.progress_bar)
+
+    ctx.reporter = _FakeReporter()
+
+    def _fake_compute_embeddings(documents, **kwargs):
+        calls["documents"] = list(documents)
+        calls["show_progress"] = kwargs["show_progress"]
+        kwargs["progress_callback"](2)
+        kwargs["progress_callback"](1)
+        return np.ones((len(documents), 4), dtype=np.float32)
+
+    monkeypatch.setattr(pipeline, "compute_embeddings", _fake_compute_embeddings)
+
+    pipeline.run_embeddings_stage(ctx)
+
+    assert calls["desc"] == "embeddings"
+    assert calls["total"] == 3
+    assert calls["documents"] == ["alpha", "beta", "gamma"]
+    assert calls["show_progress"] is False
+    assert ctx.reporter.progress_bar.updates == [2, 1]
+    assert ctx.embeddings is not None
+    assert ctx.embeddings.shape == (3, 4)
+
+
 def test_run_pipeline_topic_fit_uses_tokenized_snapshot_and_caches(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {

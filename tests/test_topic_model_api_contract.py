@@ -41,6 +41,8 @@ def test_compute_embeddings_signature_contract():
         "api_key",
         "openrouter_cost_mode",
         "cost_tracker",
+        "show_progress",
+        "progress_callback",
     ]
     _assert_keyword_only(
         tm.compute_embeddings,
@@ -54,6 +56,8 @@ def test_compute_embeddings_signature_contract():
             "api_key",
             "openrouter_cost_mode",
             "cost_tracker",
+            "show_progress",
+            "progress_callback",
         ],
     )
     assert signature.parameters["dtype"].default == np.float16

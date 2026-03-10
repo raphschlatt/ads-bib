@@ -812,6 +812,39 @@ def test_compute_embeddings_passes_max_workers_to_openrouter(monkeypatch):
     assert calls["show_progress_bar"] is True
 
 
+def test_compute_embeddings_passes_progress_callback_to_openrouter(monkeypatch):
+    calls: dict[str, object] = {}
+    progress_updates: list[int] = []
+
+    class _FakeOpenRouterEmbedder:
+        def __init__(self, *, api_key, model, batch_size=64, max_workers=5, dtype=np.float32, api_base=None):
+            del api_key, model, batch_size, max_workers, dtype, api_base
+            self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
+            del texts, verbose, kwargs
+            calls["show_progress_bar"] = show_progress_bar
+            calls["progress_callback"] = progress_callback
+            progress_callback(2)
+            progress_callback(1)
+            return np.ones((3, 2), dtype=np.float32)
+
+    monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+
+    emb = tm.compute_embeddings(
+        ["d1", "d2", "d3"],
+        provider="openrouter",
+        model="google/gemini-embedding-001",
+        api_key="key",
+        progress_callback=progress_updates.append,
+    )
+
+    assert emb.shape == (3, 2)
+    assert calls["show_progress_bar"] is False
+    assert callable(calls["progress_callback"])
+    assert progress_updates == [2, 1]
+
+
 def test_embed_local_raises_actionable_error_for_unknown_arch(monkeypatch):
     fake_sentence_transformers = types.ModuleType("sentence_transformers")
 
@@ -1273,6 +1306,36 @@ def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, cap
     assert calls["n"] == 1
     assert np.array_equal(first, second)
     assert "Loaded embeddings from cache" in caplog.text
+
+
+def test_compute_embeddings_cache_hit_reports_document_progress(monkeypatch, tmp_path):
+    calls = {"n": 0}
+
+    def _fake_embed_local(documents, model_name, batch_size, dtype):
+        del model_name, batch_size, dtype
+        calls["n"] += 1
+        return np.arange(len(documents) * 2, dtype=np.float32).reshape(len(documents), 2)
+
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
+    docs = ["doc-a", "doc-b", "doc-c"]
+    progress_updates: list[int] = []
+
+    tm.compute_embeddings(
+        docs,
+        provider="local",
+        model="local/test-model",
+        cache_dir=tmp_path,
+    )
+    tm.compute_embeddings(
+        docs,
+        provider="local",
+        model="local/test-model",
+        cache_dir=tmp_path,
+        progress_callback=progress_updates.append,
+    )
+
+    assert calls["n"] == 1
+    assert progress_updates == [3]
 
 
 def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatch, tmp_path, caplog):

@@ -994,17 +994,36 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
         logger.info("Sampling topic input: %s documents", f"{len(df):,}")
     ctx.topic_input_df = df
     ctx.documents = df["full_text"].tolist()
-    ctx.embeddings = compute_embeddings(
-        ctx.documents,
-        provider=cfg.embedding_provider,
-        model=cfg.embedding_model,
-        cache_dir=ctx.paths["embeddings_cache"],
-        batch_size=cfg.embedding_batch_size,
-        max_workers=cfg.embedding_max_workers,
-        api_key=cfg.embedding_api_key,
-        openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
-        cost_tracker=ctx.tracker,
-    )
+    reporter = ctx.reporter
+    if reporter is None or cfg.embedding_provider != "openrouter":
+        ctx.embeddings = compute_embeddings(
+            ctx.documents,
+            provider=cfg.embedding_provider,
+            model=cfg.embedding_model,
+            cache_dir=ctx.paths["embeddings_cache"],
+            batch_size=cfg.embedding_batch_size,
+            max_workers=cfg.embedding_max_workers,
+            api_key=cfg.embedding_api_key,
+            openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+            cost_tracker=ctx.tracker,
+        )
+        return ctx
+
+    with reporter.progress(total=len(ctx.documents), desc="embeddings") as pbar:
+        progress_callback = None if pbar is None else pbar.update
+        ctx.embeddings = compute_embeddings(
+            ctx.documents,
+            provider=cfg.embedding_provider,
+            model=cfg.embedding_model,
+            cache_dir=ctx.paths["embeddings_cache"],
+            batch_size=cfg.embedding_batch_size,
+            max_workers=cfg.embedding_max_workers,
+            api_key=cfg.embedding_api_key,
+            openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+            cost_tracker=ctx.tracker,
+            show_progress=False,
+            progress_callback=progress_callback,
+        )
     return ctx
 
 
