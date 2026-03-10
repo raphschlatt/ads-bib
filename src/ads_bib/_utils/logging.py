@@ -184,7 +184,6 @@ class StageReporter:
                     "{desc:<18}{percentage:3.0f}%|{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
                 )
         else:
-            kwargs["dynamic_ncols"] = True
             if total is None:
                 kwargs["bar_format"] = "{desc}: {n_fmt} [{elapsed}]"
         with tqdm(**kwargs) as pbar:

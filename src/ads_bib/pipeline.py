@@ -502,9 +502,16 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         return [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
 
     if stage == "translate" and ctx.publications is not None and ctx.refs is not None:
-        pub_translated = int((ctx.publications.get("Title_lang", pd.Series(dtype=str)) != "en").sum())
-        ref_translated = int((ctx.refs.get("Title_lang", pd.Series(dtype=str)) != "en").sum())
-        return [f"publications: {len(ctx.publications):,} ({pub_translated:,} translated) | references: {len(ctx.refs):,} ({ref_translated:,} translated)"]
+        if "Title_lang" in ctx.publications.columns:
+            pub_title = int((ctx.publications["Title_lang"] != "en").sum())
+            pub_abs = int((ctx.publications["Abstract_lang"] != "en").sum())
+            ref_title = int((ctx.refs["Title_lang"] != "en").sum())
+            ref_abs = int((ctx.refs["Abstract_lang"] != "en").sum())
+            return [
+                f"publications: {len(ctx.publications):,} (Title={pub_title:,} Abstract={pub_abs:,} translated) | "
+                f"references: {len(ctx.refs):,} (Title={ref_title:,} Abstract={ref_abs:,} translated)"
+            ]
+        return [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
 
     if stage == "tokenize" and ctx.publications is not None:
         return [f"documents: {len(ctx.publications):,} | model: {ctx.config.tokenize.spacy_model}"]
@@ -549,8 +556,11 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         return [base]
 
     if stage == "citations" and ctx.citation_results is not None:
-        metric_names = ", ".join(sorted(ctx.citation_results))
-        return [f"networks built: {len(ctx.citation_results):,} | {metric_names}"]
+        parts = []
+        for name in sorted(ctx.citation_results):
+            edges_df = ctx.citation_results[name]
+            parts.append(f"{name}: {len(edges_df):,} edges")
+        return [" | ".join(parts)]
 
     return []
 
