@@ -354,6 +354,7 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
         layer_index=0,
         llm_provider="openrouter",
         llm_model="google/gemini-3-flash-preview",
+        embedding_provider="openrouter",
         embedding_model="google/gemini-embedding-001",
         api_key="key",
         clusterer_params={"min_clusters": 4},
@@ -382,9 +383,15 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         def add(self, **kwargs):
             self.entries.append(kwargs)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
-        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+    class _FakeOpenRouterEmbedder:
+        def __init__(self, *, api_key, model, batch_size=64, max_workers=5, dtype=np.float32, api_base=None):
+            del api_key, model, batch_size, dtype, api_base
+            self.max_workers = max_workers
+            self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, **kwargs):
+            del texts, verbose, show_progress_bar, kwargs
+            return np.ones((0, 0), dtype=np.float32)
 
     def _fake_fit_outputs(**kwargs):
         embedder = kwargs["text_embedding_model"]
@@ -411,7 +418,7 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         calls["max_workers"] = max_workers
         return 0.0042, {"total_cost_usd": 0.0042}
 
-    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
     monkeypatch.setattr(tm_backends, "_fit_and_extract_toponymy_outputs", _fake_fit_outputs)
     monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
     monkeypatch.setattr(tm_backends, "resolve_openrouter_costs", _fake_resolve_openrouter_costs)
@@ -422,8 +429,9 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         embeddings=np.ones((2, 3), dtype=np.float32),
         clusterable_vectors=np.ones((2, 2), dtype=np.float32),
         backend="toponymy_evoc",
-        llm_provider="openrouter",
-        llm_model="google/gemini-3-flash-preview",
+        llm_provider="local",
+        llm_model="local-llm",
+        embedding_provider="openrouter",
         embedding_model="google/gemini-embedding-001",
         api_key="key",
         openrouter_cost_mode="hybrid",
@@ -472,6 +480,7 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
         backend="toponymy",
         llm_provider="openrouter",
         llm_model="google/gemini-3-flash-preview",
+        embedding_provider="openrouter",
         embedding_model="google/gemini-embedding-001",
         api_key="key",
         max_workers=9,
@@ -525,6 +534,7 @@ def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeyp
         backend="toponymy",
         llm_provider="local",
         llm_model="local-llm",
+        embedding_provider="local",
         embedding_model="local-embedder",
         cost_tracker=tracker,
     )
@@ -557,6 +567,7 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch):
             layer_index=0,
             llm_provider="openrouter",
             llm_model="google/gemini-3-flash-preview",
+            embedding_provider="openrouter",
             api_key="key",
             clusterer_params={"min_clusters": 4, "cluster_levels": 2},
         )
@@ -598,6 +609,7 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch):
             layer_index=0,
             llm_provider="openrouter",
             llm_model="google/gemini-3-flash-preview",
+            embedding_provider="openrouter",
             api_key="key",
             clusterer_params={
                 "min_clusters": 7,
@@ -638,6 +650,7 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
         layer_index=0,
         llm_provider="local",
         llm_model="local-llm",
+        embedding_provider="local",
         embedding_model="local-embedder",
         local_llm_max_new_tokens=77,
     )
@@ -648,6 +661,51 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
     assert model.llm_wrapper._max_tokens(128) == 77
     assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
     assert model.text_embedding_model.model_name == "local-embedder"
+    assert topics.tolist() == [-1, 0, 1]
+    assert calls["usage"] is None
+    assert calls["kwargs"]["llm_provider"] == "local"
+
+
+def test_fit_toponymy_supports_gguf_embedding_provider_independent_of_local_llm(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+    calls: dict = {}
+
+    class _FakeGGUFEmbedder:
+        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096):
+            del batch_size, dtype, n_ctx
+            self.model = model
+            self.max_workers = max_workers
+            calls["embedding_model"] = model
+            calls["embedding_workers"] = max_workers
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, **kwargs):
+            del texts, verbose, show_progress_bar, kwargs
+            return np.ones((0, 0), dtype=np.float32)
+
+    def _fake_record_llm_usage(usage, **kwargs):
+        calls["usage"] = usage
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(tm_backends, "GGUFEmbedder", _FakeGGUFEmbedder)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
+
+    model, topics, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="local",
+        llm_model="local-llm",
+        embedding_provider="gguf",
+        embedding_model="Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+        max_workers=7,
+    )
+
+    assert isinstance(model.llm_wrapper, _FakeHuggingFaceNamer)
+    assert isinstance(model.text_embedding_model, _FakeGGUFEmbedder)
+    assert model.text_embedding_model.model == "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf"
+    assert calls["embedding_workers"] == 7
     assert topics.tolist() == [-1, 0, 1]
     assert calls["usage"] is None
     assert calls["kwargs"]["llm_provider"] == "local"
@@ -666,6 +724,7 @@ def test_fit_toponymy_local_requires_hf_dependencies(monkeypatch):
             backend="toponymy",
             llm_provider="local",
             llm_model="local-llm",
+            embedding_provider="local",
             embedding_model="local-embedder",
         )
         assert False, "Expected ImportError for missing local Toponymy dependencies"
@@ -691,6 +750,7 @@ def test_fit_toponymy_validates_layer_index(monkeypatch):
             layer_index=9,
             llm_provider="openrouter",
             llm_model="google/gemini-3-flash-preview",
+            embedding_provider="openrouter",
             api_key="key",
         )
         assert False, "Expected ValueError for invalid layer_index"
@@ -843,6 +903,156 @@ def test_compute_embeddings_passes_progress_callback_to_openrouter(monkeypatch):
     assert calls["show_progress_bar"] is False
     assert callable(calls["progress_callback"])
     assert progress_updates == [2, 1]
+
+
+def test_compute_embeddings_validates_gguf_provider_import_path(monkeypatch):
+    calls: dict[str, Any] = {}
+
+    def _fake_validate_provider(provider, **kwargs):
+        calls["provider"] = provider
+        calls["valid"] = kwargs["valid"]
+        calls["requires_import"] = kwargs["requires_import"]
+
+    class _FakeGGUFEmbedder:
+        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096):
+            del model, batch_size, max_workers, dtype, n_ctx
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
+            del verbose, show_progress_bar, progress_callback, kwargs
+            return np.ones((len(texts), 2), dtype=np.float32)
+
+    monkeypatch.setattr(tm_embeddings, "validate_provider", _fake_validate_provider)
+    monkeypatch.setattr(tm_embeddings, "GGUFEmbedder", _FakeGGUFEmbedder)
+
+    emb = tm.compute_embeddings(
+        ["d1", "d2"],
+        provider="gguf",
+        model="Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+    )
+
+    assert emb.shape == (2, 2)
+    assert calls["provider"] == "gguf"
+    assert "gguf" in calls["valid"]
+    assert calls["requires_import"]["gguf"] == "llama_cpp"
+
+
+def test_gguf_embedder_batches_keep_order_and_progress(monkeypatch):
+    calls: list[dict[str, Any]] = []
+    progress_updates: list[int] = []
+
+    monkeypatch.setattr(tm_embeddings, "resolve_gguf_model", lambda model: f"/fake/{model.split(':')[-1]}")
+    monkeypatch.setattr(tm_embeddings, "recommended_gguf_thread_settings", lambda cpu_total=None: (4, 8))
+
+    def _fake_embed_gguf(
+        texts,
+        *,
+        model_path,
+        n_ctx,
+        n_threads,
+        n_threads_batch,
+        normalize,
+        truncate,
+    ):
+        calls.append(
+            {
+                "texts": list(texts),
+                "model_path": model_path,
+                "n_ctx": n_ctx,
+                "n_threads": n_threads,
+                "n_threads_batch": n_threads_batch,
+                "normalize": normalize,
+                "truncate": truncate,
+            }
+        )
+        return np.array(
+            [[float(int(text.split("_")[1])), 1.0] for text in texts],
+            dtype=np.float32,
+        )
+
+    monkeypatch.setattr(tm_embeddings, "embed_gguf", _fake_embed_gguf)
+
+    embedder = tm_embeddings.GGUFEmbedder(
+        model="Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+        batch_size=2,
+        max_workers=9,
+        dtype=np.float16,
+    )
+    emb = embedder.encode(
+        [f"doc_{i}" for i in range(5)],
+        show_progress_bar=False,
+        progress_callback=progress_updates.append,
+    )
+
+    assert emb.shape == (5, 2)
+    assert emb.dtype == np.float16
+    assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert progress_updates == [2, 2, 1]
+    assert calls[0]["model_path"] == "/fake/Qwen3-Embedding-0.6B-Q8_0.gguf"
+    assert calls[0]["n_threads"] == 4
+    assert calls[0]["n_threads_batch"] == 8
+    assert calls[0]["normalize"] is True
+    assert calls[0]["truncate"] is True
+
+
+def test_ensure_embedding_model_loads_llama_with_cls_pooling(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    fake_llama_cpp = types.ModuleType("llama_cpp")
+    fake_llama_cpp.LLAMA_POOLING_TYPE_CLS = 2
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
+    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
+
+    calls: dict[str, Any] = {}
+    fake_model = object()
+
+    def _fake_load_llama(path, **kwargs):
+        calls["path"] = path
+        calls["kwargs"] = kwargs
+        return fake_model
+
+    safe_calls: list[Any] = []
+    monkeypatch.setattr(gguf_mod, "_load_llama", _fake_load_llama)
+    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
+
+    model = gguf_mod._ensure_embedding_model(
+        model_path="/fake/qwen-embed.gguf",
+        n_ctx=4096,
+        n_threads=4,
+        n_threads_batch=8,
+    )
+
+    assert model is fake_model
+    assert calls["path"] == "/fake/qwen-embed.gguf"
+    assert calls["kwargs"]["embedding"] is True
+    assert calls["kwargs"]["pooling_type"] == 2
+    assert safe_calls == [fake_model]
+
+
+def test_embed_gguf_normalizes_before_return(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    calls: dict[str, Any] = {}
+
+    class _FakeEmbeddingModel:
+        def embed(self, texts, normalize=False, truncate=True):
+            calls["texts"] = list(texts)
+            calls["normalize"] = normalize
+            calls["truncate"] = truncate
+            return [[1.0, 2.0], [3.0, 4.0]]
+
+    monkeypatch.setattr(gguf_mod, "_ensure_embedding_model", lambda **kwargs: _FakeEmbeddingModel())
+
+    emb = gguf_mod.embed_gguf(
+        ["a", "b"],
+        model_path="/fake/qwen-embed.gguf",
+    )
+
+    assert emb.shape == (2, 2)
+    assert calls["texts"] == ["a", "b"]
+    assert calls["normalize"] is True
+    assert calls["truncate"] is True
 
 
 def test_embed_local_raises_actionable_error_for_unknown_arch(monkeypatch):
@@ -1308,6 +1518,54 @@ def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, cap
     assert "Loaded embeddings from cache" in caplog.text
 
 
+def test_compute_embeddings_gguf_uses_cache_then_recomputes_on_mismatch(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    calls = {"n": 0}
+
+    class _FakeGGUFEmbedder:
+        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096):
+            del model, batch_size, max_workers, dtype, n_ctx
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
+            del verbose, show_progress_bar, progress_callback, kwargs
+            calls["n"] += 1
+            base = float(calls["n"])
+            return np.full((len(texts), 2), fill_value=base, dtype=np.float32)
+
+    monkeypatch.setattr(tm_embeddings, "GGUFEmbedder", _FakeGGUFEmbedder)
+    model = "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf"
+    docs = ["doc-a", "doc-b"]
+
+    first = tm.compute_embeddings(
+        docs,
+        provider="gguf",
+        model=model,
+        cache_dir=tmp_path,
+        dtype=np.float32,
+    )
+    second = tm.compute_embeddings(
+        docs,
+        provider="gguf",
+        model=model,
+        cache_dir=tmp_path,
+        dtype=np.float32,
+    )
+    third = tm.compute_embeddings(
+        docs + ["doc-c"],
+        provider="gguf",
+        model=model,
+        cache_dir=tmp_path,
+        dtype=np.float32,
+    )
+
+    assert calls["n"] == 2
+    assert np.array_equal(first, second)
+    assert np.allclose(first, 1.0)
+    assert np.allclose(third, 2.0)
+    assert "Loaded embeddings from cache" in caplog.text
+    assert "Embedding cache mismatch" in caplog.text
+
+
 def test_compute_embeddings_cache_hit_reports_document_progress(monkeypatch, tmp_path):
     calls = {"n": 0}
 
@@ -1488,6 +1746,7 @@ def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
         layer_index=0,
         llm_provider="gguf",
         llm_model="mradermacher/Qwen3-0.6B-GGUF",
+        embedding_provider="local",
         embedding_model="local-embedder",
         local_llm_max_new_tokens=77,
     )

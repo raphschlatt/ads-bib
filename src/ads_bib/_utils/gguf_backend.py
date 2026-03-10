@@ -20,6 +20,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from ads_bib._utils.hf_compat import _iter_exception_chain
 
 logger = logging.getLogger(__name__)
@@ -199,6 +201,8 @@ def _load_llama(
     n_threads: int | None = None,
     n_threads_batch: int | None = None,
     vocab_only: bool = False,
+    embedding: bool = False,
+    pooling_type: int | None = None,
     verbose: bool = False,
 ) -> Any:
     """Load a ``llama_cpp.Llama`` instance with actionable compatibility errors."""
@@ -216,6 +220,8 @@ def _load_llama(
                 n_threads=n_threads,
                 n_threads_batch=n_threads_batch,
                 vocab_only=vocab_only,
+                embedding=embedding,
+                pooling_type=pooling_type,
                 verbose=verbose,
             )
     except AssertionError as exc:
@@ -246,21 +252,20 @@ def _make_llama_jupyter_safe(llm: Any) -> None:
     except Exception:
         pass
 
-    original_call = llm.__call__
-    original_chat = llm.create_chat_completion
+    def _wrap_method(name: str) -> None:
+        original = getattr(llm, name, None)
+        if original is None:
+            return
 
-    @functools.wraps(original_call)
-    def _safe_call(*args: Any, **kwargs: Any) -> Any:
-        with safe_stdio():
-            return original_call(*args, **kwargs)
+        @functools.wraps(original)
+        def _safe_method(*args: Any, **kwargs: Any) -> Any:
+            with safe_stdio():
+                return original(*args, **kwargs)
 
-    @functools.wraps(original_chat)
-    def _safe_chat(*args: Any, **kwargs: Any) -> Any:
-        with safe_stdio():
-            return original_chat(*args, **kwargs)
+        setattr(llm, name, _safe_method)
 
-    llm.__call__ = _safe_call
-    llm.create_chat_completion = _safe_chat
+    for method_name in ("__call__", "create_chat_completion", "create_embedding", "embed"):
+        _wrap_method(method_name)
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +278,10 @@ _translation_model_config: tuple[int, int | None, int | None] | None = None
 
 _translation_tokenizer: Any | None = None
 _translation_tokenizer_path: str | None = None
+
+_embedding_model: Any | None = None
+_embedding_model_path: str | None = None
+_embedding_model_config: tuple[int, int | None, int | None] | None = None
 
 
 def _ensure_translation_model(
@@ -323,6 +332,46 @@ def _ensure_translation_tokenizer(*, model_path: str) -> Any:
     return _translation_tokenizer
 
 
+def _ensure_embedding_model(
+    *,
+    model_path: str,
+    n_ctx: int,
+    n_threads: int | None,
+    n_threads_batch: int | None,
+) -> Any:
+    """Load and cache the GGUF embedding model for the current process."""
+    global _embedding_model, _embedding_model_path, _embedding_model_config
+    model_config = (
+        int(n_ctx),
+        int(n_threads) if n_threads is not None else None,
+        int(n_threads_batch) if n_threads_batch is not None else None,
+    )
+    if (
+        _embedding_model is None
+        or _embedding_model_path != model_path
+        or _embedding_model_config != model_config
+    ):
+        try:
+            from llama_cpp import LLAMA_POOLING_TYPE_CLS
+        except ImportError as exc:
+            raise ImportError(_INSTALL_HINT) from exc
+
+        logger.info("Loading GGUF embedding model: %s", model_path)
+        _embedding_model = _load_llama(
+            model_path,
+            n_ctx=n_ctx,
+            n_threads=n_threads,
+            n_threads_batch=n_threads_batch,
+            embedding=True,
+            pooling_type=LLAMA_POOLING_TYPE_CLS,
+            verbose=False,
+        )
+        _make_llama_jupyter_safe(_embedding_model)
+        _embedding_model_path = model_path
+        _embedding_model_config = model_config
+    return _embedding_model
+
+
 def translate_gguf(
     text: str,
     target_lang: str,
@@ -366,6 +415,58 @@ def translate_gguf(
             temperature=0,
         )
     return result["choices"][0]["message"]["content"].strip()
+
+
+def embed_gguf(
+    texts: list[str],
+    *,
+    model_path: str,
+    n_ctx: int = 4096,
+    n_threads: int | None = None,
+    n_threads_batch: int | None = None,
+    normalize: bool = True,
+    truncate: bool = True,
+) -> np.ndarray:
+    """Embed *texts* via a local GGUF model with CLS pooling."""
+    texts = [str(text) for text in texts]
+    if not texts:
+        return np.array([], dtype=np.float32)
+
+    model_obj = _ensure_embedding_model(
+        model_path=model_path,
+        n_ctx=n_ctx,
+        n_threads=n_threads,
+        n_threads_batch=n_threads_batch,
+    )
+    with safe_stdio():
+        embeddings = model_obj.embed(
+            texts,
+            normalize=normalize,
+            truncate=truncate,
+        )
+
+    arr = np.asarray(embeddings, dtype=np.float32)
+    if arr.ndim == 1:
+        if len(texts) != 1:
+            raise RuntimeError(
+                "GGUF embedding response must be 2D for multi-text batches."
+            )
+        arr = arr.reshape(1, -1)
+    if arr.ndim != 2:
+        raise RuntimeError("GGUF embedding response must be a 2D array.")
+    if arr.shape[0] != len(texts):
+        raise RuntimeError(
+            f"GGUF embedding batch size mismatch: expected {len(texts)}, got {arr.shape[0]}."
+        )
+    return arr
+
+
+def recommended_gguf_thread_settings(cpu_total: int | None = None) -> tuple[int, int]:
+    """Return conservative thread settings shared across local GGUF paths."""
+    cpu_count = max(1, int(cpu_total or os.cpu_count() or 1))
+    n_threads = min(8, cpu_count)
+    n_threads_batch = max(n_threads, min(cpu_count, n_threads * 2))
+    return n_threads, n_threads_batch
 
 
 def gguf_supports_gpu_offload() -> bool:

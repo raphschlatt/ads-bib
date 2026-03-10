@@ -443,6 +443,7 @@ def _run_offline_mocked_pipeline(
             backend=profile.topic_backend,
             llm_provider=profile.llm_provider,
             llm_model=profile.llm_model,
+            embedding_provider=profile.embedding_provider,
             embedding_model=profile.embedding_model,
             api_key=profile.llm_api_key,
         )

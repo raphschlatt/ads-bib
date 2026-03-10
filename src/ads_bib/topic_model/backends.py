@@ -31,7 +31,7 @@ from ads_bib._utils.openrouter_costs import (
 )
 from ads_bib.config import validate_provider
 from ads_bib.prompts import BERTOPIC_LABELING_GENERIC
-from ads_bib.topic_model.embeddings import OpenRouterEmbedder
+from ads_bib.topic_model.embeddings import GGUFEmbedder, OpenRouterEmbedder
 
 logger = logging.getLogger("ads_bib.topic_model")
 
@@ -42,6 +42,7 @@ DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128   # Concise topic labels (4-7 words)
 DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256  # Toponymy needs more tokens for hierarchical labels
 BERTopicLLMProvider: TypeAlias = Literal["local", "gguf", "huggingface_api", "openrouter"]
 ToponymyLLMProvider: TypeAlias = Literal["local", "gguf", "openrouter"]
+ToponymyEmbeddingProvider: TypeAlias = Literal["local", "gguf", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
 
 
@@ -565,14 +566,20 @@ def _patch_clusterer_for_toponymy_kwargs(clusterer: Any) -> None:
 def _normalize_toponymy_inputs(
     *,
     llm_provider: ToponymyLLMProvider | str,
+    embedding_provider: ToponymyEmbeddingProvider | str,
     backend: ToponymyBackend | str,
     api_key: str | None,
-) -> tuple[ToponymyLLMProvider, ToponymyBackend]:
+) -> tuple[ToponymyLLMProvider, ToponymyEmbeddingProvider, ToponymyBackend]:
     """Normalize and validate Toponymy backend/provider selections."""
-    provider_norm = llm_provider.strip().lower()
-    if provider_norm not in {"openrouter", "local", "gguf"}:
+    llm_provider_norm = llm_provider.strip().lower()
+    if llm_provider_norm not in {"openrouter", "local", "gguf"}:
         raise ValueError(f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter', 'local', or 'gguf'.")
-    if provider_norm == "openrouter" and not api_key:
+    embedding_provider_norm = embedding_provider.strip().lower()
+    if embedding_provider_norm not in {"openrouter", "local", "gguf"}:
+        raise ValueError(
+            f"Invalid embedding_provider '{embedding_provider}'. Expected 'openrouter', 'local', or 'gguf'."
+        )
+    if (llm_provider_norm == "openrouter" or embedding_provider_norm == "openrouter") and not api_key:
         raise ValueError("api_key is required for Toponymy with OpenRouter.")
 
     backend_norm = backend.strip().lower()
@@ -580,7 +587,8 @@ def _normalize_toponymy_inputs(
         raise ValueError(f"Invalid backend '{backend}'. Expected 'toponymy' or 'toponymy_evoc'.")
 
     return (
-        cast(ToponymyLLMProvider, provider_norm),
+        cast(ToponymyLLMProvider, llm_provider_norm),
+        cast(ToponymyEmbeddingProvider, embedding_provider_norm),
         cast(ToponymyBackend, backend_norm),
     )
 
@@ -624,7 +632,8 @@ def _build_toponymy_clusterer(
 
 def _build_toponymy_models(
     *,
-    provider_norm: str,
+    llm_provider_norm: str,
+    embedding_provider_norm: str,
     llm_model: str,
     embedding_model: str,
     api_key: str | None,
@@ -634,27 +643,18 @@ def _build_toponymy_models(
     cost_tracker: "CostTracker | None",
 ) -> tuple[Any, dict[str, Any] | None, Any]:
     """Build Toponymy naming and text-embedding components."""
-    if provider_norm == "openrouter":
+    if llm_provider_norm == "openrouter":
         llm_wrapper, llm_usage = _create_tracked_toponymy_namer(
             model=llm_model,
             api_key=api_key,
             base_url=openrouter_api_base,
             max_workers=max_workers,
         )
-        text_embedding_model = OpenRouterEmbedder(
-            api_key=api_key,
-            model=embedding_model,
-            api_base=openrouter_api_base,
-            max_workers=max_workers,
-        )
-        return llm_wrapper, llm_usage, text_embedding_model
-
-    if provider_norm == "gguf":
-        from sentence_transformers import SentenceTransformer
-
+    elif llm_provider_norm == "gguf":
         from ads_bib._utils.gguf_backend import (
             gguf_supports_gpu_offload,
             _make_llama_jupyter_safe,
+            recommended_gguf_thread_settings,
             safe_stdio,
             resolve_gguf_model,
         )
@@ -667,9 +667,7 @@ def _build_toponymy_models(
                 "Toponymy GGUF labeling requires 'toponymy' with LlamaCppNamer and "
                 "'llama-cpp-python'. Install with: pip install toponymy llama-cpp-python"
             ) from exc
-        cpu_total = max(1, int(os.cpu_count() or 1))
-        n_threads = min(8, cpu_total)
-        n_threads_batch = max(n_threads, min(cpu_total, n_threads * 2))
+        n_threads, n_threads_batch = recommended_gguf_thread_settings()
         gpu_offload = gguf_supports_gpu_offload()
         logger.info(
             "  Toponymy GGUF runtime hint | threads=%s | threads_batch=%s | gpu_offload=%s",
@@ -692,99 +690,112 @@ def _build_toponymy_models(
                     model_path=model_path, n_ctx=4096, n_gpu_layers=-1, verbose=False,
                 )
         _make_llama_jupyter_safe(llm_wrapper.llm)
+        if cost_tracker is not None:
+            logger.info("  GGUF Toponymy LLM selected; token/cost tracking is unavailable for this step.")
+        llm_usage = None
+    else:
+        try:
+            from toponymy.llm_wrappers import HuggingFaceNamer
+        except Exception as exc:
+            raise ImportError(
+                "llm_provider='local' requires optional dependencies "
+                "'transformers' and Toponymy's HuggingFaceNamer wrapper."
+            ) from exc
+
+        local_llm_max_new_tokens = max(1, int(local_llm_max_new_tokens))
+
+        class _CappedDeterministicHuggingFaceNamer(HuggingFaceNamer):
+            """Toponymy local namer with deterministic decoding and bounded output length."""
+
+            def __init__(self, model: str, *, max_new_tokens: int, **kwargs):
+                self._local_max_new_tokens = max(1, int(max_new_tokens))
+                super().__init__(model=model, **kwargs)
+
+            def _max_tokens(self, requested: int) -> int:
+                return min(max(1, int(requested)), self._local_max_new_tokens)
+
+            def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
+                del temperature
+                response = self.llm(
+                    [{"role": "user", "content": prompt + self.extra_prompting}],
+                    return_full_text=False,
+                    max_new_tokens=self._max_tokens(max_tokens),
+                    do_sample=False,
+                    pad_token_id=self.llm.tokenizer.eos_token_id,
+                )
+                return response[0]["generated_text"]
+
+            def _call_llm_with_system_prompt(
+                self,
+                system_prompt: str,
+                user_prompt: str,
+                temperature: float,
+                max_tokens: int,
+            ) -> str:
+                del temperature
+                response = self.llm(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt + self.extra_prompting},
+                    ],
+                    return_full_text=False,
+                    max_new_tokens=self._max_tokens(max_tokens),
+                    do_sample=False,
+                    pad_token_id=self.llm.tokenizer.eos_token_id,
+                )
+                return response[0]["generated_text"]
+
+        try:
+            try:
+                llm_wrapper = _CappedDeterministicHuggingFaceNamer(
+                    model=llm_model,
+                    max_new_tokens=local_llm_max_new_tokens,
+                    device_map="auto",
+                    dtype="auto",
+                )
+            except TypeError:
+                llm_wrapper = _CappedDeterministicHuggingFaceNamer(
+                    model=llm_model,
+                    max_new_tokens=local_llm_max_new_tokens,
+                    device_map="auto",
+                    torch_dtype="auto",
+                )
+        except Exception as exc:
+            raise_with_local_hf_compat_hint(model=llm_model, use_case="toponymy labeling", exc=exc)
+
+        llm_usage = None
+        if cost_tracker is not None:
+            logger.info("  Local Toponymy LLM selected; token/cost tracking is unavailable for this step.")
+        logger.info(
+            "  Local Toponymy LLM max_new_tokens capped at %s per naming call.",
+            local_llm_max_new_tokens,
+        )
+
+    if embedding_provider_norm == "openrouter":
+        text_embedding_model = OpenRouterEmbedder(
+            api_key=api_key,
+            model=embedding_model,
+            api_base=openrouter_api_base,
+            max_workers=max_workers,
+        )
+    elif embedding_provider_norm == "gguf":
+        text_embedding_model = GGUFEmbedder(
+            model=embedding_model,
+            max_workers=max_workers,
+        )
+    else:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as exc:
+            raise ImportError(
+                "embedding_provider='local' requires optional dependency 'sentence-transformers'."
+            ) from exc
         try:
             text_embedding_model = SentenceTransformer(embedding_model)
         except Exception as exc:
-            raise_with_local_hf_compat_hint(
-                model=embedding_model, use_case="toponymy embeddings", exc=exc,
-            )
-        if cost_tracker is not None:
-            logger.info("  GGUF Toponymy LLM selected; token/cost tracking is unavailable for this step.")
-        return llm_wrapper, None, text_embedding_model
+            raise_with_local_hf_compat_hint(model=embedding_model, use_case="toponymy embeddings", exc=exc)
 
-    try:
-        from sentence_transformers import SentenceTransformer
-        from toponymy.llm_wrappers import HuggingFaceNamer
-    except Exception as exc:
-        raise ImportError(
-            "llm_provider='local' requires optional dependencies "
-            "'sentence-transformers', 'transformers', and "
-            "Toponymy's HuggingFaceNamer wrapper."
-        ) from exc
-
-    local_llm_max_new_tokens = max(1, int(local_llm_max_new_tokens))
-
-    class _CappedDeterministicHuggingFaceNamer(HuggingFaceNamer):
-        """Toponymy local namer with deterministic decoding and bounded output length."""
-
-        def __init__(self, model: str, *, max_new_tokens: int, **kwargs):
-            self._local_max_new_tokens = max(1, int(max_new_tokens))
-            super().__init__(model=model, **kwargs)
-
-        def _max_tokens(self, requested: int) -> int:
-            return min(max(1, int(requested)), self._local_max_new_tokens)
-
-        def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
-            del temperature
-            response = self.llm(
-                [{"role": "user", "content": prompt + self.extra_prompting}],
-                return_full_text=False,
-                max_new_tokens=self._max_tokens(max_tokens),
-                do_sample=False,
-                pad_token_id=self.llm.tokenizer.eos_token_id,
-            )
-            return response[0]["generated_text"]
-
-        def _call_llm_with_system_prompt(
-            self,
-            system_prompt: str,
-            user_prompt: str,
-            temperature: float,
-            max_tokens: int,
-        ) -> str:
-            del temperature
-            response = self.llm(
-                [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt + self.extra_prompting},
-                ],
-                return_full_text=False,
-                max_new_tokens=self._max_tokens(max_tokens),
-                do_sample=False,
-                pad_token_id=self.llm.tokenizer.eos_token_id,
-            )
-            return response[0]["generated_text"]
-
-    try:
-        try:
-            llm_wrapper = _CappedDeterministicHuggingFaceNamer(
-                model=llm_model,
-                max_new_tokens=local_llm_max_new_tokens,
-                device_map="auto",
-                dtype="auto",
-            )
-        except TypeError:
-            llm_wrapper = _CappedDeterministicHuggingFaceNamer(
-                model=llm_model,
-                max_new_tokens=local_llm_max_new_tokens,
-                device_map="auto",
-                torch_dtype="auto",
-            )
-    except Exception as exc:
-        raise_with_local_hf_compat_hint(model=llm_model, use_case="toponymy labeling", exc=exc)
-
-    try:
-        text_embedding_model = SentenceTransformer(embedding_model)
-    except Exception as exc:
-        raise_with_local_hf_compat_hint(model=embedding_model, use_case="toponymy embeddings", exc=exc)
-
-    if cost_tracker is not None:
-        logger.info("  Local Toponymy LLM selected; token/cost tracking is unavailable for this step.")
-    logger.info(
-        "  Local Toponymy LLM max_new_tokens capped at %s per naming call.",
-        local_llm_max_new_tokens,
-    )
-    return llm_wrapper, None, text_embedding_model
+    return llm_wrapper, llm_usage, text_embedding_model
 
 
 def _fit_and_extract_toponymy_outputs(
@@ -800,16 +811,20 @@ def _fit_and_extract_toponymy_outputs(
     corpus_description: str,
     verbose: bool,
     backend_norm: str,
-    provider_norm: str,
+    llm_provider_norm: str,
     llm_model: str,
+    embedding_provider_norm: str,
+    embedding_model: str,
     layer_index: int,
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
     """Fit Toponymy model and extract one configured topic layer."""
     logger.info(
-        "Fitting Toponymy backend='%s' (LLM: %s/%s) ...",
+        "Fitting Toponymy backend='%s' (LLM: %s/%s | embeddings: %s/%s) ...",
         backend_norm,
-        provider_norm,
+        llm_provider_norm,
         llm_model,
+        embedding_provider_norm,
+        embedding_model,
     )
     topic_model = toponymy_cls(
         llm_wrapper=llm_wrapper,
@@ -1014,6 +1029,7 @@ def fit_toponymy(
     layer_index: int = 0,
     llm_provider: ToponymyLLMProvider = "openrouter",
     llm_model: str = "google/gemini-3-flash-preview",
+    embedding_provider: ToponymyEmbeddingProvider = "local",
     embedding_model: str = "google/gemini-embedding-001",
     api_key: str | None = None,
     openrouter_api_base: str = DEFAULT_OPENROUTER_API_BASE,
@@ -1045,6 +1061,8 @@ def fit_toponymy(
         Currently supported Toponymy naming provider.
     llm_model : str
         LLM model identifier for topic naming.
+    embedding_provider : str
+        Text-embedding provider used by Toponymy internals.
     local_llm_max_new_tokens : int
         Max generated tokens per local Toponymy naming call.
     embedding_model : str
@@ -1063,8 +1081,9 @@ def fit_toponymy(
         layer assignment vector and *topic_info* contains ``Topic``/``Name``
         metadata.
     """
-    provider_norm, backend_norm = _normalize_toponymy_inputs(
+    llm_provider_norm, embedding_provider_norm, backend_norm = _normalize_toponymy_inputs(
         llm_provider=llm_provider,
+        embedding_provider=embedding_provider,
         backend=backend,
         api_key=api_key,
     )
@@ -1083,7 +1102,8 @@ def fit_toponymy(
         clusterable_vectors=clusterable_vectors,
     )
     llm_wrapper, llm_usage, text_embedding_model = _build_toponymy_models(
-        provider_norm=provider_norm,
+        llm_provider_norm=llm_provider_norm,
+        embedding_provider_norm=embedding_provider_norm,
         llm_model=llm_model,
         embedding_model=embedding_model,
         api_key=api_key,
@@ -1104,22 +1124,28 @@ def fit_toponymy(
         corpus_description=corpus_description,
         verbose=verbose,
         backend_norm=backend_norm,
-        provider_norm=provider_norm,
+        llm_provider_norm=llm_provider_norm,
         llm_model=llm_model,
+        embedding_provider_norm=embedding_provider_norm,
+        embedding_model=embedding_model,
         layer_index=layer_index,
     )
 
     _record_llm_usage(
         llm_usage,
         step="llm_labeling_toponymy_evoc" if backend_norm == "toponymy_evoc" else "llm_labeling_toponymy",
-        llm_provider=provider_norm,
+        llm_provider=llm_provider_norm,
         llm_model=llm_model,
         api_key=api_key,
         openrouter_cost_mode=openrouter_cost_mode,
         cost_tracker=cost_tracker,
     )
 
-    if cost_tracker is not None and provider_norm == "openrouter" and hasattr(text_embedding_model, "usage"):
+    if (
+        cost_tracker is not None
+        and embedding_provider_norm == "openrouter"
+        and hasattr(text_embedding_model, "usage")
+    ):
         emb_usage = text_embedding_model.usage
         total_tokens = int(emb_usage.get("total_tokens", 0))
         if total_tokens > 0:

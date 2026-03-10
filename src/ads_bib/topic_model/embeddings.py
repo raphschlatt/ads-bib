@@ -14,6 +14,11 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from ads_bib._utils.ads_api import retry_call
+from ads_bib._utils.gguf_backend import (
+    embed_gguf,
+    recommended_gguf_thread_settings,
+    resolve_gguf_model,
+)
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
 from ads_bib._utils.openrouter_costs import (
@@ -36,6 +41,7 @@ _PAID_PROVIDER_DIM_HINTS = {
 _EMBEDDING_MEMORY_OVERHEAD_FACTOR = 1.5
 _EMBEDDING_MEMORY_BUDGET_FRACTION = 0.70
 _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
+_DEFAULT_GGUF_EMBED_N_CTX = 4096
 _MAX_OPENROUTER_WORKERS = 20
 
 
@@ -111,6 +117,15 @@ def _assert_memory_budget_for_paid_embeddings(
     )
 
 
+def _resolve_show_progress(*, verbose: bool | None, show_progress_bar: bool | None) -> bool:
+    """Resolve progress-bar visibility from Toponymy-compatible flags."""
+    if show_progress_bar is not None:
+        return bool(show_progress_bar)
+    if verbose is not None:
+        return bool(verbose)
+    return False
+
+
 def compute_embeddings(
     documents: list[str],
     *,
@@ -133,8 +148,8 @@ def compute_embeddings(
     documents : list[str]
         Ordered document texts to embed.
     provider : str
-        Embedding backend: ``"local"``, ``"huggingface_api"``, or
-        ``"openrouter"``.
+        Embedding backend: ``"local"``, ``"gguf"``,
+        ``"huggingface_api"``, or ``"openrouter"``.
     model : str
         Provider-specific embedding model identifier.
     cache_dir : Path, optional
@@ -167,11 +182,12 @@ def compute_embeddings(
     """
     validate_provider(
         provider,
-        valid={"local", "huggingface_api", "openrouter"},
+        valid={"local", "gguf", "huggingface_api", "openrouter"},
         api_key=api_key,
         requires_key={"openrouter"},
         requires_import={
             "local": "sentence_transformers",
+            "gguf": "llama_cpp",
             "openrouter": "litellm",
             "huggingface_api": "litellm",
         },
@@ -227,6 +243,18 @@ def compute_embeddings(
     if provider == "local":
         logger.info("  Local embedding runtime hint | cpu_count=%s", max(1, int(os.cpu_count() or 1)))
         emb = _embed_local(documents, model, batch_size, target_dtype)
+    elif provider == "gguf":
+        embedder = GGUFEmbedder(
+            model=model,
+            batch_size=batch_size,
+            max_workers=max_workers,
+            dtype=target_dtype,
+        )
+        emb = embedder.encode(
+            documents,
+            show_progress_bar=internal_show_progress,
+            progress_callback=progress_callback,
+        )
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(
             documents,
@@ -395,6 +423,105 @@ def _embed_huggingface_api(
     return out
 
 
+class GGUFEmbedder:
+    """Local GGUF embedding client backed by llama-cpp-python."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        batch_size: int = 64,
+        max_workers: int = 5,
+        dtype: Any = np.float32,
+        n_ctx: int = _DEFAULT_GGUF_EMBED_N_CTX,
+    ) -> None:
+        self.model = model
+        self.model_path = resolve_gguf_model(model)
+        self.batch_size = int(batch_size)
+        self.max_workers = int(max_workers)
+        self.dtype = dtype
+        self.n_ctx = int(n_ctx)
+        self.n_threads, self.n_threads_batch = recommended_gguf_thread_settings()
+        if self.max_workers > 1:
+            logger.info(
+                "  GGUF embeddings use one local model instance; max_workers=%s is ignored.",
+                self.max_workers,
+            )
+        logger.info(
+            "  GGUF embedding runtime hint | n_ctx=%s | threads=%s | threads_batch=%s",
+            self.n_ctx,
+            self.n_threads,
+            self.n_threads_batch,
+        )
+
+    def encode(
+        self,
+        texts: list[str],
+        verbose: bool | None = None,
+        show_progress_bar: bool | None = None,
+        progress_callback: Callable[[int], None] | None = None,
+        **kwargs: Any,
+    ) -> np.ndarray:
+        """Embed texts via GGUF in deterministic document order."""
+        del kwargs
+        texts = list(texts)
+        if not texts:
+            return np.array([], dtype=self.dtype)
+
+        batch_size = max(1, self.batch_size)
+        batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+        batch_offsets: list[tuple[int, int]] = []
+        offset = 0
+        for batch in batches:
+            start = offset
+            offset += len(batch)
+            batch_offsets.append((start, offset))
+
+        show_progress = (
+            _resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
+            and progress_callback is None
+        )
+        out: np.ndarray | None = None
+        for batch_index, batch in tqdm(
+            enumerate(batches),
+            total=len(batches),
+            desc="Embedding (GGUF)",
+            disable=not show_progress,
+        ):
+            start, end = batch_offsets[batch_index]
+            batch_embeddings = embed_gguf(
+                batch,
+                model_path=self.model_path,
+                n_ctx=self.n_ctx,
+                n_threads=self.n_threads,
+                n_threads_batch=self.n_threads_batch,
+                normalize=True,
+                truncate=True,
+            ).astype(self.dtype, copy=False)
+            expected_rows = end - start
+            if batch_embeddings.ndim != 2:
+                raise RuntimeError("GGUF embedding batch must be a 2D array.")
+            if batch_embeddings.shape[0] != expected_rows:
+                raise RuntimeError(
+                    "GGUF embedding batch size mismatch: "
+                    f"expected {expected_rows}, got {batch_embeddings.shape[0]}."
+                )
+            if out is None:
+                out = np.empty((len(texts), batch_embeddings.shape[1]), dtype=self.dtype)
+            elif batch_embeddings.shape[1] != out.shape[1]:
+                raise RuntimeError(
+                    "GGUF embedding dimension mismatch across batches: "
+                    f"expected {out.shape[1]}, got {batch_embeddings.shape[1]}."
+                )
+            out[start:end] = batch_embeddings
+            if progress_callback is not None:
+                progress_callback(expected_rows)
+
+        if out is None:
+            return np.array([], dtype=self.dtype)
+        return out
+
+
 class OpenRouterEmbedder:
     """Unified OpenRouter embedding client with retry, concurrency, and usage tracking."""
 
@@ -419,15 +546,6 @@ class OpenRouterEmbedder:
     def reset_usage(self) -> None:
         """Reset tracked usage counters."""
         self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
-
-    @staticmethod
-    def _resolve_show_progress(*, verbose: bool | None, show_progress_bar: bool | None) -> bool:
-        """Resolve progress-bar visibility from Toponymy-compatible flags."""
-        if show_progress_bar is not None:
-            return bool(show_progress_bar)
-        if verbose is not None:
-            return bool(verbose)
-        return False
 
     @staticmethod
     def _extract_response_data(response: Any) -> Any:
@@ -481,7 +599,7 @@ class OpenRouterEmbedder:
             )
         worker_count = max(1, min(effective_max, len(batches)))
         show_progress = (
-            self._resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
+            _resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
             and progress_callback is None
         )
 

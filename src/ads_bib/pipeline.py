@@ -1152,6 +1152,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
             if cfg.backend == "toponymy_evoc"
             else resolved["toponymy_cluster_params"]
         )
+        toponymy_api_key = cfg.llm_api_key or cfg.embedding_api_key
         if reporter is None:
             with capture_external_output(ctx.runtime_log_path):
                 topic_model, topics, topic_info = fit_toponymy(
@@ -1162,9 +1163,10 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                     layer_index=cfg.toponymy_layer_index,
                     llm_provider=cfg.llm_provider,
                     llm_model=cfg.llm_model,
+                    embedding_provider=cfg.embedding_provider,
                     embedding_model=resolved["toponymy_embedding_model"],
                     local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
-                    api_key=cfg.llm_api_key,
+                    api_key=toponymy_api_key,
                     openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                     max_workers=cfg.toponymy_max_workers,
                     clusterer_params=clusterer_params,
@@ -1181,9 +1183,10 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         layer_index=cfg.toponymy_layer_index,
                         llm_provider=cfg.llm_provider,
                         llm_model=cfg.llm_model,
+                        embedding_provider=cfg.embedding_provider,
                         embedding_model=resolved["toponymy_embedding_model"],
                         local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
-                        api_key=cfg.llm_api_key,
+                        api_key=toponymy_api_key,
                         openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                         max_workers=cfg.toponymy_max_workers,
                         clusterer_params=clusterer_params,

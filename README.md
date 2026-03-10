@@ -121,6 +121,7 @@ Current local baseline models in `pipeline.ipynb`:
 
 - Translation (GGUF): `mradermacher/translategemma-4b-it-i1-GGUF:translategemma-4b-it.i1-Q4_K_M.gguf` (via llama-cpp-python)
 - Embeddings: `google/embeddinggemma-300m` (via sentence-transformers)
+- Optional GGUF embeddings: `Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf` (via llama-cpp-python, CLS pooling)
 - Topic labeling: `Qwen/Qwen3-0.6B` (via transformers)
 - Optional quality alternative: `google/gemma-3-4b-it`
 
@@ -133,6 +134,8 @@ Local model notes:
   `uv pip install -U llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`
 - Embeddings and labeling require a recent HF stack in `ADS_env`:
   `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+- The topic-model embedding provider now supports both local HF embeddings and local GGUF embeddings.
+  Toponymy inherits the same embedding provider; only `toponymy_embedding_model` overrides the model id.
 
 ## Configuration Placement
 

@@ -15,9 +15,9 @@ class ProviderProfile:
     topic_backend: TopicBackend
     translation_provider: Literal["openrouter", "gguf"]
     translation_model: str
-    embedding_provider: Literal["openrouter", "local"]
+    embedding_provider: Literal["openrouter", "local", "gguf"]
     embedding_model: str
-    llm_provider: Literal["openrouter", "local"]
+    llm_provider: Literal["openrouter", "local", "gguf"]
     llm_model: str
     translation_api_key: str | None = None
     embedding_api_key: str | None = None

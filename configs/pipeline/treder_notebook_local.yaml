@@ -1,0 +1,106 @@
+run:
+  run_name: ADS_Curation_Run
+  start_stage: search
+  stop_stage: null
+  random_seed: 42
+  openrouter_cost_mode: hybrid
+  project_root: null
+
+search:
+  query: 'author:"Treder, H*"'
+  ads_token: null
+  refresh_search: true
+  refresh_export: true
+
+translate:
+  enabled: true
+  provider: nllb
+  model: JustFrederik/nllb-200-distilled-600M-ct2-int8
+  api_key: null
+  max_workers: 10
+  max_tokens: 2048
+  fasttext_model: data/models/lid.176.bin
+
+tokenize:
+  enabled: true
+  spacy_model: en_core_web_md
+  batch_size: 512
+  n_process: 8
+  disable:
+    - ner
+    - parser
+    - textcat
+  fallback_model: en_core_web_md
+  auto_download: true
+
+author_disambiguation:
+  enabled: false
+  model_bundle: null
+  dataset_id: null
+  force_refresh: false
+  infer_stage: full
+
+topic_model:
+  sample_size: null
+  embedding_provider: gguf
+  embedding_model: Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf
+  embedding_api_key: null
+  embedding_batch_size: 64
+  embedding_max_workers: 20
+  reduction_method: pacmap
+  params_5d:
+    n_neighbors: 80
+    metric: angular
+    random_state: 42
+  params_2d:
+    n_neighbors: 80
+    metric: angular
+    random_state: 42
+  backend: bertopic
+  clustering_method: fast_hdbscan
+  cluster_params: {}
+  toponymy_cluster_params: {}
+  toponymy_evoc_cluster_params: {}
+  toponymy_layer_index: 1
+  llm_prompt_name: physics
+  llm_prompt: null
+  llm_provider: gguf
+  llm_model: unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf
+  llm_api_key: null
+  bertopic_label_max_tokens: 128
+  toponymy_local_label_max_tokens: 256
+  pipeline_models:
+    - POS
+    - KeyBERT
+    - MMR
+  parallel_models:
+    - MMR
+    - POS
+    - KeyBERT
+  toponymy_embedding_model: null
+  toponymy_max_workers: 10
+  min_df: null
+  outlier_threshold: 0.5
+
+visualization:
+  enabled: true
+  title: ADS Bibliometric Map
+  subtitle_template: "Topics labeled with {provider}/{model}"
+  dark_mode: true
+
+curation:
+  clusters_to_remove: []
+
+citations:
+  metrics:
+    - direct
+    - co_citation
+    - bibliographic_coupling
+    - author_co_citation
+  min_counts:
+    direct: 5
+    co_citation: 20
+    bibliographic_coupling: 20
+    author_co_citation: 10
+  authors_filter: null
+  output_format: gexf
