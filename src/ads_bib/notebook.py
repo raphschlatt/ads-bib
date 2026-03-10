@@ -16,6 +16,7 @@ from ads_bib._utils.costs import CostTracker
 from ads_bib._utils.logging import get_console_logger
 from ads_bib.pipeline import (
     _execute_stage,
+    _set_resume_block,
     PipelineConfig,
     PipelineContext,
     STAGE_ORDER,
@@ -231,15 +232,6 @@ def _invalidate_context_from(context: PipelineContext, stage: StageName) -> None
     if stage_index <= STAGE_ORDER.index("citations"):
         context.citation_results = None
 
-
-def _set_resume_block(context: PipelineContext, candidate: StageName | None) -> None:
-    if candidate is None:
-        return
-    if (
-        context.resume_blocked_from is None
-        or STAGE_ORDER.index(candidate) < STAGE_ORDER.index(context.resume_blocked_from)
-    ):
-        context.resume_blocked_from = candidate
 
 
 def _drop_columns(

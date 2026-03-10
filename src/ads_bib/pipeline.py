@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 import random
+from collections.abc import Callable
 from typing import Any, Literal
 
 import numpy as np
@@ -419,6 +420,24 @@ def _has_translated_frames(ctx: PipelineContext) -> bool:
     return required.issubset(ctx.publications.columns) and required.issubset(ctx.refs.columns)
 
 
+def _try_load_snapshot(
+    ctx: PipelineContext,
+    stage: StageName,
+    load_fn: Callable[..., tuple[pd.DataFrame, pd.DataFrame]],
+) -> bool:
+    """Try loading a snapshot for *stage*; return True on success."""
+    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, stage):
+        try:
+            ctx.publications, ctx.refs = load_fn(
+                cache_dir=ctx.paths["cache"],
+                run_data_dir=ctx.run.paths["data"],
+            )
+            return True
+        except FileNotFoundError:
+            pass
+    return False
+
+
 def _stage_slice(start_stage: StageName, stop_stage: StageName | None) -> tuple[StageName, ...]:
     start_idx = STAGE_ORDER.index(validate_stage_name(start_stage))
     if stop_stage is None:
@@ -483,7 +502,9 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         return [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
 
     if stage == "translate" and ctx.publications is not None and ctx.refs is not None:
-        return [f"publications: {len(ctx.publications):,} translated-ready | references: {len(ctx.refs):,} translated-ready"]
+        pub_translated = int((ctx.publications.get("Title_lang", pd.Series(dtype=str)) != "en").sum())
+        ref_translated = int((ctx.refs.get("Title_lang", pd.Series(dtype=str)) != "en").sum())
+        return [f"publications: {len(ctx.publications):,} ({pub_translated:,} translated) | references: {len(ctx.refs):,} ({ref_translated:,} translated)"]
 
     if stage == "tokenize" and ctx.publications is not None:
         return [f"documents: {len(ctx.publications):,} | model: {ctx.config.tokenize.spacy_model}"]
@@ -491,7 +512,7 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
     if stage == "author_disambiguation" and ctx.publications is not None and ctx.refs is not None:
         if ctx.config.author_disambiguation.enabled:
             return ["author_uids attached to publications and references"]
-        return ["author disambiguation disabled; passthrough snapshot saved"]
+        return ["disabled — skipped"]
 
     if stage == "embeddings" and ctx.embeddings is not None:
         return [f"embeddings: {ctx.embeddings.shape[0]:,} x {ctx.embeddings.shape[1]:,}"]
@@ -520,7 +541,12 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
 
     if stage == "curate" and ctx.curated_df is not None:
         topic_count = ctx.curated_df["topic_id"].nunique() if "topic_id" in ctx.curated_df.columns else 0
-        return [f"curated dataset: {len(ctx.curated_df):,} | topics: {topic_count:,}"]
+        base = f"curated dataset: {len(ctx.curated_df):,} | topics: {topic_count:,}"
+        if ctx.topic_df is not None and len(ctx.topic_df) > len(ctx.curated_df):
+            removed = len(ctx.topic_df) - len(ctx.curated_df)
+            n_clusters = len(ctx.config.curation.clusters_to_remove)
+            base += f" ({removed:,} rows removed from {n_clusters} clusters)"
+        return [base]
 
     if stage == "citations" and ctx.citation_results is not None:
         metric_names = ", ".join(sorted(ctx.citation_results))
@@ -679,15 +705,8 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
     if _has_translated_frames(ctx):
         return ctx
 
-    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, "translate"):
-        try:
-            ctx.publications, ctx.refs = load_translated_snapshot(
-                cache_dir=ctx.paths["cache"],
-                run_data_dir=ctx.run.paths["data"],
-            )
-            return ctx
-        except FileNotFoundError:
-            pass
+    if _try_load_snapshot(ctx, "translate", load_translated_snapshot):
+        return ctx
 
     if not _has_source_frames(ctx):
         raise _require_stage(
@@ -713,18 +732,19 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
     if not cfg.fasttext_model:
         raise ValueError("translate.fasttext_model is required.")
 
+    ctx.publications = detect_languages(
+        ctx.publications,
+        ["Title", "Abstract"],
+        model_path=cfg.fasttext_model,
+    )
+    ctx.refs = detect_languages(
+        ctx.refs,
+        ["Title", "Abstract"],
+        model_path=cfg.fasttext_model,
+    )
+
     reporter = ctx.reporter
     if reporter is None:
-        ctx.publications = detect_languages(
-            ctx.publications,
-            ["Title", "Abstract"],
-            model_path=cfg.fasttext_model,
-        )
-        ctx.refs = detect_languages(
-            ctx.refs,
-            ["Title", "Abstract"],
-            model_path=cfg.fasttext_model,
-        )
         ctx.publications, _ = translate_dataframe(
             ctx.publications,
             ["Title", "Abstract"],
@@ -748,16 +768,6 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             cost_tracker=ctx.tracker,
         )
     else:
-        ctx.publications = detect_languages(
-            ctx.publications,
-            ["Title", "Abstract"],
-            model_path=cfg.fasttext_model,
-        )
-        ctx.refs = detect_languages(
-            ctx.refs,
-            ["Title", "Abstract"],
-            model_path=cfg.fasttext_model,
-        )
         pubs_title = int((ctx.publications["Title_lang"] != "en").sum())
         pubs_abs = int((ctx.publications["Abstract_lang"] != "en").sum())
         refs_title = int((ctx.refs["Title_lang"] != "en").sum())
@@ -826,15 +836,8 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     if ctx.publications is not None and ctx.refs is not None and "tokens" in ctx.publications.columns:
         return ctx
 
-    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, "tokenize"):
-        try:
-            ctx.publications, ctx.refs = load_tokenized_snapshot(
-                cache_dir=ctx.paths["cache"],
-                run_data_dir=ctx.run.paths["data"],
-            )
-            return ctx
-        except FileNotFoundError:
-            pass
+    if _try_load_snapshot(ctx, "tokenize", load_tokenized_snapshot):
+        return ctx
 
     if not _has_translated_frames(ctx):
         raise _require_stage(
@@ -874,15 +877,12 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
             spacy_disable=cfg.disable,
         )
     else:
-        with reporter.progress(total=1, desc="init model") as init_pbar:
-            model_to_use, preloaded_nlp = ensure_spacy_model(
-                spacy_model=cfg.spacy_model,
-                fallback_model=cfg.fallback_model,
-                spacy_disable=cfg.disable,
-                auto_download=cfg.auto_download,
-            )
-            if init_pbar is not None:
-                init_pbar.update(1)
+        model_to_use, preloaded_nlp = ensure_spacy_model(
+            spacy_model=cfg.spacy_model,
+            fallback_model=cfg.fallback_model,
+            spacy_disable=cfg.disable,
+            auto_download=cfg.auto_download,
+        )
 
         with reporter.progress(total=len(ctx.publications), desc="tokenize docs") as tokenize_pbar:
             progress_callback = None if tokenize_pbar is None else tokenize_pbar.update
@@ -911,15 +911,8 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
     if ctx.publications is not None and ctx.refs is not None and "author_uids" in ctx.publications.columns:
         return ctx
 
-    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, "author_disambiguation"):
-        try:
-            ctx.publications, ctx.refs = load_disambiguated_snapshot(
-                cache_dir=ctx.paths["cache"],
-                run_data_dir=ctx.run.paths["data"],
-            )
-            return ctx
-        except FileNotFoundError:
-            pass
+    if _try_load_snapshot(ctx, "author_disambiguation", load_disambiguated_snapshot):
+        return ctx
 
     if ctx.publications is None or "tokens" not in ctx.publications.columns or ctx.refs is None:
         raise _require_stage(
@@ -1016,15 +1009,16 @@ def run_reduction_stage(ctx: PipelineContext) -> PipelineContext:
             "Reduction stage requires embeddings in memory. Run the embeddings stage first.",
         )
     cfg = ctx.config.topic_model
-    ctx.reduced_5d, ctx.reduced_2d = reduce_dimensions(
-        ctx.embeddings,
-        method=cfg.reduction_method,
-        params_5d=cfg.params_5d,
-        params_2d=cfg.params_2d,
-        random_state=ctx.config.run.random_seed,
-        cache_dir=ctx.paths["dim_reduction_cache"],
-        embedding_id=f"{cfg.embedding_provider}/{cfg.embedding_model}",
-    )
+    with capture_external_output(ctx.runtime_log_path):
+        ctx.reduced_5d, ctx.reduced_2d = reduce_dimensions(
+            ctx.embeddings,
+            method=cfg.reduction_method,
+            params_5d=cfg.params_5d,
+            params_2d=cfg.params_2d,
+            random_state=ctx.config.run.random_seed,
+            cache_dir=ctx.paths["dim_reduction_cache"],
+            embedding_id=f"{cfg.embedding_provider}/{cfg.embedding_model}",
+        )
     return ctx
 
 
