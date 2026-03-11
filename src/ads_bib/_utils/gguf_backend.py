@@ -11,6 +11,7 @@ Topic-labeling integration uses the native library classes directly:
 
 from __future__ import annotations
 
+import atexit
 import functools
 import logging
 import os
@@ -54,6 +55,17 @@ _POOLING_TYPE_MAP: dict[str, str] = {
     "mean": "LLAMA_POOLING_TYPE_MEAN",
     "none": "LLAMA_POOLING_TYPE_NONE",
 }
+_DEVNULL_STREAM: Any | None = None
+
+
+def normalize_gguf_pooling(pooling: str) -> str:
+    """Return a validated GGUF pooling value in normalized lowercase form."""
+    pooling_norm = str(pooling).strip().lower()
+    if pooling_norm not in _POOLING_TYPE_MAP:
+        raise ValueError(
+            f"Unknown GGUF pooling type: {pooling!r}. Valid: {sorted(_POOLING_TYPE_MAP)}"
+        )
+    return pooling_norm
 
 
 def _parse_version_triplet(version: str) -> tuple[int, int, int] | None:
@@ -190,15 +202,37 @@ def safe_stdio():
         yield
         return
 
-    devnull = open(os.devnull, "w")  # noqa: SIM115
+    devnull = _get_devnull_stream()
+    sys.stdout = devnull
+    sys.stderr = devnull
     try:
-        sys.stdout = devnull
-        sys.stderr = devnull
         yield
     finally:
         sys.stdout = orig_out
         sys.stderr = orig_err
-        devnull.close()
+
+
+def _get_devnull_stream() -> Any:
+    """Return one shared devnull stream for temporary stdout/stderr patching."""
+    global _DEVNULL_STREAM
+    if _DEVNULL_STREAM is None or getattr(_DEVNULL_STREAM, "closed", True):
+        _DEVNULL_STREAM = open(os.devnull, "w")  # noqa: SIM115
+    return _DEVNULL_STREAM
+
+
+def _close_devnull_stream() -> None:
+    global _DEVNULL_STREAM
+    stream = _DEVNULL_STREAM
+    if stream is None:
+        return
+    try:
+        if not stream.closed:
+            stream.close()
+    finally:
+        _DEVNULL_STREAM = None
+
+
+atexit.register(_close_devnull_stream)
 
 
 def _load_llama(
@@ -355,7 +389,7 @@ def _ensure_embedding_model(
 ) -> Any:
     """Load and cache the GGUF embedding model for the current process."""
     global _embedding_model, _embedding_model_path, _embedding_model_config
-    pooling_lower = pooling.lower()
+    pooling_lower = normalize_gguf_pooling(pooling)
     model_config = (
         int(n_ctx),
         int(n_threads) if n_threads is not None else None,
@@ -367,12 +401,7 @@ def _ensure_embedding_model(
         or _embedding_model_path != model_path
         or _embedding_model_config != model_config
     ):
-        pooling_attr = _POOLING_TYPE_MAP.get(pooling_lower)
-        if pooling_attr is None:
-            raise ValueError(
-                f"Unknown GGUF pooling type: {pooling!r}. "
-                f"Valid: {sorted(_POOLING_TYPE_MAP)}"
-            )
+        pooling_attr = _POOLING_TYPE_MAP[pooling_lower]
         try:
             import llama_cpp
         except ImportError as exc:
@@ -461,6 +490,12 @@ def embed_gguf(
     pooling : str
         Pooling strategy — ``"cls"`` (default), ``"last"``, ``"mean"``,
         or ``"none"``.  Qwen3-Embedding models require ``"last"``.
+
+    Notes
+    -----
+    The current llama-cpp-python path is intentionally sequential per text.
+    This is a binding/runtime limitation of the current local GGUF path here,
+    not a general statement about GGUF or llama.cpp batching support.
     """
     texts = [str(text) for text in texts]
     if not texts:
@@ -473,8 +508,10 @@ def embed_gguf(
         n_threads_batch=n_threads_batch,
         pooling=pooling,
     )
-    # Process texts one-by-one to avoid multi-sequence batching issues
-    # in llama-cpp-python (llama_decode returned -1 with batch input).
+    pooling = normalize_gguf_pooling(pooling)
+    # Process texts one-by-one to avoid current llama-cpp-python multi-sequence
+    # embedding issues. This stays isolated in the GGUF helper so higher-level
+    # pipeline code does not need provider-specific workarounds.
     rows: list[np.ndarray] = []
     with safe_stdio():
         for text in texts:

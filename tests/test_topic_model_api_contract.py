@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import numpy as np
 
@@ -26,6 +27,12 @@ def _assert_keyword_only(fn, names: list[str]) -> None:
 
 def test_topic_model_public_api_names_are_stable():
     assert EXPECTED_PUBLIC_NAMES.issubset(set(dir(tm)))
+
+
+def test_topic_model_import_resolves_to_active_package_path():
+    module_path = Path(tm.__file__).resolve()
+    assert module_path.name == "__init__.py"
+    assert module_path.parent.name == "topic_model"
 
 
 def test_compute_embeddings_signature_contract():

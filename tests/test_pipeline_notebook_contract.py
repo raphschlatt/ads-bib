@@ -88,6 +88,7 @@ def test_pipeline_notebook_code_contract():
     assert '"spacy_model": "en_core_web_md"' in code
     assert '"fallback_model": "en_core_web_md"' in code
     assert 'TOPIC_MODEL = {' in code
+    assert '"gguf_embedding_pooling": "cls"' in code
     assert '"llm_prompt_name": "physics"' in code
     assert 'CITATIONS = {' in code
     assert "run.save_config(globals())" not in code

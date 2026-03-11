@@ -13,6 +13,7 @@ search:
   refresh_export: true
 
 translate:
+  # Translate runtimes: nllb (local seq2seq), gguf (optional local llama-cpp-python), openrouter (API)
   enabled: true
   provider: nllb
   model: JustFrederik/nllb-200-distilled-600M-ct2-int8
@@ -42,6 +43,7 @@ author_disambiguation:
 
 topic_model:
   sample_size: null
+  # Embeddings: local (HF CPU/GPU), gguf (optional local llama-cpp-python), huggingface_api, openrouter
   embedding_provider: gguf
   embedding_model: Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf
   embedding_api_key: null
@@ -65,6 +67,8 @@ topic_model:
   toponymy_layer_index: 1
   llm_prompt_name: physics
   llm_prompt: null
+  # BERTopic labeling: local (HF CPU/GPU), gguf, huggingface_api, openrouter
+  # Toponymy naming: local (HF CPU/GPU), gguf, openrouter
   llm_provider: gguf
   llm_model: unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf
   llm_api_key: null

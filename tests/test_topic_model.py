@@ -773,6 +773,20 @@ def test_fit_toponymy_rejects_invalid_backend():
         assert "Expected 'toponymy' or 'toponymy_evoc'" in str(exc)
 
 
+def test_fit_toponymy_rejects_huggingface_api_embedding_provider():
+    with pytest.raises(ValueError, match="Invalid embedding_provider 'huggingface_api'"):
+        tm.fit_toponymy(
+            documents=["d1"],
+            embeddings=np.ones((1, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((1, 2), dtype=np.float32),
+            backend="toponymy",
+            llm_provider="local",
+            llm_model="local-llm",
+            embedding_provider="huggingface_api",
+            embedding_model="hf-api-embedder",
+        )
+
+
 def test_record_llm_usage_fetches_openrouter_cost(monkeypatch):
     calls: dict = {}
 
@@ -1648,6 +1662,60 @@ def test_compute_embeddings_gguf_uses_cache_then_recomputes_on_mismatch(monkeypa
     assert np.allclose(third, 2.0)
     assert "Loaded embeddings from cache" in caplog.text
     assert "Embedding cache mismatch" in caplog.text
+
+
+def test_compute_embeddings_gguf_pooling_change_invalidates_cache(monkeypatch, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    init_poolings: list[str] = []
+
+    class _FakeGGUFEmbedder:
+        def __init__(
+            self,
+            *,
+            model,
+            batch_size=64,
+            max_workers=5,
+            dtype=np.float32,
+            n_ctx=4096,
+            pooling="cls",
+        ):
+            del model, batch_size, max_workers, dtype, n_ctx
+            init_poolings.append(pooling)
+            self.pooling = pooling
+
+        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
+            del verbose, show_progress_bar, progress_callback, kwargs
+            fill = 1.0 if self.pooling == "cls" else 2.0
+            return np.full((len(texts), 2), fill_value=fill, dtype=np.float32)
+
+    monkeypatch.setattr(tm_embeddings, "GGUFEmbedder", _FakeGGUFEmbedder)
+    model = "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf"
+    docs = ["doc-a", "doc-b"]
+
+    first = tm.compute_embeddings(
+        docs,
+        provider="gguf",
+        model=model,
+        cache_dir=tmp_path,
+        dtype=np.float32,
+        gguf_pooling="cls",
+    )
+    second = tm.compute_embeddings(
+        docs,
+        provider="gguf",
+        model=model,
+        cache_dir=tmp_path,
+        dtype=np.float32,
+        gguf_pooling="last",
+    )
+    cache_file = tmp_path / "embeddings_gguf_Qwen_Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf.npz"
+    cache_data = np.load(cache_file, allow_pickle=True)
+
+    assert init_poolings == ["cls", "last"]
+    assert np.allclose(first, 1.0)
+    assert np.allclose(second, 2.0)
+    assert str(cache_data["gguf_pooling"]) == "last"
+    assert "GGUF pooling changed" in caplog.text
 
 
 def test_compute_embeddings_cache_hit_reports_document_progress(monkeypatch, tmp_path):

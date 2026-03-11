@@ -15,6 +15,7 @@ import pandas as pd
 import yaml
 
 from . import prompts
+from ads_bib._utils.gguf_backend import normalize_gguf_pooling
 from ads_bib._utils.checkpoints import (
     load_disambiguated_snapshot,
     load_tokenized_snapshot,
@@ -38,7 +39,7 @@ from ads_bib.citations import (
     export_wos_format,
     process_all_citations,
 )
-from ads_bib.config import init_paths, load_env
+from ads_bib.config import init_paths, load_env, validate_provider
 from ads_bib.curate import get_cluster_summary, remove_clusters
 from ads_bib.export import resolve_dataset
 from ads_bib.run_manager import RunManager
@@ -51,6 +52,12 @@ from ads_bib.topic_model import (
     fit_toponymy,
     reduce_dimensions,
     reduce_outliers,
+)
+from ads_bib.topic_model._runtime import (
+    BERTOPIC_LLM_PROVIDERS,
+    EMBEDDING_PROVIDERS,
+    TOPONYMY_EMBEDDING_PROVIDERS,
+    TOPONYMY_LLM_PROVIDERS,
 )
 from ads_bib.translate import detect_languages, translate_dataframe
 
@@ -244,6 +251,35 @@ class PipelineConfig:
         self.run.start_stage = validate_stage_name(self.run.start_stage)
         if self.run.stop_stage is not None:
             self.run.stop_stage = validate_stage_name(self.run.stop_stage)
+        self.topic_model.gguf_embedding_pooling = normalize_gguf_pooling(
+            self.topic_model.gguf_embedding_pooling
+        )
+
+        backend = self.topic_model.backend.strip().lower()
+        if backend not in {"bertopic", "toponymy", "toponymy_evoc"}:
+            raise ValueError(
+                f"Invalid topic_model.backend '{self.topic_model.backend}'. "
+                "Expected one of: bertopic, toponymy, toponymy_evoc."
+            )
+
+        if backend == "bertopic":
+            validate_provider(
+                self.topic_model.embedding_provider,
+                valid=set(EMBEDDING_PROVIDERS),
+            )
+            validate_provider(
+                self.topic_model.llm_provider,
+                valid=set(BERTOPIC_LLM_PROVIDERS),
+            )
+        else:
+            validate_provider(
+                self.topic_model.embedding_provider,
+                valid=set(TOPONYMY_EMBEDDING_PROVIDERS),
+            )
+            validate_provider(
+                self.topic_model.llm_provider,
+                valid=set(TOPONYMY_LLM_PROVIDERS),
+            )
 
         if self.author_disambiguation.enabled and not self.author_disambiguation.model_bundle:
             raise ValueError(

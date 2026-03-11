@@ -1,4 +1,9 @@
-"""Embedding providers and caching for topic modeling."""
+"""Embedding providers and caching for topic modeling.
+
+`local` uses the Hugging Face / sentence-transformers stack on CPU or GPU.
+`gguf` stays an optional local llama-cpp-python path for small portable
+models with different runtime tradeoffs.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ from tqdm.auto import tqdm
 from ads_bib._utils.ads_api import retry_call
 from ads_bib._utils.gguf_backend import (
     embed_gguf,
+    normalize_gguf_pooling,
     recommended_gguf_thread_settings,
     resolve_gguf_model,
 )
@@ -29,6 +35,7 @@ from ads_bib._utils.openrouter_costs import (
     resolve_openrouter_costs,
 )
 from ads_bib.config import validate_provider
+from ads_bib.topic_model._runtime import EMBEDDING_PROVIDER_IMPORTS, EMBEDDING_PROVIDERS
 
 logger = logging.getLogger("ads_bib.topic_model")
 
@@ -126,6 +133,13 @@ def _resolve_show_progress(*, verbose: bool | None, show_progress_bar: bool | No
     return False
 
 
+def _resolve_gguf_cache_pooling(*, provider: str, gguf_pooling: str) -> str | None:
+    """Return cache-relevant GGUF pooling metadata for the selected provider."""
+    if provider != "gguf":
+        return None
+    return normalize_gguf_pooling(gguf_pooling)
+
+
 def compute_embeddings(
     documents: list[str],
     *,
@@ -149,7 +163,8 @@ def compute_embeddings(
     documents : list[str]
         Ordered document texts to embed.
     provider : str
-        Embedding backend: ``"local"``, ``"gguf"``,
+        Embedding backend: ``"local"`` (HF / sentence-transformers on CPU or
+        GPU), ``"gguf"`` (optional local llama-cpp-python runtime),
         ``"huggingface_api"``, or ``"openrouter"``.
     model : str
         Provider-specific embedding model identifier.
@@ -183,19 +198,15 @@ def compute_embeddings(
     """
     validate_provider(
         provider,
-        valid={"local", "gguf", "huggingface_api", "openrouter"},
+        valid=set(EMBEDDING_PROVIDERS),
         api_key=api_key,
         requires_key={"openrouter"},
-        requires_import={
-            "local": "sentence_transformers",
-            "gguf": "llama_cpp",
-            "openrouter": "litellm",
-            "huggingface_api": "litellm",
-        },
+        requires_import=EMBEDDING_PROVIDER_IMPORTS,
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     target_dtype = np.dtype(dtype)
     internal_show_progress = bool(show_progress) and progress_callback is None
+    cache_gguf_pooling = _resolve_gguf_cache_pooling(provider=provider, gguf_pooling=gguf_pooling)
 
     model_safe = model.replace("/", "_")
     cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
@@ -208,11 +219,13 @@ def compute_embeddings(
         cached_fingerprint = str(data["doc_fingerprint"]) if "doc_fingerprint" in data.files else None
         cached_provider = str(data["provider"]) if "provider" in data.files else None
         cached_model = str(data["model"]) if "model" in data.files else None
+        cached_gguf_pooling = str(data["gguf_pooling"]) if "gguf_pooling" in data.files else None
         is_valid = (
             cached_n_docs == len(documents)
             and cached_fingerprint == doc_fingerprint
             and cached_provider == provider
             and cached_model == model
+            and cached_gguf_pooling == cache_gguf_pooling
         )
         if is_valid:
             logger.info("  Loaded embeddings from cache: %s", cache_file.name)
@@ -230,6 +243,13 @@ def compute_embeddings(
             provider,
             model,
         )
+        if provider == "gguf":
+            logger.warning(
+                "  GGUF pooling changed for %s (cached=%s, current=%s). Recomputing.",
+                cache_file.name,
+                cached_gguf_pooling,
+                cache_gguf_pooling,
+            )
 
     logger.info("  Computing embeddings with %s/%s ...", provider, model)
 
@@ -250,7 +270,7 @@ def compute_embeddings(
             batch_size=batch_size,
             max_workers=max_workers,
             dtype=target_dtype,
-            pooling=gguf_pooling,
+            pooling=cache_gguf_pooling or "cls",
         )
         emb = embedder.encode(
             documents,
@@ -301,15 +321,17 @@ def compute_embeddings(
 
     if cache_file:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            cache_file,
-            embeddings=emb,
-            model=model,
-            provider=provider,
-            n_docs=len(documents),
-            doc_fingerprint=doc_fingerprint,
-            dtype=str(target_dtype),
-        )
+        payload: dict[str, Any] = {
+            "embeddings": emb,
+            "model": model,
+            "provider": provider,
+            "n_docs": len(documents),
+            "doc_fingerprint": doc_fingerprint,
+            "dtype": str(target_dtype),
+        }
+        if cache_gguf_pooling is not None:
+            payload["gguf_pooling"] = cache_gguf_pooling
+        np.savez_compressed(cache_file, **payload)
         logger.info("  Saved: %s", cache_file.name)
 
     logger.info("  Embeddings: %s", emb.shape)
@@ -439,7 +461,7 @@ class GGUFEmbedder:
         pooling: str = "cls",
     ) -> None:
         self.model = model
-        self.pooling = pooling
+        self.pooling = normalize_gguf_pooling(pooling)
         self.model_path = resolve_gguf_model(model)
         self.batch_size = int(batch_size)
         self.max_workers = int(max_workers)

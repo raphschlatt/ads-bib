@@ -1,4 +1,9 @@
-"""Topic-model backends (BERTopic and Toponymy) and clustering orchestration."""
+"""Topic-model backends (BERTopic and Toponymy) and clustering orchestration.
+
+`local` uses the Hugging Face stack on CPU or GPU. `gguf` remains a separate
+optional local runtime with llama-cpp-python-specific behavior isolated in
+GGUF helpers.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +20,6 @@ from tqdm.auto import tqdm
 
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
-import os
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -31,6 +35,12 @@ from ads_bib._utils.openrouter_costs import (
 )
 from ads_bib.config import validate_provider
 from ads_bib.prompts import BERTOPIC_LABELING_GENERIC
+from ads_bib.topic_model._runtime import (
+    BERTOPIC_LLM_PROVIDER_IMPORTS,
+    BERTOPIC_LLM_PROVIDERS,
+    TOPONYMY_EMBEDDING_PROVIDERS,
+    TOPONYMY_LLM_PROVIDERS,
+)
 from ads_bib.topic_model.embeddings import GGUFEmbedder, OpenRouterEmbedder
 
 logger = logging.getLogger("ads_bib.topic_model")
@@ -572,13 +582,13 @@ def _normalize_toponymy_inputs(
 ) -> tuple[ToponymyLLMProvider, ToponymyEmbeddingProvider, ToponymyBackend]:
     """Normalize and validate Toponymy backend/provider selections."""
     llm_provider_norm = llm_provider.strip().lower()
-    if llm_provider_norm not in {"openrouter", "local", "gguf"}:
-        raise ValueError(f"Invalid llm_provider '{llm_provider}'. Expected 'openrouter', 'local', or 'gguf'.")
+    if llm_provider_norm not in TOPONYMY_LLM_PROVIDERS:
+        allowed = ", ".join(sorted(TOPONYMY_LLM_PROVIDERS))
+        raise ValueError(f"Invalid llm_provider '{llm_provider}'. Expected one of: {allowed}.")
     embedding_provider_norm = embedding_provider.strip().lower()
-    if embedding_provider_norm not in {"openrouter", "local", "gguf"}:
-        raise ValueError(
-            f"Invalid embedding_provider '{embedding_provider}'. Expected 'openrouter', 'local', or 'gguf'."
-        )
+    if embedding_provider_norm not in TOPONYMY_EMBEDDING_PROVIDERS:
+        allowed = ", ".join(sorted(TOPONYMY_EMBEDDING_PROVIDERS))
+        raise ValueError(f"Invalid embedding_provider '{embedding_provider}'. Expected one of: {allowed}.")
     if (llm_provider_norm == "openrouter" or embedding_provider_norm == "openrouter") and not api_key:
         raise ValueError("api_key is required for Toponymy with OpenRouter.")
 
@@ -925,15 +935,10 @@ def fit_bertopic(
     """
     validate_provider(
         llm_provider,
-        valid={"local", "gguf", "huggingface_api", "openrouter"},
+        valid=set(BERTOPIC_LLM_PROVIDERS),
         api_key=api_key,
         requires_key={"openrouter"},
-        requires_import={
-            "local": "transformers",
-            "gguf": "llama_cpp",
-            "openrouter": "litellm",
-            "huggingface_api": "litellm",
-        },
+        requires_import=BERTOPIC_LLM_PROVIDER_IMPORTS,
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
 

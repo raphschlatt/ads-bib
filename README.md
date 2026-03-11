@@ -110,32 +110,39 @@ Console behavior is also frontend-specific:
 Secrets stay out of notebook cells and committed YAML. Leave API-key/token
 fields as `None` and provide them via `.env`.
 
-## Provider Parity Runbook
+## Runtime Support Matrix
 
-For manual parity validation (`openrouter` vs `local`, both `bertopic` and `toponymy`),
-follow:
+Topic-model runtimes are intentionally split by interface and runtime style:
 
-- `docs/manual_provider_parity.md`
+- `local`: Hugging Face / sentence-transformers / transformers on CPU or GPU
+- `gguf`: optional local `llama-cpp-python` runtime for small portable models
+- `openrouter` / `huggingface_api`: explicit remote API providers
 
-Current local baseline models in `pipeline.ipynb`:
+| Interface | Supported providers | Notes |
+| --- | --- | --- |
+| Translation | `nllb`, `gguf`, `openrouter` | Current translation path stays unchanged. |
+| Embeddings | `local`, `gguf`, `huggingface_api`, `openrouter` | `local` is the default local CPU/GPU path; `gguf` is optional. |
+| BERTopic labeling | `local`, `gguf`, `huggingface_api`, `openrouter` | `local` uses transformers on CPU/GPU. |
+| Toponymy naming | `local`, `gguf`, `openrouter` | `huggingface_api` is not a Toponymy naming provider. |
+| Toponymy text embeddings | `local`, `gguf`, `openrouter` | `toponymy_embedding_model` only overrides the model id. |
 
-- Translation (GGUF): `mradermacher/translategemma-4b-it-i1-GGUF:translategemma-4b-it.i1-Q4_K_M.gguf` (via llama-cpp-python)
-- Embeddings: `google/embeddinggemma-300m` (via sentence-transformers)
-- Optional GGUF embeddings: `Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf` (via llama-cpp-python, CLS pooling)
-- Topic labeling: `Qwen/Qwen3-0.6B` (via transformers)
+Current local baseline models:
+
+- Translation (GGUF): `mradermacher/translategemma-4b-it-i1-GGUF:translategemma-4b-it.i1-Q4_K_M.gguf`
+- Embeddings (HF local): `google/embeddinggemma-300m`
+- Optional GGUF embeddings: `Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf`
+- Topic labeling (HF local): `Qwen/Qwen3-0.6B`
 - Optional quality alternative: `google/gemma-3-4b-it`
 
-Local model notes:
-- Translation uses GGUF quantised models via `llama-cpp-python` for fast CPU inference.
-  Translation supports process-based GGUF parallelism (`max_workers`) plus
-  token-aware auto-chunking for long texts.
-  Conda-first install (recommended on Windows): `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
-  Pip fallback (must target the active kernel interpreter):
-  `uv pip install -U llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`
-- Embeddings and labeling require a recent HF stack in `ADS_env`:
+Runtime notes:
+
+- GGUF is valuable for local small-model portability, lower footprint, and simpler local setup. It is not assumed to be the fastest CPU path for embeddings.
+- The current GGUF embedding path is sequential per text because of the current `llama-cpp-python` integration here. That is a property of this binding/runtime path, not a general claim about GGUF or `llama.cpp`.
+- Translation uses GGUF quantized models via `llama-cpp-python` for CPU inference and keeps its current chunking/parallelism behavior.
+- Embeddings and local labeling require a recent HF stack in `ADS_env`:
   `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
-- The topic-model embedding provider now supports both local HF embeddings and local GGUF embeddings.
-  Toponymy inherits the same embedding provider; only `toponymy_embedding_model` overrides the model id.
+- Windows-friendly GGUF install:
+  `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
 
 ## Configuration Placement
 

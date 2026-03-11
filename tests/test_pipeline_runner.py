@@ -52,9 +52,50 @@ def test_default_pipeline_config_template_loads():
     assert data["run"]["start_stage"] == "search"
     assert data["run"]["stop_stage"] is None
     assert data["topic_model"]["llm_prompt_name"] == "physics"
+    assert data["topic_model"]["gguf_embedding_pooling"] == "cls"
     assert data["author_disambiguation"]["enabled"] is False
     assert data["tokenize"]["spacy_model"] == "en_core_web_md"
     assert data["tokenize"]["fallback_model"] == "en_core_web_md"
+
+
+def test_pipeline_config_allows_huggingface_api_for_bertopic():
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "topic_model": {
+                "backend": "bertopic",
+                "embedding_provider": "huggingface_api",
+                "llm_provider": "huggingface_api",
+            }
+        }
+    )
+
+    assert config.topic_model.embedding_provider == "huggingface_api"
+    assert config.topic_model.llm_provider == "huggingface_api"
+
+
+def test_pipeline_config_rejects_huggingface_api_for_toponymy():
+    with pytest.raises(ValueError, match="Invalid provider 'huggingface_api'"):
+        pipeline.PipelineConfig.from_dict(
+            {
+                "topic_model": {
+                    "backend": "toponymy",
+                    "embedding_provider": "huggingface_api",
+                    "llm_provider": "local",
+                }
+            }
+        )
+
+
+def test_pipeline_config_rejects_unknown_gguf_pooling():
+    with pytest.raises(ValueError, match="Unknown GGUF pooling type"):
+        pipeline.PipelineConfig.from_dict(
+            {
+                "topic_model": {
+                    "embedding_provider": "gguf",
+                    "gguf_embedding_pooling": "bogus",
+                }
+            }
+        )
 
 
 def test_run_pipeline_respects_stage_slice(monkeypatch):

@@ -83,6 +83,7 @@ def _earliest_invalidation_stage(
                 ("topic_model", "embedding_api_key"),
                 ("topic_model", "embedding_batch_size"),
                 ("topic_model", "embedding_max_workers"),
+                ("topic_model", "gguf_embedding_pooling"),
             ],
         ),
         (
