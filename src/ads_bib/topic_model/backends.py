@@ -641,6 +641,7 @@ def _build_toponymy_models(
     max_workers: int,
     local_llm_max_new_tokens: int,
     cost_tracker: "CostTracker | None",
+    gguf_pooling: str = "cls",
 ) -> tuple[Any, dict[str, Any] | None, Any]:
     """Build Toponymy naming and text-embedding components."""
     if llm_provider_norm == "openrouter":
@@ -782,6 +783,7 @@ def _build_toponymy_models(
         text_embedding_model = GGUFEmbedder(
             model=embedding_model,
             max_workers=max_workers,
+            pooling=gguf_pooling,
         )
     else:
         try:
@@ -1041,6 +1043,7 @@ def fit_toponymy(
     corpus_description: str = "collection of research papers",
     verbose: bool = True,
     cost_tracker: "CostTracker | None" = None,
+    gguf_pooling: str = "cls",
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
     """Fit Toponymy (or Toponymy+EVoC) and return topic assignments.
 
@@ -1111,6 +1114,7 @@ def fit_toponymy(
         max_workers=max_workers,
         local_llm_max_new_tokens=local_llm_max_new_tokens,
         cost_tracker=cost_tracker,
+        gguf_pooling=gguf_pooling,
     )
     topic_model, topics, topic_info = _fit_and_extract_toponymy_outputs(
         toponymy_cls=Toponymy,

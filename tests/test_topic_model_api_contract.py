@@ -43,6 +43,7 @@ def test_compute_embeddings_signature_contract():
         "cost_tracker",
         "show_progress",
         "progress_callback",
+        "gguf_pooling",
     ]
     _assert_keyword_only(
         tm.compute_embeddings,
@@ -58,6 +59,7 @@ def test_compute_embeddings_signature_contract():
             "cost_tracker",
             "show_progress",
             "progress_callback",
+            "gguf_pooling",
         ],
     )
     assert signature.parameters["dtype"].default == np.float16
@@ -168,6 +170,7 @@ def test_fit_toponymy_signature_contract():
         "corpus_description",
         "verbose",
         "cost_tracker",
+        "gguf_pooling",
     ]
     _assert_keyword_only(
         tm.fit_toponymy,
@@ -188,6 +191,7 @@ def test_fit_toponymy_signature_contract():
             "corpus_description",
             "verbose",
             "cost_tracker",
+            "gguf_pooling",
         ],
     )
 

@@ -41,7 +41,7 @@ _PAID_PROVIDER_DIM_HINTS = {
 _EMBEDDING_MEMORY_OVERHEAD_FACTOR = 1.5
 _EMBEDDING_MEMORY_BUDGET_FRACTION = 0.70
 _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
-_DEFAULT_GGUF_EMBED_N_CTX = 4096
+_DEFAULT_GGUF_EMBED_N_CTX = 8192
 _MAX_OPENROUTER_WORKERS = 20
 
 
@@ -140,6 +140,7 @@ def compute_embeddings(
     cost_tracker: "CostTracker | None" = None,
     show_progress: bool = True,
     progress_callback: Callable[[int], None] | None = None,
+    gguf_pooling: str = "cls",
 ) -> np.ndarray:
     """Compute document embeddings with optional cache reuse.
 
@@ -249,6 +250,7 @@ def compute_embeddings(
             batch_size=batch_size,
             max_workers=max_workers,
             dtype=target_dtype,
+            pooling=gguf_pooling,
         )
         emb = embedder.encode(
             documents,
@@ -434,8 +436,10 @@ class GGUFEmbedder:
         max_workers: int = 5,
         dtype: Any = np.float32,
         n_ctx: int = _DEFAULT_GGUF_EMBED_N_CTX,
+        pooling: str = "cls",
     ) -> None:
         self.model = model
+        self.pooling = pooling
         self.model_path = resolve_gguf_model(model)
         self.batch_size = int(batch_size)
         self.max_workers = int(max_workers)
@@ -497,6 +501,7 @@ class GGUFEmbedder:
                 n_threads_batch=self.n_threads_batch,
                 normalize=True,
                 truncate=True,
+                pooling=self.pooling,
             ).astype(self.dtype, copy=False)
             expected_rows = end - start
             if batch_embeddings.ndim != 2:

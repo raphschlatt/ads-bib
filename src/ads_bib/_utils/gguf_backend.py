@@ -47,6 +47,14 @@ _GGUF_ARCH_MISMATCH_MARKERS = (
 )
 _VERSION_TOKEN_RE = re.compile(r"(\d+)")
 
+# Maps human-readable pooling names to llama_cpp constant names.
+_POOLING_TYPE_MAP: dict[str, str] = {
+    "cls": "LLAMA_POOLING_TYPE_CLS",
+    "last": "LLAMA_POOLING_TYPE_LAST",
+    "mean": "LLAMA_POOLING_TYPE_MEAN",
+    "none": "LLAMA_POOLING_TYPE_NONE",
+}
+
 
 def _parse_version_triplet(version: str) -> tuple[int, int, int] | None:
     """Parse semantic version prefix from a version string."""
@@ -197,6 +205,7 @@ def _load_llama(
     model_path: str,
     *,
     n_ctx: int = 2048,
+    n_batch: int | None = None,
     n_gpu_layers: int = -1,
     n_threads: int | None = None,
     n_threads_batch: int | None = None,
@@ -211,19 +220,23 @@ def _load_llama(
     except ImportError as exc:
         raise ImportError(_INSTALL_HINT) from exc
 
+    kwargs: dict[str, Any] = dict(
+        model_path=model_path,
+        n_ctx=n_ctx,
+        n_gpu_layers=n_gpu_layers,
+        n_threads=n_threads,
+        n_threads_batch=n_threads_batch,
+        vocab_only=vocab_only,
+        embedding=embedding,
+        pooling_type=pooling_type,
+        verbose=verbose,
+    )
+    if n_batch is not None:
+        kwargs["n_batch"] = n_batch
+
     try:
         with safe_stdio():
-            return Llama(
-                model_path=model_path,
-                n_ctx=n_ctx,
-                n_gpu_layers=n_gpu_layers,
-                n_threads=n_threads,
-                n_threads_batch=n_threads_batch,
-                vocab_only=vocab_only,
-                embedding=embedding,
-                pooling_type=pooling_type,
-                verbose=verbose,
-            )
+            return Llama(**kwargs)
     except AssertionError as exc:
         raise RuntimeError(_build_llama_load_error_message(model_path=model_path, exc=exc)) from exc
     except Exception as exc:
@@ -338,32 +351,45 @@ def _ensure_embedding_model(
     n_ctx: int,
     n_threads: int | None,
     n_threads_batch: int | None,
+    pooling: str = "cls",
 ) -> Any:
     """Load and cache the GGUF embedding model for the current process."""
     global _embedding_model, _embedding_model_path, _embedding_model_config
+    pooling_lower = pooling.lower()
     model_config = (
         int(n_ctx),
         int(n_threads) if n_threads is not None else None,
         int(n_threads_batch) if n_threads_batch is not None else None,
+        pooling_lower,
     )
     if (
         _embedding_model is None
         or _embedding_model_path != model_path
         or _embedding_model_config != model_config
     ):
+        pooling_attr = _POOLING_TYPE_MAP.get(pooling_lower)
+        if pooling_attr is None:
+            raise ValueError(
+                f"Unknown GGUF pooling type: {pooling!r}. "
+                f"Valid: {sorted(_POOLING_TYPE_MAP)}"
+            )
         try:
-            from llama_cpp import LLAMA_POOLING_TYPE_CLS
+            import llama_cpp
         except ImportError as exc:
             raise ImportError(_INSTALL_HINT) from exc
+        pooling_int = getattr(llama_cpp, pooling_attr)
 
-        logger.info("Loading GGUF embedding model: %s", model_path)
+        logger.info(
+            "Loading GGUF embedding model: %s (pooling=%s)", model_path, pooling_lower
+        )
         _embedding_model = _load_llama(
             model_path,
             n_ctx=n_ctx,
+            n_batch=n_ctx,
             n_threads=n_threads,
             n_threads_batch=n_threads_batch,
             embedding=True,
-            pooling_type=LLAMA_POOLING_TYPE_CLS,
+            pooling_type=pooling_int,
             verbose=False,
         )
         _make_llama_jupyter_safe(_embedding_model)
@@ -426,8 +452,16 @@ def embed_gguf(
     n_threads_batch: int | None = None,
     normalize: bool = True,
     truncate: bool = True,
+    pooling: str = "cls",
 ) -> np.ndarray:
-    """Embed *texts* via a local GGUF model with CLS pooling."""
+    """Embed *texts* via a local GGUF model.
+
+    Parameters
+    ----------
+    pooling : str
+        Pooling strategy — ``"cls"`` (default), ``"last"``, ``"mean"``,
+        or ``"none"``.  Qwen3-Embedding models require ``"last"``.
+    """
     texts = [str(text) for text in texts]
     if not texts:
         return np.array([], dtype=np.float32)
@@ -437,21 +471,17 @@ def embed_gguf(
         n_ctx=n_ctx,
         n_threads=n_threads,
         n_threads_batch=n_threads_batch,
+        pooling=pooling,
     )
+    # Process texts one-by-one to avoid multi-sequence batching issues
+    # in llama-cpp-python (llama_decode returned -1 with batch input).
+    rows: list[np.ndarray] = []
     with safe_stdio():
-        embeddings = model_obj.embed(
-            texts,
-            normalize=normalize,
-            truncate=truncate,
-        )
+        for text in texts:
+            vec = model_obj.embed(text, normalize=normalize, truncate=truncate)
+            rows.append(np.asarray(vec, dtype=np.float32))
 
-    arr = np.asarray(embeddings, dtype=np.float32)
-    if arr.ndim == 1:
-        if len(texts) != 1:
-            raise RuntimeError(
-                "GGUF embedding response must be 2D for multi-text batches."
-            )
-        arr = arr.reshape(1, -1)
+    arr = np.stack(rows)
     if arr.ndim != 2:
         raise RuntimeError("GGUF embedding response must be a 2D array.")
     if arr.shape[0] != len(texts):

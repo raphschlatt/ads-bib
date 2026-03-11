@@ -671,8 +671,8 @@ def test_fit_toponymy_supports_gguf_embedding_provider_independent_of_local_llm(
     calls: dict = {}
 
     class _FakeGGUFEmbedder:
-        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096):
-            del batch_size, dtype, n_ctx
+        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096, pooling="cls"):
+            del batch_size, dtype, n_ctx, pooling
             self.model = model
             self.max_workers = max_workers
             calls["embedding_model"] = model
@@ -914,8 +914,8 @@ def test_compute_embeddings_validates_gguf_provider_import_path(monkeypatch):
         calls["requires_import"] = kwargs["requires_import"]
 
     class _FakeGGUFEmbedder:
-        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096):
-            del model, batch_size, max_workers, dtype, n_ctx
+        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096, pooling="cls"):
+            del model, batch_size, max_workers, dtype, n_ctx, pooling
 
         def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
             del verbose, show_progress_bar, progress_callback, kwargs
@@ -952,6 +952,7 @@ def test_gguf_embedder_batches_keep_order_and_progress(monkeypatch):
         n_threads_batch,
         normalize,
         truncate,
+        pooling="cls",
     ):
         calls.append(
             {
@@ -962,6 +963,7 @@ def test_gguf_embedder_batches_keep_order_and_progress(monkeypatch):
                 "n_threads_batch": n_threads_batch,
                 "normalize": normalize,
                 "truncate": truncate,
+                "pooling": pooling,
             }
         )
         return np.array(
@@ -1021,6 +1023,7 @@ def test_ensure_embedding_model_loads_llama_with_cls_pooling(monkeypatch):
         n_ctx=4096,
         n_threads=4,
         n_threads_batch=8,
+        pooling="cls",
     )
 
     assert model is fake_model
@@ -1030,17 +1033,98 @@ def test_ensure_embedding_model_loads_llama_with_cls_pooling(monkeypatch):
     assert safe_calls == [fake_model]
 
 
+def test_ensure_embedding_model_loads_llama_with_last_pooling(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    fake_llama_cpp = types.ModuleType("llama_cpp")
+    fake_llama_cpp.LLAMA_POOLING_TYPE_CLS = 2
+    fake_llama_cpp.LLAMA_POOLING_TYPE_LAST = 3
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
+    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
+
+    calls: dict[str, Any] = {}
+    fake_model = object()
+
+    def _fake_load_llama(path, **kwargs):
+        calls["path"] = path
+        calls["kwargs"] = kwargs
+        return fake_model
+
+    monkeypatch.setattr(gguf_mod, "_load_llama", _fake_load_llama)
+    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: None)
+
+    model = gguf_mod._ensure_embedding_model(
+        model_path="/fake/qwen-embed.gguf",
+        n_ctx=4096,
+        n_threads=4,
+        n_threads_batch=8,
+        pooling="last",
+    )
+
+    assert model is fake_model
+    assert calls["kwargs"]["pooling_type"] == 3
+
+
+def test_ensure_embedding_model_cache_invalidates_on_pooling_change(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    fake_llama_cpp = types.ModuleType("llama_cpp")
+    fake_llama_cpp.LLAMA_POOLING_TYPE_CLS = 2
+    fake_llama_cpp.LLAMA_POOLING_TYPE_LAST = 3
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
+    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
+
+    load_calls: list[dict] = []
+
+    def _fake_load_llama(path, **kwargs):
+        load_calls.append({"path": path, **kwargs})
+        return object()
+
+    monkeypatch.setattr(gguf_mod, "_load_llama", _fake_load_llama)
+    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: None)
+
+    gguf_mod._ensure_embedding_model(
+        model_path="/fake/model.gguf", n_ctx=4096, n_threads=4, n_threads_batch=8, pooling="cls",
+    )
+    gguf_mod._ensure_embedding_model(
+        model_path="/fake/model.gguf", n_ctx=4096, n_threads=4, n_threads_batch=8, pooling="last",
+    )
+    assert len(load_calls) == 2
+    assert load_calls[0]["pooling_type"] == 2
+    assert load_calls[1]["pooling_type"] == 3
+
+
+def test_ensure_embedding_model_rejects_invalid_pooling(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
+    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
+
+    with pytest.raises(ValueError, match="Unknown GGUF pooling type"):
+        gguf_mod._ensure_embedding_model(
+            model_path="/fake/model.gguf", n_ctx=4096, n_threads=4, n_threads_batch=8, pooling="bogus",
+        )
+
+
 def test_embed_gguf_normalizes_before_return(monkeypatch):
     import ads_bib._utils.gguf_backend as gguf_mod
 
     calls: dict[str, Any] = {}
 
+    _vectors = {"a": [1.0, 2.0], "b": [3.0, 4.0]}
+    embed_calls: list[str] = []
+
     class _FakeEmbeddingModel:
-        def embed(self, texts, normalize=False, truncate=True):
-            calls["texts"] = list(texts)
+        def embed(self, text, normalize=False, truncate=True):
+            embed_calls.append(text)
             calls["normalize"] = normalize
             calls["truncate"] = truncate
-            return [[1.0, 2.0], [3.0, 4.0]]
+            return _vectors[text]
 
     monkeypatch.setattr(gguf_mod, "_ensure_embedding_model", lambda **kwargs: _FakeEmbeddingModel())
 
@@ -1050,7 +1134,7 @@ def test_embed_gguf_normalizes_before_return(monkeypatch):
     )
 
     assert emb.shape == (2, 2)
-    assert calls["texts"] == ["a", "b"]
+    assert embed_calls == ["a", "b"]
     assert calls["normalize"] is True
     assert calls["truncate"] is True
 
@@ -1523,8 +1607,8 @@ def test_compute_embeddings_gguf_uses_cache_then_recomputes_on_mismatch(monkeypa
     calls = {"n": 0}
 
     class _FakeGGUFEmbedder:
-        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096):
-            del model, batch_size, max_workers, dtype, n_ctx
+        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096, pooling="cls"):
+            del model, batch_size, max_workers, dtype, n_ctx, pooling
 
         def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
             del verbose, show_progress_bar, progress_callback, kwargs

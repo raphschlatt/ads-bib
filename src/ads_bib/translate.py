@@ -610,38 +610,43 @@ def _translate_rows_nllb(
         disable=(n == 0) or (not show_progress) or (progress_callback is not None),
     ):
         end = min(start + chunk_size, n)
-        if progress_callback is not None:
-            progress_callback(end - start)
         try:
             batch_results = translator.translate_batch(
                 all_tokens[start:end],
                 target_prefix=all_prefixes[start:end],
-                beam_size=2,
+                beam_size=1,
                 batch_type="tokens",
                 max_batch_size=_NLLB_MAX_BATCH_TOKENS,
-                max_decoding_length=512,
+                max_decoding_length=256,
             )
             for idx, result in zip(indices[start:end], batch_results):
                 out_tokens = result.hypotheses[0]
                 if out_tokens and out_tokens[0] == tgt_code:
                     out_tokens = out_tokens[1:]
                 df.at[idx, target_col] = _decode_nllb(out_tokens, tokenizer)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "  NLLB batch [%d:%d] failed (%s), falling back to one-by-one",
+                start, end, exc,
+            )
             # Fallback: translate one-by-one to isolate the bad row
             for i in range(start, end):
                 try:
                     single = translator.translate_batch(
                         [all_tokens[i]],
                         target_prefix=[all_prefixes[i]],
-                        beam_size=2,
-                        max_decoding_length=512,
+                        beam_size=1,
+                        max_decoding_length=256,
                     )
                     out_tokens = single[0].hypotheses[0]
                     if out_tokens and out_tokens[0] == tgt_code:
                         out_tokens = out_tokens[1:]
                     df.at[indices[i], target_col] = _decode_nllb(out_tokens, tokenizer)
                 except Exception as row_exc:
+                    logger.debug("  NLLB row %s failed: %s", indices[i], row_exc)
                     failed.append((indices[i], f"{type(row_exc).__name__}: {row_exc}"))
+        if progress_callback is not None:
+            progress_callback(end - start)
 
     elapsed = max(1e-9, time.perf_counter() - started)
     return failed, elapsed

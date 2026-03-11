@@ -168,6 +168,7 @@ class TopicModelConfig:
     embedding_api_key: str | None = None
     embedding_batch_size: int = 64
     embedding_max_workers: int = 20
+    gguf_embedding_pooling: str = "cls"
     reduction_method: str = "pacmap"
     params_5d: dict[str, Any] = field(default_factory=dict)
     params_2d: dict[str, Any] = field(default_factory=dict)
@@ -995,7 +996,7 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
     ctx.topic_input_df = df
     ctx.documents = df["full_text"].tolist()
     reporter = ctx.reporter
-    if reporter is None or cfg.embedding_provider != "openrouter":
+    if reporter is None:
         ctx.embeddings = compute_embeddings(
             ctx.documents,
             provider=cfg.embedding_provider,
@@ -1006,6 +1007,7 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
             api_key=cfg.embedding_api_key,
             openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
             cost_tracker=ctx.tracker,
+            gguf_pooling=cfg.gguf_embedding_pooling,
         )
         return ctx
 
@@ -1023,6 +1025,7 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
             cost_tracker=ctx.tracker,
             show_progress=False,
             progress_callback=progress_callback,
+            gguf_pooling=cfg.gguf_embedding_pooling,
         )
     return ctx
 
@@ -1171,6 +1174,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                     max_workers=cfg.toponymy_max_workers,
                     clusterer_params=clusterer_params,
                     cost_tracker=ctx.tracker,
+                    gguf_pooling=cfg.gguf_embedding_pooling,
                 )
         else:
             with reporter.progress(total=1, desc="fit") as fit_pbar:
@@ -1191,6 +1195,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         max_workers=cfg.toponymy_max_workers,
                         clusterer_params=clusterer_params,
                         cost_tracker=ctx.tracker,
+                        gguf_pooling=cfg.gguf_embedding_pooling,
                     )
                 if fit_pbar is not None:
                     fit_pbar.update(1)
