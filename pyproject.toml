@@ -77,7 +77,6 @@ packages = ["src/ads_bib"]
 [tool.hatch.build.targets.sdist]
 exclude = [
     "/.claude",
-    "/archive",
     "/AGENTS.md",
     "/CLAUDE.md",
     "/Package_ToDo.md",

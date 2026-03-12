@@ -51,8 +51,8 @@ Engineering rules and operating conventions for this repository.
   - verification is run (tests/benchmark/contract checks as applicable)
   - a short evidence note is added (what was validated and when)
 - Partial progress stays `[ ]` with a status note; never close items based on intent alone.
-- `Review_ToDo.md` consolidation backlog was completed on `2026-02-25`
-  and archived to `archive/Review_ToDo_2026-02-25_closed.md`.
+- `Review_ToDo.md` consolidation backlog was completed on `2026-02-25`.
+  The closed backlog is intentionally retained only in git history.
   `Package_ToDo.md` is the active release/RC backlog.
   Treat recurring quality obligations as operating rules, not as permanently open one-off tasks.
 
@@ -78,6 +78,7 @@ Seed entries:
 - `2026-03-12 | Shared run_summary across CLI and notebook | run artifacts had drifted between frontends and CLI lacked the final summary artifact | both frontends now persist run_summary.yaml with the same schema and status metadata | remove notebook-only summary handling`
 - `2026-03-12 | Three official package config roads | package entrypoint needed concrete, documented batch defaults instead of one generic file plus examples | configs/pipeline/default.yaml, huggingface_api.yaml, and local.yaml define the supported OpenRouter/HF/local roads | keep example Treder configs separate from package defaults`
 - `2026-03-12 | Shared chat translation prompt contract | OpenRouter and HF translation prompts had drifted after native HF client work | chat-based translation providers now use one centralized scientific prompt contract while gguf/nllb stay provider-native | remove provider-specific prompt duplication`
+- `2026-03-12 | No archive tree on default branch | closed notebooks/backlogs added repository noise without runtime value | the default branch stays lean and historical material remains recoverable via git history | remove archive files and stale archive references`
 
 ## 3) DataFrame Schema Conventions
 

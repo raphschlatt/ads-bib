@@ -71,15 +71,15 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-12): `src/ads_bib/pipeline.py` und `src/ads_bib/notebook.py` nutzen jetzt denselben Summary-Finalisierungspfad; `src/ads_bib/run_manager.py` schreibt `run_summary.yaml` mit `schema_version: 2`, Status- und Stage-Metadaten; `tests/test_pipeline_runner.py`, `tests/test_notebook_session.py` und `tests/test_run_manager.py` decken Completed-/Failed-Run-Summaries ab.
 - [x] `.claude/settings.local.json` aus dem Repo entfernen und `.claude/` ignorieren.
   - Evidenz (2026-03-09): `.gitignore` enthaelt `.claude/`; `git ls-files .claude/settings.local.json .claude` liefert keine Treffer.
-- [x] `archive/`, `AGENTS.md`, `CLAUDE.md` und `Package_ToDo.md` aus SDist/Wheel ausschliessen.
-  - Evidenz (2026-03-09): `pyproject.toml` schliesst diese Pfade im SDist aus; Artefaktpruefung nach `conda run -n ADS_env python -m build` ergibt im SDist keine Treffer und im Wheel `NO_MATCHES`.
-- [ ] `archive/` aus dem Default-Branch vor externem Release neu entscheiden.
-  - Status (2026-03-12): Artefakt-Ausschluss ist umgesetzt; der Verbleib von `archive/` im Repo ist noch eine gesonderte Release-Entscheidung.
+- [x] `AGENTS.md`, `CLAUDE.md` und `Package_ToDo.md` aus SDist/Wheel ausschliessen.
+  - Evidenz (2026-03-12): `pyproject.toml` schliesst diese Pfade im SDist aus; `python -m build` und `python -m twine check dist/*` bleiben gruen; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer diese internen Dateien.
+- [x] `archive/` aus dem Default-Branch entfernen.
+  - Evidenz (2026-03-12): Die historischen Notebooks/Altdateien unter `archive/` wurden aus dem Default-Branch entfernt; der Verlauf bleibt ueber Git-History verfuegbar; aktive Repo-Referenzen auf `archive/` wurden bereinigt.
 - [x] `.gitignore` explizit um Coverage-/HTML-/Ruff-Artefakte ergaenzen.
   - Evidenz (2026-03-09): `.gitignore` enthaelt `.ruff_cache/`, `.coverage`, `.coverage.*` und `htmlcov/`.
 - [x] SDist/Wheel-Inhalte nach jedem Packaging-Change pruefen.
   - Erfolgskriterium: keine lokalen Tooling-Dateien und keine internen Backlogs im Artefakt.
-  - Evidenz (2026-03-12): `python -m build` -> sdist und wheel erfolgreich gebaut; `python -m twine check dist/*` -> beide Artefakte `PASSED`; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer `archive/`, `AGENTS.md`, `CLAUDE.md`, `Package_ToDo.md`.
+  - Evidenz (2026-03-12): `python -m build` -> sdist und wheel erfolgreich gebaut; `python -m twine check dist/*` -> beide Artefakte `PASSED`; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer `AGENTS.md`, `CLAUDE.md`, `Package_ToDo.md`.
 
 ## 6) Metadaten und Doku
 
@@ -106,7 +106,7 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-12): `CHANGELOG.md` dokumentiert jetzt HF-Translation, native HF-Embeddings, HF-Config-Injektion, HF-Smokes und die angepassten Packaging-Extras; `python -m pytest -q` -> `255 passed, 4 skipped, 2 warnings`.
 - [x] HF-Provider-Scope fuer `0.1.0` explizit entscheiden.
   - Evidenz (2026-03-12): Release-Scope ist jetzt code- und doku-seitig festgezogen: `huggingface_api` fuer Translation, Embeddings und BERTopic-Labeling; kein Toponymy-HF. README, Config-Templates, `tests/provider_profiles.py` und die neuen HF-Unit-Tests spiegeln denselben Scope.
-- [ ] Falls `huggingface_api` im Release-Scope bleibt: mindestens einen Smoke-Pfad plus einen manuellen/live Smoke nachziehen.
-  - Status (2026-03-12): Offline-Smokes decken jetzt ein `huggingface_api_bertopic`-Profil ab; env-gated Live-Smokes fuer HF-Translation, HF-Embeddings und BERTopic-HF-Labeling liegen in `tests/test_huggingface_live.py`, wurden aber noch nicht mit echtem Token ausgefuehrt.
+- [x] Falls `huggingface_api` im Release-Scope bleibt: mindestens einen Smoke-Pfad plus einen manuellen/live Smoke nachziehen.
+  - Evidenz (2026-03-12): Offline-Smokes decken `huggingface_api_bertopic` ab; `tests/test_huggingface_live.py -q -rs` wurde mit echtem `HF_TOKEN` ausgefuehrt und lief gruen: `3 passed, 2 warnings` (Translation, Embeddings, BERTopic-HF-Labeling).
 - [ ] Release-Metadaten finalisieren: Git-Tag, `python -m build`, `python -m twine check dist/*`, TestPyPI-Smoke.
-  - Status (2026-03-12): `pyproject.toml` steht bereits auf `0.1.0`; `python -m build` und `python -m twine check dist/*` sind erneut gruen; Git-Tag/Upload/TestPyPI-Smoke fehlen noch.
+  - Status (2026-03-12): `pyproject.toml` steht bereits auf `0.1.0`; `python -m build`, `python -m twine check dist/*` und der Live-HF-Smoke sind gruen; Git-Tag und TestPyPI-Upload/Install-Smoke fehlen noch.
