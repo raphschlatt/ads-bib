@@ -192,7 +192,13 @@ class RunManager:
         curated: pd.DataFrame | None = None,
         start_time: float | None = None,
         config_path: Path | None = None,
-    ) -> None:
+        status: str = "completed",
+        requested_start_stage: str | None = None,
+        requested_stop_stage: str | None = None,
+        completed_stages: list[str] | None = None,
+        failed_stage: str | None = None,
+        error: str | None = None,
+    ) -> Path:
         """Write a comprehensive summary of the pipeline run to run_summary.yaml.
 
         Parameters
@@ -210,6 +216,10 @@ class RunManager:
         config_path : Path, optional
             Path to the saved config (e.g., config_used.yaml). If None, defaults
             to self.paths["root"] / "config_used.yaml".
+        Returns
+        -------
+        Path
+            Path to the written ``run_summary.yaml`` file.
         """
         import time
         from ._utils.io import sha256_file
@@ -244,7 +254,7 @@ class RunManager:
 
         # Build schema dict
         summary = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run": {
                 "run_id": self.run_id,
                 "run_name": self.run_name,
@@ -252,6 +262,14 @@ class RunManager:
                 "ended_at_utc": now.isoformat(),
                 "duration_seconds": round(duration_sec, 2),
                 "duration_minutes": round(duration_min, 2),
+                "status": status,
+                "error": error,
+            },
+            "stages": {
+                "requested_start_stage": requested_start_stage,
+                "requested_stop_stage": requested_stop_stage,
+                "completed_stages": list(completed_stages or []),
+                "failed_stage": failed_stage,
             },
             "reproducibility": {
                 "config_path": str(config_path),
@@ -309,3 +327,4 @@ class RunManager:
             yaml.dump(summary, f, default_flow_style=False, sort_keys=False)
 
         logger.info("Run summary saved to %s", summary_path)
+        return summary_path

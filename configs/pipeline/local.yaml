@@ -1,5 +1,5 @@
 run:
-  run_name: ADS_Curation_Run
+  run_name: ADS_Curation_Run_Local
   start_stage: search
   stop_stage: null
   random_seed: 42
@@ -7,15 +7,16 @@ run:
   project_root: null
 
 search:
-  query: 'author:"Treder, H*"'
+  query: ""
   ads_token: null
   refresh_search: true
   refresh_export: true
 
 translate:
+  # Official package default: local/no-API road
   enabled: true
-  provider: openrouter
-  model: google/gemini-3.1-flash-lite-preview
+  provider: nllb
+  model: JustFrederik/nllb-200-distilled-600M-ct2-int8
   api_key: null
   max_workers: 10
   max_tokens: 2048
@@ -25,7 +26,7 @@ tokenize:
   enabled: true
   spacy_model: en_core_web_md
   batch_size: 512
-  n_process: 8
+  n_process: 1
   disable:
     - ner
     - parser
@@ -42,21 +43,15 @@ author_disambiguation:
 
 topic_model:
   sample_size: null
-  embedding_provider: openrouter
-  embedding_model: qwen/qwen3-embedding-8b
+  embedding_provider: gguf
+  embedding_model: Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf
   embedding_api_key: null
   embedding_batch_size: 64
   embedding_max_workers: 20
-  gguf_embedding_pooling: cls
+  gguf_embedding_pooling: last
   reduction_method: pacmap
-  params_5d:
-    n_neighbors: 80
-    metric: angular
-    random_state: 42
-  params_2d:
-    n_neighbors: 80
-    metric: angular
-    random_state: 42
+  params_5d: {}
+  params_2d: {}
   backend: bertopic
   clustering_method: fast_hdbscan
   cluster_params: {}
@@ -65,8 +60,8 @@ topic_model:
   toponymy_layer_index: 1
   llm_prompt_name: physics
   llm_prompt: null
-  llm_provider: openrouter
-  llm_model: google/gemini-3.1-flash-lite-preview
+  llm_provider: gguf
+  llm_model: unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf
   llm_api_key: null
   bertopic_label_max_tokens: 128
   toponymy_local_label_max_tokens: 256
@@ -99,9 +94,9 @@ citations:
     - bibliographic_coupling
     - author_co_citation
   min_counts:
-    direct: 5
-    co_citation: 20
-    bibliographic_coupling: 20
-    author_co_citation: 10
+    direct: 1
+    co_citation: 1
+    bibliographic_coupling: 1
+    author_co_citation: 1
   authors_filter: null
   output_format: gexf

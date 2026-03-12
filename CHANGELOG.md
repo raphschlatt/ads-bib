@@ -12,7 +12,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Notebook adapter in `ads_bib.notebook` with `NotebookSession` and package-side config invalidation.
 - Committed batch template at `configs/pipeline/default.yaml`.
 - Native `huggingface_api` translation path via `huggingface_hub.AsyncInferenceClient`.
-- Shared Hugging Face API helper for token/env resolution, model normalization, async retry, and notebook-safe sync bridging.
+- Official batch templates at `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml`, and `configs/pipeline/local.yaml`.
 - Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
@@ -29,9 +29,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Nested progress-bar noise was reduced so normal runs show at most one primary progress bar per stage.
 - `huggingface_api` embeddings now use the native Hugging Face async client instead of LiteLLM, while BERTopic labeling keeps BERTopic's LiteLLM adapter with normalized HF-native model ids.
 - Pipeline config preparation now injects `HF_TOKEN` into translation, embedding, and BERTopic labeling configs when `huggingface_api` is selected.
+- CLI runs now persist `run_summary.yaml` just like notebook runs, including partial/failure status metadata.
+- OpenRouter and Hugging Face chat translation now share the same centralized scientific translation prompt contract.
+- `configs/pipeline/default.yaml` now reflects the proven OpenRouter defaults (`google/gemini-3.1-flash-lite-preview` plus `qwen/qwen3-embedding-8b`).
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
 
 ### Docs
 - `README.md` now documents inline notebook section configs, `configs/pipeline/default.yaml`, and `.env` as the only secret location.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
-- README/runtime templates now document `HF_TOKEN`, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).
+- README/runtime templates now document `HF_TOKEN`, the three official config roads, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).

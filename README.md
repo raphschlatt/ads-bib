@@ -49,7 +49,9 @@ HF_TOKEN=...            # optional unless huggingface_api backends are used
 
 4. Choose one entrypoint:
    - Notebook: edit the inline section dicts in `pipeline.ipynb`
-   - CLI: `ads-bib run --config configs/pipeline/default.yaml`
+   - CLI (OpenRouter road): `ads-bib run --config configs/pipeline/default.yaml`
+   - CLI (HF API road): `ads-bib run --config configs/pipeline/huggingface_api.yaml`
+   - CLI (local/no-API road): `ads-bib run --config configs/pipeline/local.yaml`
 
 ## Entrypoints
 
@@ -99,6 +101,7 @@ The CLI and notebook share the same package logic, but not the same control
 semantics. The CLI is dependency-aware and batch-oriented; the notebook is
 explicit and stage-oriented. A saved run config such as
 `runs/<run_id>/config_used.yaml` is a good template for future batch runs.
+Both frontends also persist `runs/<run_id>/run_summary.yaml`.
 
 Console behavior is also frontend-specific:
 
@@ -134,19 +137,27 @@ For `huggingface_api`, use HF-native model ids:
 
 Use `HF_TOKEN` as the single Hugging Face env var across the repo.
 
-Current local baseline models:
+## Official Config Roads
 
-- Translation (GGUF): `mradermacher/translategemma-4b-it-i1-GGUF:translategemma-4b-it.i1-Q4_K_M.gguf`
-- Embeddings (HF local): `google/embeddinggemma-300m`
-- Optional GGUF embeddings: `Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf`
-- Topic labeling (HF local): `Qwen/Qwen3-0.6B`
-- Optional quality alternative: `google/gemma-3-4b-it`
+These are the package-facing batch defaults:
+
+| File | Intended road | Translation | Embeddings | BERTopic labeling |
+| --- | --- | --- | --- | --- |
+| `configs/pipeline/default.yaml` | OpenRouter | `google/gemini-3.1-flash-lite-preview` | `qwen/qwen3-embedding-8b` | `google/gemini-3.1-flash-lite-preview` |
+| `configs/pipeline/huggingface_api.yaml` | Hugging Face API | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` | `Qwen/Qwen3-Embedding-8B` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` |
+| `configs/pipeline/local.yaml` | Local / no API | `JustFrederik/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf` (`gguf`) | `unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf` (`gguf`) |
+
+Notes:
+
+- The local road intentionally uses `nllb` for translation. Local translation is not the GGUF chat path by default.
+- Toponymy still has no `huggingface_api` provider path.
+- `treder_notebook*.yaml` files remain example runs, not package defaults.
 
 Runtime notes:
 
 - GGUF is valuable for local small-model portability, lower footprint, and simpler local setup. It is not assumed to be the fastest CPU path for embeddings.
 - The current GGUF embedding path is sequential per text because of the current `llama-cpp-python` integration here. That is a property of this binding/runtime path, not a general claim about GGUF or `llama.cpp`.
-- Translation uses GGUF quantized models via `llama-cpp-python` for CPU inference and keeps its current chunking/parallelism behavior.
+- Translation prompts are centralized for the chat-based remote providers (`openrouter`, `huggingface_api`); `gguf` and `nllb` keep their provider-native translation paths.
 - Embeddings and local labeling require a recent HF stack in `ADS_env`:
   `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
 - Windows-friendly GGUF install:
@@ -156,8 +167,10 @@ Runtime notes:
 
 - Notebook config lives inline in `pipeline.ipynb` as section dicts.
 - Batch config lives under `configs/pipeline/`:
-  - committed template: `configs/pipeline/default.yaml`
+  - official package defaults: `default.yaml`, `huggingface_api.yaml`, `local.yaml`
+  - example runs: `treder_notebook.yaml`, `treder_notebook_hf.yaml`, `treder_notebook_local.yaml`
   - generated run snapshot: `runs/<run_id>/config_used.yaml`
+  - generated run summary: `runs/<run_id>/run_summary.yaml`
 - Secrets live only in `.env`.
 - Prompt selection uses `topic_model.llm_prompt_name` (`physics` or `generic`)
   unless you explicitly set `topic_model.llm_prompt`.
@@ -263,7 +276,8 @@ Mapped pipeline outputs normalize these into aligned list columns:
 
 - `pipeline.ipynb` remains the main exploratory entrypoint for end-to-end ADS workflows.
 - `ads-bib run --config ...` provides the unattended batch runner with dependency-aware orchestration.
-- `configs/pipeline/default.yaml` is the committed CLI template; saved run configs are reusable copies.
+- `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml`, and `configs/pipeline/local.yaml` are the official batch defaults; saved run configs are reusable copies.
+- Both frontends persist `config_used.yaml` and `run_summary.yaml` inside the run directory.
 - `NotebookSession.run_stage(...)` is explicit and stage-oriented; `ads_bib.run_pipeline(...)` is the batch orchestrator.
 - The installable package provides reusable building blocks plus repository-local quality checks.
 - Author disambiguation runs as an optional Phase-4 step between tokenization and topic/citation processing.

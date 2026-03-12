@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 import ads_bib.notebook as notebook_module
 import ads_bib.pipeline as pipeline
@@ -473,3 +474,29 @@ def test_llm_prompt_name_resolution_and_explicit_override(tmp_path, monkeypatch)
     session.run_stage("topic_fit")
 
     assert prompts == [BERTOPIC_LABELING_GENERIC, "Custom prompt"]
+
+
+def test_notebook_save_summary_uses_shared_schema(tmp_path):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    assert session._context is not None
+    session._context.publications = pd.DataFrame(
+        [{"Bibcode": "pub", "Title_en": "T", "Abstract_en": "A", "full_text": "T. A", "tokens": [["tok"]]}]
+    )
+    session._context.refs = pd.DataFrame(
+        [{"Bibcode": "ref", "Title_en": "RT", "Abstract_en": "RA"}]
+    )
+    session._context.curated_df = pd.DataFrame([{"topic_id": 0}])
+
+    session.save_summary()
+
+    summary = yaml.safe_load((session.run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["schema_version"] == 2
+    assert summary["run"]["status"] == "completed"
+    assert summary["stages"]["requested_start_stage"] is None
+    assert summary["stages"]["requested_stop_stage"] is None
+    assert summary["stages"]["completed_stages"] == [
+        "export",
+        "translate",
+        "tokenize",
+        "author_disambiguation",
+    ]

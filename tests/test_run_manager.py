@@ -127,11 +127,22 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
         refs=refs,
         curated=curated,
         start_time=time.time() - 10,
+        status="completed",
+        requested_start_stage="search",
+        requested_stop_stage="citations",
+        completed_stages=["search", "export", "translate", "citations"],
     )
 
     summary_path = run.paths["root"] / "run_summary.yaml"
     parsed = yaml.safe_load(summary_path.read_text(encoding="utf-8"))
 
+    assert parsed["schema_version"] == 2
+    assert parsed["run"]["status"] == "completed"
+    assert parsed["run"]["error"] is None
+    assert parsed["stages"]["requested_start_stage"] == "search"
+    assert parsed["stages"]["requested_stop_stage"] == "citations"
+    assert parsed["stages"]["completed_stages"] == ["search", "export", "translate", "citations"]
+    assert parsed["stages"]["failed_stage"] is None
     assert parsed["costs"]["total_tokens"] == 200
     assert parsed["costs"]["total_cost_usd"] == pytest.approx(0.0579)
     assert len(parsed["costs"]["by_step"]) == 2

@@ -11,6 +11,7 @@ Engineering rules and operating conventions for this repository.
 ## 1) Architecture Map
 
 - Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
+- Official batch defaults: `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml`, `configs/pipeline/local.yaml`
 - Shared runner: `src/ads_bib/pipeline.py`
 - Notebook adapter: `src/ads_bib/notebook.py`
 - Package root: `src/ads_bib/`
@@ -74,6 +75,9 @@ Seed entries:
 - `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/default.yaml | no notebook-local helpers or secret wiring to maintain`
 - `2026-03-09 | Notebook explicit, CLI orchestrated | shared stage functions had started mixing work, hidden prerequisite chaining, and snapshot resume | notebook stages run only their named work or same-stage resume; run_pipeline remains the only auto-chaining batch path | remove recursive stage calls and any tests/docs that depend on them`
 - `2026-03-09 | Curated frontend output with runtime log sink | raw tqdm/library/model-load output had made CLI and notebook hard to read | console output is now stage-first, frontend-specific, and raw third-party output is redirected to runs/<run_id>/logs/runtime.log | remove free-form stage banners and redundant nested progress bars`
+- `2026-03-12 | Shared run_summary across CLI and notebook | run artifacts had drifted between frontends and CLI lacked the final summary artifact | both frontends now persist run_summary.yaml with the same schema and status metadata | remove notebook-only summary handling`
+- `2026-03-12 | Three official package config roads | package entrypoint needed concrete, documented batch defaults instead of one generic file plus examples | configs/pipeline/default.yaml, huggingface_api.yaml, and local.yaml define the supported OpenRouter/HF/local roads | keep example Treder configs separate from package defaults`
+- `2026-03-12 | Shared chat translation prompt contract | OpenRouter and HF translation prompts had drifted after native HF client work | chat-based translation providers now use one centralized scientific prompt contract while gguf/nllb stay provider-native | remove provider-specific prompt duplication`
 
 ## 3) DataFrame Schema Conventions
 
@@ -126,6 +130,7 @@ Seed entries:
 - Notebook output may be slightly more explanatory than CLI, but still stage-first.
 - Use one primary progress bar per stage in normal runs.
 - Raw third-party stdout/stderr and model-load chatter belong in `runs/<run_id>/logs/runtime.log`, not in the normal console stream.
+- Both frontends persist `runs/<run_id>/config_used.yaml` and `runs/<run_id>/run_summary.yaml`.
 
 ## 6) Testing and Quality Gates
 
@@ -151,6 +156,7 @@ Seed entries:
 
 - `pipeline.ipynb` is a first-class entrypoint and must stay synchronized with package APIs.
 - `pipeline.ipynb` and the CLI are frontends over the same package runner; orchestration rules live in `src/ads_bib/pipeline.py`.
+- Notebook and CLI summaries are finalized through the shared package path; do not keep notebook-only summary logic.
 - When API contracts change, update notebook cells in the same change set.
 - Clear stale outputs when they encode outdated schema names or misleading historical logs.
 - Notebook cells should stay orchestration-only (top layer).

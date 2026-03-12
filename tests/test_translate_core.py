@@ -4,6 +4,7 @@ import pytest
 
 import ads_bib.config as cfg
 import ads_bib.translate as tr
+from ads_bib.prompts import build_translation_messages
 
 
 def _allow_llama_cpp(monkeypatch):
@@ -40,8 +41,17 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
     )
     calls: dict = {}
 
-    def _fake_translate_openrouter(text, target_lang, model, api_key, api_base, *, max_tokens=2048):
-        del target_lang, model, api_key, api_base
+    def _fake_translate_openrouter(
+        text,
+        target_lang,
+        model,
+        api_key,
+        api_base,
+        *,
+        source_lang=None,
+        max_tokens=2048,
+    ):
+        del target_lang, model, api_key, api_base, source_lang
         calls["max_tokens"] = max_tokens
         return f"{text}-EN", 3, 2, "gid-1", 0.01
 
@@ -214,6 +224,7 @@ def test_translate_openrouter_uses_shared_chat_core(monkeypatch):
     def _fake_openrouter_chat_completion(**kwargs):
         calls["retry_label"] = kwargs["retry_label"]
         calls["model"] = kwargs["model"]
+        calls["messages"] = kwargs["messages"]
         return _Resp()
 
     monkeypatch.setattr(tr, "openrouter_chat_completion", _fake_openrouter_chat_completion)
@@ -242,6 +253,7 @@ def test_translate_openrouter_uses_shared_chat_core(monkeypatch):
     assert cost == 0.01
     assert calls["retry_label"] == "OpenRouter translation call"
     assert calls["model"] == "openrouter/test-model"
+    assert calls["messages"] == build_translation_messages("Hallo", target_lang="en")
 
 
 def test_translate_huggingface_api_uses_async_client(monkeypatch):
@@ -290,7 +302,11 @@ def test_translate_huggingface_api_uses_async_client(monkeypatch):
     assert calls["model"] == "unsloth/Qwen2.5-72B-Instruct"
     assert calls["max_tokens"] == 512
     assert calls["temperature"] == 0.0
-    assert calls["messages"][0]["content"].startswith("Translate from de to en.")
+    assert calls["messages"] == build_translation_messages(
+        "Hallo",
+        target_lang="en",
+        source_lang="de",
+    )
 
 
 def test_translate_dataframe_huggingface_api_success_tracks_usage(monkeypatch):

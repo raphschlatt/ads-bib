@@ -136,7 +136,7 @@ def detect_languages(
 # Translation helpers  (shared)
 # ---------------------------------------------------------------------------
 
-from ads_bib.prompts import TRANSLATION_SYSTEM as SYSTEM_PROMPT
+from ads_bib.prompts import build_translation_messages
 DEFAULT_TRANSLATION_MAX_TOKENS = 2048
 DEFAULT_GGUF_CHUNK_INPUT_TOKENS = 384
 DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS = 48
@@ -201,6 +201,7 @@ def _translate_openrouter(
     api_key: str,
     api_base: str = DEFAULT_OPENROUTER_API_BASE,
     *,
+    source_lang: str | None = None,
     max_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
 ) -> tuple[str, int, int, str | None, float | None]:
     """Translate *text* via OpenRouter."""
@@ -208,10 +209,11 @@ def _translate_openrouter(
     resp = openrouter_chat_completion(
         client=client,
         model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Translate the following scientific text to {target_lang}:\n\n{text}"},
-        ],
+        messages=build_translation_messages(
+            str(text),
+            target_lang=target_lang,
+            source_lang=source_lang,
+        ),
         max_tokens=max_tokens,
         temperature=0,
         retry_label="OpenRouter translation call",
@@ -242,8 +244,12 @@ def _translate_rows_openrouter(
 ) -> tuple[int, int, list[dict[str, str | float | None]], list[tuple[object, str]]]:
     """Translate selected rows with OpenRouter and return usage/call metadata."""
 
-    def _do_translate(idx_text: tuple[object, object]) -> tuple[object, str | None, int, int, str | None, float | None, str | None]:
-        idx, text = idx_text
+    lang_col = f"{source_col}_lang"
+
+    def _do_translate(
+        item: tuple[object, object, str | None],
+    ) -> tuple[object, str | None, int, int, str | None, float | None, str | None]:
+        idx, text, source_lang = item
         try:
             translated, pt, ct, gen_id, direct_cost = _translate_openrouter(
                 str(text),
@@ -251,6 +257,7 @@ def _translate_rows_openrouter(
                 model,
                 api_key,
                 api_base,
+                source_lang=source_lang,
                 max_tokens=max_tokens,
             )
             return idx, translated, pt, ct, gen_id, direct_cost, None
@@ -262,7 +269,10 @@ def _translate_rows_openrouter(
     call_records: list[dict[str, str | float | None]] = []
     failed: list[tuple[object, str]] = []
 
-    items = list(zip(to_translate.index, to_translate[source_col]))
+    items = [
+        (idx, row[source_col], str(row.get(lang_col, "") or "") or None)
+        for idx, row in to_translate.iterrows()
+    ]
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [pool.submit(_do_translate, item) for item in items]
         for future in tqdm(
@@ -288,19 +298,6 @@ def _translate_rows_openrouter(
 # ---------------------------------------------------------------------------
 # Hugging Face Inference API backend
 # ---------------------------------------------------------------------------
-
-
-def _build_huggingface_translation_prompt(
-    text: str,
-    *,
-    target_lang: str,
-    source_lang: str | None,
-) -> str:
-    """Build a deterministic direct-translation prompt for HF chat models."""
-    if source_lang:
-        return f"Translate from {source_lang} to {target_lang}. Output ONLY the translation:\n\n{text}"
-    return f"Translate to {target_lang}. Output ONLY the translation:\n\n{text}"
-
 
 def _extract_huggingface_usage(response: object) -> tuple[int, int]:
     """Extract prompt/completion token counts from HF chat responses if available."""
@@ -349,7 +346,7 @@ async def _chat_huggingface_with_retry(
     *,
     client: object,
     model_id: str,
-    prompt: str,
+    messages: list[dict[str, str]],
     max_tokens: int,
     retry_label: str,
 ) -> object:
@@ -358,7 +355,7 @@ async def _chat_huggingface_with_retry(
         try:
             return await client.chat_completion(
                 model=model_id,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
                 max_tokens=max_tokens,
                 temperature=0.0,
             )
@@ -388,7 +385,7 @@ def _translate_huggingface_api(
 ) -> tuple[str, int, int]:
     """Translate one text via the native HF async inference client."""
     client, model_id = _create_huggingface_async_client(model=model, api_key=api_key)
-    prompt = _build_huggingface_translation_prompt(
+    messages = build_translation_messages(
         str(text),
         target_lang=target_lang,
         source_lang=source_lang,
@@ -398,7 +395,7 @@ def _translate_huggingface_api(
         lambda: _chat_huggingface_with_retry(
             client=client,
             model_id=model_id,
-            prompt=prompt,
+            messages=messages,
             max_tokens=max_tokens,
             retry_label="HF API translation call",
         )
@@ -450,7 +447,7 @@ def _translate_rows_huggingface_api(
             item: tuple[object, str, str | None],
         ) -> None:
             idx, text, source_lang = item
-            prompt = _build_huggingface_translation_prompt(
+            messages = build_translation_messages(
                 text,
                 target_lang=target_lang,
                 source_lang=source_lang,
@@ -460,7 +457,7 @@ def _translate_rows_huggingface_api(
                     response = await _chat_huggingface_with_retry(
                         client=client,
                         model_id=model_id,
-                        prompt=prompt,
+                        messages=messages,
                         max_tokens=max_tokens,
                         retry_label=f"HF API translation row {idx}",
                     )

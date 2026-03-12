@@ -67,6 +67,8 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
 
 ## 5) Release-Hygiene
 
+- [x] CLI- und Notebook-Run-Summaries auf denselben Artefaktvertrag ziehen.
+  - Evidenz (2026-03-12): `src/ads_bib/pipeline.py` und `src/ads_bib/notebook.py` nutzen jetzt denselben Summary-Finalisierungspfad; `src/ads_bib/run_manager.py` schreibt `run_summary.yaml` mit `schema_version: 2`, Status- und Stage-Metadaten; `tests/test_pipeline_runner.py`, `tests/test_notebook_session.py` und `tests/test_run_manager.py` decken Completed-/Failed-Run-Summaries ab.
 - [x] `.claude/settings.local.json` aus dem Repo entfernen und `.claude/` ignorieren.
   - Evidenz (2026-03-09): `.gitignore` enthaelt `.claude/`; `git ls-files .claude/settings.local.json .claude` liefert keine Treffer.
 - [x] `archive/`, `AGENTS.md`, `CLAUDE.md` und `Package_ToDo.md` aus SDist/Wheel ausschliessen.
@@ -91,6 +93,10 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-09): `.readthedocs.yaml` ist nicht vorhanden; `README.md` ist der zentrale Doku-Einstiegspunkt im Repo.
 - [x] HF-API-Auth-/Env-Doku ergaenzen.
   - Evidenz (2026-03-12): `README.md` dokumentiert jetzt `HF_TOKEN` als einzigen Env-Namen plus HF-native Modell-IDs; `src/ads_bib/pipeline.py` injiziert HF-Tokens fuer Translation/Embeddings/BERTopic; `tests/test_notebook_session.py` und `tests/test_pipeline_runner.py` decken die `HF_TOKEN`-Injektion ab.
+- [x] Drei offizielle Package-Config-Templates festziehen.
+  - Evidenz (2026-03-12): `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml` und `configs/pipeline/local.yaml` definieren jetzt die offiziellen OpenRouter-/HF-/Local-Roads mit konkreten Modellen; `tests/test_pipeline_runner.py` parst und validiert alle drei Templates.
+- [x] Translation-Prompt-Vertrag fuer chat-basierte Provider zentralisieren.
+  - Evidenz (2026-03-12): `src/ads_bib/prompts.py` kapselt jetzt den gemeinsamen wissenschaftlichen Translation-Prompt fuer `openrouter` und `huggingface_api`; `src/ads_bib/translate.py` nutzt denselben Message-Build-Pfad fuer beide; `tests/test_translate_core.py` assertet dieselben Prompt-Messages.
 
 ## 7) Final Release Freeze
 

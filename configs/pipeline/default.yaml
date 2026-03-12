@@ -11,14 +11,14 @@ search:
   refresh_search: true
   refresh_export: true
 translate:
-  # Translate runtimes: nllb (local seq2seq), gguf (optional local llama-cpp-python), huggingface_api, openrouter
+  # Official package default: OpenRouter road
   enabled: true
   provider: openrouter
-  model: google/gemini-3-flash-preview
+  model: google/gemini-3.1-flash-lite-preview
   api_key: null
   max_workers: 10
   max_tokens: 2048
-  fasttext_model: null
+  fasttext_model: data/models/lid.176.bin
 tokenize:
   enabled: true
   spacy_model: en_core_web_md
@@ -40,7 +40,7 @@ topic_model:
   sample_size: null
   # Embeddings: local (HF CPU/GPU), gguf (optional local llama-cpp-python), huggingface_api, openrouter
   embedding_provider: openrouter
-  embedding_model: google/gemini-embedding-001
+  embedding_model: qwen/qwen3-embedding-8b
   embedding_api_key: null
   embedding_batch_size: 64
   embedding_max_workers: 20
@@ -59,7 +59,7 @@ topic_model:
   # BERTopic labeling: local (HF CPU/GPU), gguf, huggingface_api, openrouter
   # Toponymy naming: local (HF CPU/GPU), gguf, openrouter
   llm_provider: openrouter
-  llm_model: google/gemini-3-flash-preview
+  llm_model: google/gemini-3.1-flash-lite-preview
   llm_api_key: null
   bertopic_label_max_tokens: 128
   toponymy_local_label_max_tokens: 256

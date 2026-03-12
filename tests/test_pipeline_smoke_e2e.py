@@ -296,8 +296,17 @@ def _run_offline_mocked_pipeline(
         lambda text, model_path=None: "de" if "Nicht Englisch" in str(text) else "en",
     )
 
-    def _fake_translate_openrouter(text, target_lang, model, api_key, api_base, *, max_tokens=2048):
-        del target_lang, model, api_key, api_base, max_tokens
+    def _fake_translate_openrouter(
+        text,
+        target_lang,
+        model,
+        api_key,
+        api_base,
+        *,
+        source_lang=None,
+        max_tokens=2048,
+    ):
+        del target_lang, model, api_key, api_base, source_lang, max_tokens
         return f"EN::{text}", 4, 2, "gid-1", 0.01
 
     if profile.translation_provider == "openrouter":

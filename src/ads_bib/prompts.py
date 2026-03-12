@@ -4,6 +4,8 @@ Import named constants from here instead of hardcoding prompts inline.
 Add new domain-specific variants as needed — the notebook selects via import.
 """
 
+from __future__ import annotations
+
 # ---------------------------------------------------------------------------
 # BERTopic topic labeling
 # ---------------------------------------------------------------------------
@@ -65,3 +67,22 @@ TRANSLATION_SYSTEM = (
     "technical texts. Only translate the text. Do not comment or provide "
     "additional information."
 )
+
+
+def build_translation_messages(
+    text: str,
+    *,
+    target_lang: str,
+    source_lang: str | None = None,
+) -> list[dict[str, str]]:
+    """Return the shared chat prompt contract for remote translation providers."""
+    if source_lang:
+        user_prompt = (
+            f"Translate the following scientific text from {source_lang} to {target_lang}:\n\n{text}"
+        )
+    else:
+        user_prompt = f"Translate the following scientific text to {target_lang}:\n\n{text}"
+    return [
+        {"role": "system", "content": TRANSLATION_SYSTEM},
+        {"role": "user", "content": user_prompt},
+    ]

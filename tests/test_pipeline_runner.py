@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import yaml
 
 import numpy as np
 import pandas as pd
@@ -56,6 +57,59 @@ def test_default_pipeline_config_template_loads():
     assert data["author_disambiguation"]["enabled"] is False
     assert data["tokenize"]["spacy_model"] == "en_core_web_md"
     assert data["tokenize"]["fallback_model"] == "en_core_web_md"
+    assert data["translate"]["model"] == "google/gemini-3.1-flash-lite-preview"
+    assert data["topic_model"]["embedding_model"] == "qwen/qwen3-embedding-8b"
+    assert data["topic_model"]["llm_model"] == "google/gemini-3.1-flash-lite-preview"
+    assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
+
+
+@pytest.mark.parametrize(
+    ("config_name", "translate_provider", "translate_model", "embedding_provider", "embedding_model", "llm_provider", "llm_model", "gguf_pooling"),
+    [
+        (
+            "huggingface_api.yaml",
+            "huggingface_api",
+            "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+            "huggingface_api",
+            "Qwen/Qwen3-Embedding-8B",
+            "huggingface_api",
+            "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+            "cls",
+        ),
+        (
+            "local.yaml",
+            "nllb",
+            "JustFrederik/nllb-200-distilled-600M-ct2-int8",
+            "gguf",
+            "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+            "gguf",
+            "unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf",
+            "last",
+        ),
+    ],
+)
+def test_official_pipeline_config_templates_load(
+    config_name,
+    translate_provider,
+    translate_model,
+    embedding_provider,
+    embedding_model,
+    llm_provider,
+    llm_model,
+    gguf_pooling,
+):
+    config = pipeline.PipelineConfig.from_yaml(
+        Path(__file__).resolve().parents[1] / "configs" / "pipeline" / config_name
+    )
+
+    assert config.translate.provider == translate_provider
+    assert config.translate.model == translate_model
+    assert config.translate.fasttext_model == "data/models/lid.176.bin"
+    assert config.topic_model.embedding_provider == embedding_provider
+    assert config.topic_model.embedding_model == embedding_model
+    assert config.topic_model.llm_provider == llm_provider
+    assert config.topic_model.llm_model == llm_model
+    assert config.topic_model.gguf_embedding_pooling == gguf_pooling
 
 
 def test_pipeline_config_allows_huggingface_api_for_bertopic():
@@ -135,6 +189,7 @@ def test_run_pipeline_respects_stage_slice(monkeypatch):
         "create",
         classmethod(lambda cls, config, **kwargs: fake_ctx),
     )
+    monkeypatch.setattr(pipeline, "_finalize_run_summary", lambda *args, **kwargs: None)
     completed: set[str] = set()
 
     def _runner(stage_name):
@@ -209,6 +264,75 @@ def test_run_pipeline_respects_stage_slice(monkeypatch):
         "reduction",
         "topic_fit",
     ]
+
+
+def test_run_pipeline_writes_summary_for_partial_cli_run(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+        }
+    )
+    run = pipeline.RunManager(run_name="cli_partial", project_root=tmp_path)
+
+    monkeypatch.setattr(
+        pipeline,
+        "_STAGE_FUNCS",
+        {name: (lambda ctx, _name=name: ctx) for name in pipeline.STAGE_ORDER},
+    )
+
+    pipeline.run_pipeline(
+        config,
+        stop_stage="translate",
+        run=run,
+        load_environment=False,
+    )
+
+    summary = yaml.safe_load((run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["schema_version"] == 2
+    assert summary["run"]["status"] == "completed"
+    assert summary["stages"]["requested_start_stage"] == "search"
+    assert summary["stages"]["requested_stop_stage"] == "translate"
+    assert summary["stages"]["completed_stages"] == ["search", "export", "translate"]
+    assert summary["stages"]["failed_stage"] is None
+
+
+def test_run_pipeline_writes_failed_summary_on_stage_error(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+        }
+    )
+    run = pipeline.RunManager(run_name="cli_failed", project_root=tmp_path)
+
+    def _runner(stage_name):
+        def _run(ctx):
+            if stage_name == "tokenize":
+                raise RuntimeError("boom")
+            return ctx
+
+        return _run
+
+    monkeypatch.setattr(pipeline, "_STAGE_FUNCS", {name: _runner(name) for name in pipeline.STAGE_ORDER})
+
+    with pytest.raises(RuntimeError, match="boom"):
+        pipeline.run_pipeline(
+            config,
+            stop_stage="tokenize",
+            run=run,
+            load_environment=False,
+        )
+
+    summary = yaml.safe_load((run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["run"]["status"] == "failed"
+    assert summary["run"]["error"] == "RuntimeError: boom"
+    assert summary["stages"]["requested_start_stage"] == "search"
+    assert summary["stages"]["requested_stop_stage"] == "tokenize"
+    assert summary["stages"]["completed_stages"] == ["search", "export", "translate"]
+    assert summary["stages"]["failed_stage"] == "tokenize"
 
 
 def test_run_translate_stage_prefers_current_export_results_over_snapshot(tmp_path, monkeypatch):

@@ -621,6 +621,99 @@ def _report_stage_end(ctx: PipelineContext, stage: StageName) -> None:
         reporter.detail(line)
 
 
+def _infer_completed_stages(ctx: PipelineContext) -> list[StageName]:
+    """Infer completed stages from the current in-memory/run artifact state."""
+    completed: list[StageName] = []
+
+    if (
+        ctx.bibcodes is not None
+        and ctx.references is not None
+        and ctx.esources is not None
+        and ctx.fulltext_urls is not None
+    ):
+        completed.append("search")
+    if ctx.publications is not None and ctx.refs is not None:
+        completed.append("export")
+    if "export" in completed and _has_translated_frames(ctx):
+        completed.append("translate")
+    if (
+        "translate" in completed
+        and ctx.publications is not None
+        and ctx.refs is not None
+        and "tokens" in ctx.publications.columns
+    ):
+        completed.append("tokenize")
+    if "tokenize" in completed and ctx.publications is not None and ctx.refs is not None and (
+        not ctx.config.author_disambiguation.enabled or "author_uids" in ctx.publications.columns
+    ):
+        completed.append("author_disambiguation")
+    if (
+        "author_disambiguation" in completed
+        and ctx.embeddings is not None
+        and ctx.documents is not None
+        and ctx.topic_input_df is not None
+    ):
+        completed.append("embeddings")
+    if "embeddings" in completed and ctx.reduced_5d is not None and ctx.reduced_2d is not None:
+        completed.append("reduction")
+    if (
+        "reduction" in completed
+        and ctx.topic_model is not None
+        and ctx.topics is not None
+        and ctx.topic_info is not None
+    ):
+        completed.append("topic_fit")
+    if "topic_fit" in completed and ctx.topic_df is not None:
+        completed.append("topic_dataframe")
+    if "topic_dataframe" in completed and (ctx.run.paths["plots"] / "topic_map.html").exists():
+        completed.append("visualize")
+    if "topic_dataframe" in completed and ctx.curated_df is not None:
+        completed.append("curate")
+    if "curate" in completed and ctx.citation_results is not None:
+        completed.append("citations")
+    return completed
+
+
+def _finalize_run_summary(
+    ctx: PipelineContext,
+    *,
+    status: str,
+    requested_start_stage: StageName | None,
+    requested_stop_stage: StageName | None,
+    completed_stages: list[StageName] | None = None,
+    failed_stage: StageName | None = None,
+    error: str | None = None,
+) -> Path:
+    """Write the run summary and emit one compact frontend-visible status line."""
+    summary_path = ctx.run.save_summary(
+        cost_tracker=ctx.tracker,
+        publications=ctx.publications,
+        refs=ctx.refs,
+        curated=ctx.curated_df,
+        start_time=ctx.start_time,
+        status=status,
+        requested_start_stage=requested_start_stage,
+        requested_stop_stage=requested_stop_stage,
+        completed_stages=completed_stages or _infer_completed_stages(ctx),
+        failed_stage=failed_stage,
+        error=error,
+    )
+    try:
+        display_path = summary_path.relative_to(ctx.project_root)
+    except ValueError:
+        display_path = summary_path
+
+    reporter = getattr(ctx, "reporter", None)
+    message = f"run {status} | summary: {display_path}"
+    if failed_stage is not None:
+        message = f"run {status} at {failed_stage} | summary: {display_path}"
+    if reporter is not None:
+        reporter.detail(message)
+    else:
+        logger.info(message)
+    return summary_path
+
+
 def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
     if ctx.documents is None:
         raise ValueError("documents are not available.")
@@ -1403,22 +1496,38 @@ def _run_stage_for_pipeline(
     stage: StageName,
     *,
     executed: set[StageName] | None = None,
+    completed: list[StageName] | None = None,
+    current_stage: dict[str, StageName] | None = None,
 ) -> PipelineContext:
     if executed is None:
         executed = set()
     if stage in executed:
         return ctx
     try:
+        if current_stage is not None:
+            current_stage["stage"] = stage
         result = _execute_stage(ctx, stage)
         executed.add(stage)
+        if completed is not None:
+            completed.append(stage)
         return result
     except StagePrerequisiteError as exc:
         required_stage = exc.required_stage
         if required_stage is None:
             raise
-        _run_stage_for_pipeline(ctx, required_stage, executed=executed)
+        _run_stage_for_pipeline(
+            ctx,
+            required_stage,
+            executed=executed,
+            completed=completed,
+            current_stage=current_stage,
+        )
+        if current_stage is not None:
+            current_stage["stage"] = stage
         result = _execute_stage(ctx, stage)
         executed.add(stage)
+        if completed is not None:
+            completed.append(stage)
         return result
 
 
@@ -1457,9 +1566,34 @@ def run_pipeline(
     if reporter is not None:
         reporter.set_stage_plan(_stage_slice("search", resolved_stop))
     executed: set[StageName] = set()
-    for stage in _stage_slice(resolved_start, resolved_stop):
-        _run_stage_for_pipeline(ctx, stage, executed=executed)
-    return ctx
+    completed: list[StageName] = []
+    current_stage: dict[str, StageName] = {}
+    failed_stage: StageName | None = None
+    error_message: str | None = None
+    try:
+        for stage in _stage_slice(resolved_start, resolved_stop):
+            _run_stage_for_pipeline(
+                ctx,
+                stage,
+                executed=executed,
+                completed=completed,
+                current_stage=current_stage,
+            )
+        return ctx
+    except Exception as exc:
+        failed_stage = current_stage.get("stage")
+        error_message = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        _finalize_run_summary(
+            ctx,
+            status="failed" if error_message is not None else "completed",
+            requested_start_stage=resolved_start,
+            requested_stop_stage=resolved_stop,
+            completed_stages=completed,
+            failed_stage=failed_stage,
+            error=error_message,
+        )
 
 
 def pipeline_config_to_dict(config: PipelineConfig | dict[str, Any] | Any) -> dict[str, Any]:

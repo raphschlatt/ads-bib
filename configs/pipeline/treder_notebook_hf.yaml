@@ -47,6 +47,7 @@ topic_model:
   embedding_api_key: null
   embedding_batch_size: 64
   embedding_max_workers: 20
+  gguf_embedding_pooling: cls
   reduction_method: pacmap
   params_5d:
     n_neighbors: 80
