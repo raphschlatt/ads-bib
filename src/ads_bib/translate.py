@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
@@ -14,12 +15,8 @@ from tqdm.auto import tqdm
 
 from ads_bib._utils.cleaning import require_columns as _require_columns
 from ads_bib._utils.huggingface_api import (
-    create_async_inference_client,
-    gather_limited,
     normalize_huggingface_model,
     resolve_huggingface_api_key,
-    retry_async_call,
-    run_async_sync_compatible,
 )
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
@@ -316,6 +313,70 @@ def _extract_huggingface_usage(response: object) -> tuple[int, int]:
     )
 
 
+def _create_huggingface_async_client(
+    *,
+    model: str,
+    api_key: str | None,
+):
+    """Create a native HF async client from one normalized public model id."""
+    from huggingface_hub import AsyncInferenceClient
+
+    normalized_model = normalize_huggingface_model(model)
+    model_id, provider = (
+        normalized_model.rsplit(":", 1) if ":" in normalized_model else (normalized_model, None)
+    )
+    return (
+        AsyncInferenceClient(
+            provider=provider,
+            api_key=resolve_huggingface_api_key(api_key),
+        ),
+        model_id,
+    )
+
+
+def _run_huggingface_async(awaitable_factory):
+    """Run one HF async workload from sync code, including notebook cells."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable_factory())
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(awaitable_factory())).result()
+
+
+async def _chat_huggingface_with_retry(
+    *,
+    client: object,
+    model_id: str,
+    prompt: str,
+    max_tokens: int,
+    retry_label: str,
+) -> object:
+    """Run one HF chat request with small linear backoff."""
+    for attempt in range(3):
+        try:
+            return await client.chat_completion(
+                model=model_id,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+        except Exception as exc:
+            if attempt >= 2:
+                raise
+            wait = float(attempt + 1)
+            logger.warning(
+                "  %s failed (%s: %s). Retry %s/2 in %.0fs ...",
+                retry_label,
+                type(exc).__name__,
+                exc,
+                attempt + 1,
+                wait,
+            )
+            await asyncio.sleep(wait)
+
+
 def _translate_huggingface_api(
     text: str,
     target_lang: str,
@@ -326,30 +387,22 @@ def _translate_huggingface_api(
     max_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
 ) -> tuple[str, int, int]:
     """Translate one text via the native HF async inference client."""
-    client, spec = create_async_inference_client(model=model, api_key=api_key)
+    client, model_id = _create_huggingface_async_client(model=model, api_key=api_key)
     prompt = _build_huggingface_translation_prompt(
         str(text),
         target_lang=target_lang,
         source_lang=source_lang,
     )
 
-    async def _run_request():
-        async def _request():
-            return await client.chat_completion(
-                model=spec.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=0.0,
-            )
-
-        return await retry_async_call(
-            _request,
-            max_retries=2,
-            delay=1.0,
-            backoff="linear",
+    response = _run_huggingface_async(
+        lambda: _chat_huggingface_with_retry(
+            client=client,
+            model_id=model_id,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            retry_label="HF API translation call",
         )
-
-    response = run_async_sync_compatible(_run_request)
+    )
     translated = str(response.choices[0].message.content or "").strip()
     pt, ct = _extract_huggingface_usage(response)
     return translated, pt, ct
@@ -378,7 +431,7 @@ def _translate_rows_huggingface_api(
         (idx, str(row[source_col]), str(row.get(lang_col, "") or "") or None)
         for idx, row in to_translate.iterrows()
     ]
-    client, spec = create_async_inference_client(model=model, api_key=api_key)
+    client, model_id = _create_huggingface_async_client(model=model, api_key=api_key)
     total_pt = 0
     total_ct = 0
     failed: list[tuple[object, str]] = []
@@ -388,68 +441,47 @@ def _translate_rows_huggingface_api(
         disable=(not show_progress) or (progress_callback is not None),
     )
 
-    async def _do_translate(item: tuple[object, str, str | None]) -> tuple[object, str | None, int, int, str | None]:
-        idx, text, source_lang = item
+    async def _translate_all() -> list[tuple[object, str | None, int, int, str | None]]:
+        semaphore = asyncio.Semaphore(max(1, int(max_workers)))
+        results: list[tuple[object, str | None, int, int, str | None] | None] = [None] * len(items)
 
-        def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
-            logger.warning(
-                "  HF API translation row %s failed (%s: %s). Retry %s/%s in %.0fs ...",
-                idx,
-                type(exc).__name__,
-                exc,
-                retry_index,
-                max_retries,
-                wait,
+        async def _translate_one(
+            result_index: int,
+            item: tuple[object, str, str | None],
+        ) -> None:
+            idx, text, source_lang = item
+            prompt = _build_huggingface_translation_prompt(
+                text,
+                target_lang=target_lang,
+                source_lang=source_lang,
             )
+            async with semaphore:
+                try:
+                    response = await _chat_huggingface_with_retry(
+                        client=client,
+                        model_id=model_id,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                        retry_label=f"HF API translation row {idx}",
+                    )
+                    translated = str(response.choices[0].message.content or "").strip()
+                    pt, ct = _extract_huggingface_usage(response)
+                    results[result_index] = (idx, translated, pt, ct, None)
+                except Exception as exc:
+                    results[result_index] = (idx, None, 0, 0, f"{type(exc).__name__}: {exc}")
+                finally:
+                    if progress_callback is not None:
+                        progress_callback(1)
+                    else:
+                        progress.update(1)
 
-        prompt = _build_huggingface_translation_prompt(
-            text,
-            target_lang=target_lang,
-            source_lang=source_lang,
+        await asyncio.gather(
+            *(_translate_one(result_index, item) for result_index, item in enumerate(items))
         )
-
-        async def _request():
-            return await client.chat_completion(
-                model=spec.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=0.0,
-            )
-
-        try:
-            response = await retry_async_call(
-                _request,
-                max_retries=2,
-                delay=1.0,
-                backoff="linear",
-                on_retry=_on_retry,
-            )
-        except Exception as exc:
-            return idx, None, 0, 0, f"{type(exc).__name__}: {exc}"
-
-        translated = str(response.choices[0].message.content or "").strip()
-        pt, ct = _extract_huggingface_usage(response)
-        return idx, translated, pt, ct, None
-
-    def _on_complete(
-        item: tuple[object, str, str | None],
-        result: tuple[object, str | None, int, int, str | None],
-    ) -> None:
-        del item, result
-        if progress_callback is not None:
-            progress_callback(1)
-        else:
-            progress.update(1)
+        return [result for result in results if result is not None]
 
     try:
-        results = run_async_sync_compatible(
-            lambda: gather_limited(
-                items,
-                _do_translate,
-                max_concurrency=max_workers,
-                on_complete=_on_complete,
-            )
-        )
+        results = _run_huggingface_async(_translate_all)
     finally:
         progress.close()
 

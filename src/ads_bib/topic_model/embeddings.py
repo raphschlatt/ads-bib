@@ -7,6 +7,7 @@ models with different runtime tradeoffs.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
@@ -26,12 +27,8 @@ from ads_bib._utils.gguf_backend import (
     resolve_gguf_model,
 )
 from ads_bib._utils.huggingface_api import (
-    create_async_inference_client,
-    gather_limited,
     normalize_huggingface_model,
     resolve_huggingface_api_key,
-    retry_async_call,
-    run_async_sync_compatible,
 )
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
@@ -375,6 +372,38 @@ def _embed_local(
     return emb.astype(dtype)
 
 
+def _create_huggingface_async_client(
+    *,
+    model: str,
+    api_key: str | None,
+):
+    """Create a native HF async client from one normalized public model id."""
+    from huggingface_hub import AsyncInferenceClient
+
+    normalized_model = normalize_huggingface_model(model)
+    model_id, provider = (
+        normalized_model.rsplit(":", 1) if ":" in normalized_model else (normalized_model, None)
+    )
+    return (
+        AsyncInferenceClient(
+            provider=provider,
+            api_key=resolve_huggingface_api_key(api_key),
+        ),
+        model_id,
+    )
+
+
+def _run_huggingface_async(awaitable_factory):
+    """Run one HF async workload from sync code, including notebook cells."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable_factory())
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(awaitable_factory())).result()
+
+
 def _embed_huggingface_api(
     documents: list[str],
     model: str,
@@ -390,7 +419,7 @@ def _embed_huggingface_api(
     """Embed documents via the native HF async inference client."""
     out: np.ndarray | None = None
     total_prompt_tokens = 0
-    client, spec = create_async_inference_client(model=model, api_key=api_key)
+    client, model_id = _create_huggingface_async_client(model=model, api_key=api_key)
     batches = [
         (batch_index, documents[start : start + batch_size])
         for batch_index, start in enumerate(range(0, len(documents), batch_size))
@@ -401,69 +430,60 @@ def _embed_huggingface_api(
         disable=(not show_progress) or (progress_callback is not None),
     )
 
-    async def _embed_one_batch(item: tuple[int, list[str]]) -> tuple[int, np.ndarray, int]:
-        batch_index, batch = item
+    async def _embed_all() -> list[tuple[int, np.ndarray, int]]:
+        semaphore = asyncio.Semaphore(max(1, int(max_workers)))
+        results: list[tuple[int, np.ndarray, int] | None] = [None] * len(batches)
 
-        def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
-            logger.warning(
-                "  HF API embedding batch %s failed (%s: %s). Retry %s/%s in %.0fs ...",
-                batch_index,
-                type(exc).__name__,
-                exc,
-                retry_index,
-                max_retries,
-                wait,
-            )
+        async def _embed_one_batch(result_index: int, item: tuple[int, list[str]]) -> None:
+            batch_index, batch = item
+            async with semaphore:
+                try:
+                    for attempt in range(3):
+                        try:
+                            response = await client.feature_extraction(batch, model=model_id)
+                            break
+                        except Exception as exc:
+                            if attempt >= 2:
+                                logger.warning(
+                                    "  HF API embedding batch %s failed after 3 attempts: %s: %s",
+                                    batch_index,
+                                    type(exc).__name__,
+                                    exc,
+                                )
+                                raise
+                            wait = float(attempt + 1)
+                            logger.warning(
+                                "  HF API embedding batch %s failed (%s: %s). Retry %s/2 in %.0fs ...",
+                                batch_index,
+                                type(exc).__name__,
+                                exc,
+                                attempt + 1,
+                                wait,
+                            )
+                            await asyncio.sleep(wait)
 
-        async def _request():
-            return await client.feature_extraction(batch, model=spec.model_id)
+                    batch_embeddings = np.asarray(response, dtype=dtype)
+                    if batch_embeddings.ndim != 2:
+                        raise RuntimeError("HF API embedding response must be a 2D array.")
+                    if batch_embeddings.shape[0] != len(batch):
+                        raise RuntimeError(
+                            "HF API embedding batch size mismatch: "
+                            f"expected {len(batch)}, got {batch_embeddings.shape[0]}."
+                        )
+                    results[result_index] = (batch_index, batch_embeddings, len(batch))
+                finally:
+                    if progress_callback is not None:
+                        progress_callback(len(batch))
+                    else:
+                        progress.update(len(batch))
 
-        try:
-            response = await retry_async_call(
-                _request,
-                max_retries=2,
-                delay=1.0,
-                backoff="linear",
-                on_retry=_on_retry,
-            )
-        except Exception as exc:
-            logger.warning(
-                "  HF API embedding batch %s failed after 3 attempts: %s: %s",
-                batch_index,
-                type(exc).__name__,
-                exc,
-            )
-            raise
-
-        batch_embeddings = np.asarray(response, dtype=dtype)
-        if batch_embeddings.ndim != 2:
-            raise RuntimeError("HF API embedding response must be a 2D array.")
-        if batch_embeddings.shape[0] != len(batch):
-            raise RuntimeError(
-                f"HF API embedding batch size mismatch: expected {len(batch)}, got {batch_embeddings.shape[0]}."
-            )
-        return batch_index, batch_embeddings, len(batch)
-
-    def _on_complete(
-        item: tuple[int, list[str]],
-        result: tuple[int, np.ndarray, int],
-    ) -> None:
-        del item
-        _, _, batch_len = result
-        if progress_callback is not None:
-            progress_callback(batch_len)
-        else:
-            progress.update(batch_len)
+        await asyncio.gather(
+            *(_embed_one_batch(result_index, item) for result_index, item in enumerate(batches))
+        )
+        return [result for result in results if result is not None]
 
     try:
-        results = run_async_sync_compatible(
-            lambda: gather_limited(
-                batches,
-                _embed_one_batch,
-                max_concurrency=max_workers,
-                on_complete=_on_complete,
-            )
-        )
+        results = _run_huggingface_async(_embed_all)
     finally:
         progress.close()
 

@@ -1360,8 +1360,8 @@ def test_embed_huggingface_api_prealloc_keeps_order(monkeypatch):
 
     monkeypatch.setattr(
         tm_embeddings,
-        "create_async_inference_client",
-        lambda *, model, api_key: (_Client(), type("Spec", (), {"model_id": "test-model"})()),
+        "_create_huggingface_async_client",
+        lambda *, model, api_key: (_Client(), "test-model"),
     )
 
     emb = tm_embeddings._embed_huggingface_api(

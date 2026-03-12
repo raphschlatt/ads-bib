@@ -271,8 +271,8 @@ def test_translate_huggingface_api_uses_async_client(monkeypatch):
 
     monkeypatch.setattr(
         tr,
-        "create_async_inference_client",
-        lambda *, model, api_key: (_Client(), type("Spec", (), {"model_id": "unsloth/Qwen2.5-72B-Instruct"})()),
+        "_create_huggingface_async_client",
+        lambda *, model, api_key: (_Client(), "unsloth/Qwen2.5-72B-Instruct"),
     )
 
     translated, pt, ct = tr._translate_huggingface_api(

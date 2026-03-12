@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 import ads_bib._utils.huggingface_api as hf_api
 
 
@@ -41,15 +39,3 @@ def test_resolve_huggingface_api_key_prefers_explicit_then_env(monkeypatch):
 
     monkeypatch.setenv("HF_TOKEN", "canonical")
     assert hf_api.resolve_huggingface_api_key(None) == "canonical"
-
-
-def test_run_async_sync_compatible_without_running_loop():
-    result = hf_api.run_async_sync_compatible(lambda: asyncio.sleep(0, result=7))
-    assert result == 7
-
-
-def test_run_async_sync_compatible_with_running_loop():
-    async def _inner():
-        return hf_api.run_async_sync_compatible(lambda: asyncio.sleep(0, result=11))
-
-    assert asyncio.run(_inner()) == 11
