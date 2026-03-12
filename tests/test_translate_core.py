@@ -341,8 +341,6 @@ def test_translate_dataframe_huggingface_api_success_tracks_usage(monkeypatch):
 
 def test_translate_dataframe_huggingface_api_requires_api_key(monkeypatch):
     monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
-    monkeypatch.delenv("HF_API_KEY", raising=False)
     df = pd.DataFrame({"Title": ["Hallo"], "Title_lang": ["de"]})
 
     with pytest.raises(ValueError, match="requires an API key"):

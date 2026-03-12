@@ -4,18 +4,14 @@ from __future__ import annotations
 
 import os
 
-HF_API_KEY_ENV_VARS: tuple[str, ...] = ("HF_TOKEN", "HUGGINGFACE_API_KEY", "HF_API_KEY")
+HF_API_KEY_ENV_VAR = "HF_TOKEN"
 
 
 def resolve_huggingface_api_key(api_key: str | None = None) -> str | None:
-    """Return an explicit key or the first configured HF token env var."""
+    """Return an explicit key or ``HF_TOKEN`` from the environment."""
     if api_key:
         return str(api_key)
-    for env_name in HF_API_KEY_ENV_VARS:
-        value = os.getenv(env_name)
-        if value:
-            return value
-    return None
+    return os.getenv(HF_API_KEY_ENV_VAR)
 
 
 def _split_huggingface_model(model: str) -> tuple[str, str | None]:

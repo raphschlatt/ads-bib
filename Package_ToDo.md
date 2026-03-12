@@ -90,7 +90,7 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
 - [x] Kein `.readthedocs.yaml` fuer `0.1.x`; `README.md` bleibt der zentrale Einstieg.
   - Evidenz (2026-03-09): `.readthedocs.yaml` ist nicht vorhanden; `README.md` ist der zentrale Doku-Einstiegspunkt im Repo.
 - [x] HF-API-Auth-/Env-Doku ergaenzen.
-  - Evidenz (2026-03-12): `README.md` dokumentiert jetzt `HF_TOKEN` als kanonischen Env-Name plus HF-native Modell-IDs; `src/ads_bib/pipeline.py` injiziert HF-Tokens fuer Translation/Embeddings/BERTopic; `tests/test_notebook_session.py` und `tests/test_pipeline_runner.py` decken Env-Fallbacks ab.
+  - Evidenz (2026-03-12): `README.md` dokumentiert jetzt `HF_TOKEN` als einzigen Env-Namen plus HF-native Modell-IDs; `src/ads_bib/pipeline.py` injiziert HF-Tokens fuer Translation/Embeddings/BERTopic; `tests/test_notebook_session.py` und `tests/test_pipeline_runner.py` decken die `HF_TOKEN`-Injektion ab.
 
 ## 7) Final Release Freeze
 

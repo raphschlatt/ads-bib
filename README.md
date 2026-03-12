@@ -132,8 +132,7 @@ For `huggingface_api`, use HF-native model ids:
 - no explicit provider: `Qwen/Qwen3-Embedding-8B`
 - explicit HF inference provider: `unsloth/Qwen2.5-72B-Instruct:featherless-ai`
 
-`HF_TOKEN` is the canonical env var. `HUGGINGFACE_API_KEY` and `HF_API_KEY`
-remain accepted as fallbacks for compatibility.
+Use `HF_TOKEN` as the single Hugging Face env var across the repo.
 
 Current local baseline models:
 
@@ -328,7 +327,6 @@ Symptom: `huggingface_api` validation/auth/runtime failures.
 
 Fix:
 - Ensure `HF_TOKEN` is set.
-- `HUGGINGFACE_API_KEY` and `HF_API_KEY` are accepted as fallback env vars.
 - Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or
   `unsloth/Qwen2.5-72B-Instruct:featherless-ai`.
 

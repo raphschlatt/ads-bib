@@ -29,13 +29,8 @@ def test_normalize_huggingface_model_for_litellm_uses_litellm_format():
 
 def test_resolve_huggingface_api_key_prefers_explicit_then_env(monkeypatch):
     monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
-    monkeypatch.delenv("HF_API_KEY", raising=False)
 
     assert hf_api.resolve_huggingface_api_key("explicit") == "explicit"
 
-    monkeypatch.setenv("HUGGINGFACE_API_KEY", "fallback")
-    assert hf_api.resolve_huggingface_api_key(None) == "fallback"
-
-    monkeypatch.setenv("HF_TOKEN", "canonical")
-    assert hf_api.resolve_huggingface_api_key(None) == "canonical"
+    monkeypatch.setenv("HF_TOKEN", "hf-token")
+    assert hf_api.resolve_huggingface_api_key(None) == "hf-token"

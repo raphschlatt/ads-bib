@@ -195,8 +195,6 @@ def test_notebook_session_loads_env_file_before_fallback_resolution(tmp_path, mo
     monkeypatch.delenv("ADS_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
-    monkeypatch.delenv("HF_API_KEY", raising=False)
     (tmp_path / ".env").write_text(
         "ADS_API_KEY=ads-from-dotenv\n"
         "OPENROUTER_API_KEY=openrouter-from-dotenv\n"

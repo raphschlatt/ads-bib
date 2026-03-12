@@ -28,7 +28,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Runtime output is now frontend-aware: CLI runs use compact stage-first console output, notebook runs stay slightly more explanatory, and raw third-party stdout/stderr is redirected into `runs/<run_id>/logs/runtime.log`.
 - Nested progress-bar noise was reduced so normal runs show at most one primary progress bar per stage.
 - `huggingface_api` embeddings now use the native Hugging Face async client instead of LiteLLM, while BERTopic labeling keeps BERTopic's LiteLLM adapter with normalized HF-native model ids.
-- Pipeline config preparation now injects `HF_TOKEN` (with compatibility fallbacks) into translation, embedding, and BERTopic labeling configs when `huggingface_api` is selected.
+- Pipeline config preparation now injects `HF_TOKEN` into translation, embedding, and BERTopic labeling configs when `huggingface_api` is selected.
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
 
 ### Docs
