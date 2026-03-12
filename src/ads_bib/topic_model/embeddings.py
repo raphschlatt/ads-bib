@@ -25,6 +25,14 @@ from ads_bib._utils.gguf_backend import (
     recommended_gguf_thread_settings,
     resolve_gguf_model,
 )
+from ads_bib._utils.huggingface_api import (
+    create_async_inference_client,
+    gather_limited,
+    normalize_huggingface_model,
+    resolve_huggingface_api_key,
+    retry_async_call,
+    run_async_sync_compatible,
+)
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
 from ads_bib._utils.openrouter_costs import (
@@ -174,11 +182,11 @@ def compute_embeddings(
     batch_size : int
         Per-call batch size for embedding requests.
     max_workers : int
-        Worker count used by concurrent providers (OpenRouter).
+        Worker count used by concurrent remote providers.
     dtype : Any
         Target numpy dtype for returned array.
     api_key : str, optional
-        Required for ``provider="openrouter"``.
+        Required for ``provider="openrouter"`` and ``provider="huggingface_api"``.
     openrouter_cost_mode : str
         Cost resolution mode for OpenRouter (``"hybrid"``, ``"strict"``,
         ``"fast"``).
@@ -196,11 +204,15 @@ def compute_embeddings(
     np.ndarray
         Embedding matrix with shape ``(n_documents, embedding_dim)``.
     """
+    if provider == "huggingface_api":
+        model = normalize_huggingface_model(model)
+        api_key = resolve_huggingface_api_key(api_key)
+
     validate_provider(
         provider,
         valid=set(EMBEDDING_PROVIDERS),
         api_key=api_key,
-        requires_key={"openrouter"},
+        requires_key={"openrouter", "huggingface_api"},
         requires_import=EMBEDDING_PROVIDER_IMPORTS,
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
@@ -283,6 +295,10 @@ def compute_embeddings(
             model,
             batch_size,
             target_dtype,
+            max_workers=max_workers,
+            show_progress=internal_show_progress,
+            progress_callback=progress_callback,
+            api_key=api_key,
             cost_tracker=cost_tracker,
         )
     elif provider == "openrouter":
@@ -365,19 +381,28 @@ def _embed_huggingface_api(
     batch_size: int,
     dtype: Any,
     *,
+    max_workers: int = 5,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
+    api_key: str | None = None,
     cost_tracker: "CostTracker | None" = None,
 ) -> np.ndarray:
-    """Embed documents via LiteLLM against a HuggingFace API model."""
-    import litellm
-
+    """Embed documents via the native HF async inference client."""
     out: np.ndarray | None = None
     total_prompt_tokens = 0
-    batches = [documents[i : i + batch_size] for i in range(0, len(documents), batch_size)]
-    for batch_index, batch in tqdm(
-        enumerate(batches),
-        total=len(batches),
+    client, spec = create_async_inference_client(model=model, api_key=api_key)
+    batches = [
+        (batch_index, documents[start : start + batch_size])
+        for batch_index, start in enumerate(range(0, len(documents), batch_size))
+    ]
+    progress = tqdm(
+        total=len(documents),
         desc="Embedding (HF API)",
-    ):
+        disable=(not show_progress) or (progress_callback is not None),
+    )
+
+    async def _embed_one_batch(item: tuple[int, list[str]]) -> tuple[int, np.ndarray, int]:
+        batch_index, batch = item
 
         def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
             logger.warning(
@@ -390,12 +415,12 @@ def _embed_huggingface_api(
                 wait,
             )
 
-        def _request_batch() -> Any:
-            return litellm.embedding(model=model, input=batch)
+        async def _request():
+            return await client.feature_extraction(batch, model=spec.model_id)
 
         try:
-            resp = retry_call(
-                _request_batch,
+            response = await retry_async_call(
+                _request,
                 max_retries=2,
                 delay=1.0,
                 backoff="linear",
@@ -410,13 +435,39 @@ def _embed_huggingface_api(
             )
             raise
 
-        batch_embeddings = np.asarray([d["embedding"] for d in resp["data"]], dtype=dtype)
+        batch_embeddings = np.asarray(response, dtype=dtype)
         if batch_embeddings.ndim != 2:
             raise RuntimeError("HF API embedding response must be a 2D array.")
         if batch_embeddings.shape[0] != len(batch):
             raise RuntimeError(
                 f"HF API embedding batch size mismatch: expected {len(batch)}, got {batch_embeddings.shape[0]}."
             )
+        return batch_index, batch_embeddings, len(batch)
+
+    def _on_complete(
+        item: tuple[int, list[str]],
+        result: tuple[int, np.ndarray, int],
+    ) -> None:
+        del item
+        _, _, batch_len = result
+        if progress_callback is not None:
+            progress_callback(batch_len)
+        else:
+            progress.update(batch_len)
+
+    try:
+        results = run_async_sync_compatible(
+            lambda: gather_limited(
+                batches,
+                _embed_one_batch,
+                max_concurrency=max_workers,
+                on_complete=_on_complete,
+            )
+        )
+    finally:
+        progress.close()
+
+    for batch_index, batch_embeddings, batch_len in results:
         if out is None:
             out = np.empty((len(documents), batch_embeddings.shape[1]), dtype=dtype)
         elif batch_embeddings.shape[1] != out.shape[1]:
@@ -424,13 +475,10 @@ def _embed_huggingface_api(
                 "HF API embedding dimension mismatch across batches: "
                 f"expected {out.shape[1]}, got {batch_embeddings.shape[1]}."
             )
-
         start = batch_index * batch_size
-        end = start + len(batch)
+        end = start + batch_len
         out[start:end] = batch_embeddings
-
-        usage = getattr(resp, "usage", None) or resp.get("usage", {})
-        total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or usage.get("prompt_tokens", 0)
+        total_prompt_tokens += batch_len
 
     if cost_tracker is not None and total_prompt_tokens > 0:
         cost_tracker.add(

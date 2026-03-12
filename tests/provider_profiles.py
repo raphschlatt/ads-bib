@@ -13,11 +13,11 @@ class ProviderProfile:
 
     profile_id: str
     topic_backend: TopicBackend
-    translation_provider: Literal["openrouter", "gguf"]
+    translation_provider: Literal["openrouter", "huggingface_api", "gguf"]
     translation_model: str
-    embedding_provider: Literal["openrouter", "local", "gguf"]
+    embedding_provider: Literal["openrouter", "huggingface_api", "local", "gguf"]
     embedding_model: str
-    llm_provider: Literal["openrouter", "local", "gguf"]
+    llm_provider: Literal["openrouter", "huggingface_api", "local", "gguf"]
     llm_model: str
     translation_api_key: str | None = None
     embedding_api_key: str | None = None
@@ -26,6 +26,10 @@ class ProviderProfile:
     @property
     def expects_openrouter_costs(self) -> bool:
         return self.translation_provider == "openrouter"
+
+    @property
+    def tracks_translation_tokens(self) -> bool:
+        return self.translation_provider in {"openrouter", "huggingface_api"}
 
 
 REQUIRED_PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
@@ -51,6 +55,19 @@ REQUIRED_PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
         embedding_model="google/embeddinggemma-300m",
         llm_provider="local",
         llm_model="Qwen/Qwen3-0.6B",
+    ),
+    ProviderProfile(
+        profile_id="huggingface_api_bertopic",
+        topic_backend="bertopic",
+        translation_provider="huggingface_api",
+        translation_model="unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+        translation_api_key="dummy",
+        embedding_provider="huggingface_api",
+        embedding_model="Qwen/Qwen3-Embedding-8B",
+        embedding_api_key="dummy",
+        llm_provider="huggingface_api",
+        llm_model="unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+        llm_api_key="dummy",
     ),
     ProviderProfile(
         profile_id="openrouter_toponymy",

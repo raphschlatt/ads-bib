@@ -319,6 +319,27 @@ def _run_offline_mocked_pipeline(
                 },
             ),
         )
+    elif profile.translation_provider == "huggingface_api":
+        def _fake_translate_rows_huggingface_api(
+            out_df,
+            *,
+            source_col,
+            target_col,
+            to_translate,
+            target_lang,
+            model,
+            api_key,
+            max_workers,
+            max_tokens,
+            show_progress=True,
+            progress_callback=None,
+        ):
+            del target_lang, model, api_key, max_workers, max_tokens, show_progress, progress_callback
+            for idx, text in zip(to_translate.index, to_translate[source_col]):
+                out_df.at[idx, target_col] = f"EN::{text}"
+            return len(to_translate) * 4, len(to_translate) * 2, []
+
+        monkeypatch.setattr(tr, "_translate_rows_huggingface_api", _fake_translate_rows_huggingface_api)
     else:
         import ads_bib._utils.gguf_backend as gguf_mod
 
@@ -376,6 +397,14 @@ def _run_offline_mocked_pipeline(
             return np.arange(n * 3, dtype=self.dtype).reshape(n, 3)
 
     monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+    monkeypatch.setattr(
+        tm_embeddings,
+        "_embed_huggingface_api",
+        lambda documents, model, batch_size, dtype, **kwargs: np.arange(
+            len(documents) * 3,
+            dtype=dtype,
+        ).reshape(len(documents), 3),
+    )
 
     embeddings = tm.compute_embeddings(
         docs,
@@ -513,12 +542,14 @@ def test_offline_mocked_pipeline_smoke_e2e_provider_profile(monkeypatch, tmp_pat
     assert out["session_closed"] is True
     assert out["bibcodes"] == ["b1", "b2"]
     assert {"Title_en", "Abstract_en"} <= set(out["publications"].columns)
-    if profile.expects_openrouter_costs:
+    if profile.tracks_translation_tokens:
         assert out["translation_cost"]["prompt_tokens"] > 0
-        assert out["translation_cost"]["cost_usd"] == pytest.approx(0.01)
     else:
         assert out["translation_cost"]["prompt_tokens"] == 0
         assert out["translation_cost"]["completion_tokens"] == 0
+    if profile.expects_openrouter_costs:
+        assert out["translation_cost"]["cost_usd"] == pytest.approx(0.01)
+    else:
         assert out["translation_cost"]["cost_usd"] is None
     assert "tokens" in out["publications"].columns
 

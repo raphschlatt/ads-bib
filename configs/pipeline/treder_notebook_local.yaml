@@ -13,7 +13,7 @@ search:
   refresh_export: true
 
 translate:
-  # Translate runtimes: nllb (local seq2seq), gguf (optional local llama-cpp-python), openrouter (API)
+  # Translate runtimes: nllb (local seq2seq), gguf (optional local llama-cpp-python), huggingface_api, openrouter
   enabled: true
   provider: nllb
   model: JustFrederik/nllb-200-distilled-600M-ct2-int8

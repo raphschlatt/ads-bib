@@ -89,18 +89,18 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-09): `README.md` enthaelt Abschnitte zu `Audience and Scope`, `AND Integration Contract`, `Package vs Notebook Usage` und `How To Cite`.
 - [x] Kein `.readthedocs.yaml` fuer `0.1.x`; `README.md` bleibt der zentrale Einstieg.
   - Evidenz (2026-03-09): `.readthedocs.yaml` ist nicht vorhanden; `README.md` ist der zentrale Doku-Einstiegspunkt im Repo.
-- [ ] HF-API-Auth-/Env-Doku ergaenzen.
-  - Status (2026-03-12): README/.env-Hinweise nennen bisher nur OpenRouter; fuer den hier verwendeten LiteLLM-HF-Pfad ist `HUGGINGFACE_API_KEY` der sicherste Env-Name, optional mit `HF_API_BASE`/`HUGGINGFACE_API_BASE` fuer abweichende Endpunkte.
+- [x] HF-API-Auth-/Env-Doku ergaenzen.
+  - Evidenz (2026-03-12): `README.md` dokumentiert jetzt `HF_TOKEN` als kanonischen Env-Name plus HF-native Modell-IDs; `src/ads_bib/pipeline.py` injiziert HF-Tokens fuer Translation/Embeddings/BERTopic; `tests/test_notebook_session.py` und `tests/test_pipeline_runner.py` decken Env-Fallbacks ab.
 
 ## 7) Final Release Freeze
 
 - [ ] Notebook-Outputs clearen und den Output-Cleanliness-Check explizit laufen lassen.
-  - Status (2026-03-12): direkter Notebook-JSON-Check ergibt aktuell `11` Codezellen mit Outputs und `24` Codezellen mit `execution_count`; `git status --short` zeigt noch ein dirty `pipeline.ipynb`.
-- [ ] `CHANGELOG.md` fuer den externen Release aktualisieren.
-  - Status (2026-03-12): `CHANGELOG.md` steht weiter auf `Unreleased` und bildet die Aenderungen vom 2026-03-10/11 an Topic-Model-Backends, GGUF-Pooling und Notebook-/Runner-Refactors noch nicht ab.
-- [ ] HF-Provider-Scope fuer `0.1.0` explizit entscheiden.
-  - Status (2026-03-12): README bewirbt `huggingface_api`, aber die Tests decken aktuell nur Config-Freigabe plus einen Embedding-Unit-Test ab; es gibt weder ein Provider-Profil noch einen BERTopic-HF-API-Labeling-Test.
+  - Status (2026-03-12): direkter Notebook-JSON-Check ergibt aktuell `19` Codezellen mit Outputs und `38` Codezellen mit `execution_count`; der explizite Release-Freeze-Check (`ADS_CHECK_NOTEBOOK_OUTPUT=1`) faellt in `tests/test_pipeline_notebook_contract.py` weiter.
+- [x] `CHANGELOG.md` fuer den externen Release aktualisieren.
+  - Evidenz (2026-03-12): `CHANGELOG.md` dokumentiert jetzt HF-Translation, native HF-Embeddings, HF-Config-Injektion, HF-Smokes und die angepassten Packaging-Extras; `python -m pytest -q` -> `255 passed, 4 skipped, 2 warnings`.
+- [x] HF-Provider-Scope fuer `0.1.0` explizit entscheiden.
+  - Evidenz (2026-03-12): Release-Scope ist jetzt code- und doku-seitig festgezogen: `huggingface_api` fuer Translation, Embeddings und BERTopic-Labeling; kein Toponymy-HF. README, Config-Templates, `tests/provider_profiles.py` und die neuen HF-Unit-Tests spiegeln denselben Scope.
 - [ ] Falls `huggingface_api` im Release-Scope bleibt: mindestens einen Smoke-Pfad plus einen manuellen/live Smoke nachziehen.
-  - Status (2026-03-12): Die aktuellen Pipeline-Smokes sind offline/mocked und decken `openrouter`/`local`-Profile ab; lokale HF-Wege sind gut unit-getestet, aber nicht als echte Runtime-/Modell-Smokes abgesichert.
+  - Status (2026-03-12): Offline-Smokes decken jetzt ein `huggingface_api_bertopic`-Profil ab; env-gated Live-Smokes fuer HF-Translation, HF-Embeddings und BERTopic-HF-Labeling liegen in `tests/test_huggingface_live.py`, wurden aber noch nicht mit echtem Token ausgefuehrt.
 - [ ] Release-Metadaten finalisieren: Git-Tag, `python -m build`, `python -m twine check dist/*`, TestPyPI-Smoke.
-  - Status (2026-03-12): `pyproject.toml` steht bereits auf `0.1.0`; `python -m build` und `python -m twine check dist/*` sind gruen; Git-Tag/Upload/TestPyPI-Smoke fehlen noch.
+  - Status (2026-03-12): `pyproject.toml` steht bereits auf `0.1.0`; `python -m build` und `python -m twine check dist/*` sind erneut gruen; Git-Tag/Upload/TestPyPI-Smoke fehlen noch.

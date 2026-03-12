@@ -11,6 +11,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Thin CLI batch entrypoint: `ads-bib run --config ...` with optional `--from`, `--to`, `--run-name`, and `--set` overrides.
 - Notebook adapter in `ads_bib.notebook` with `NotebookSession` and package-side config invalidation.
 - Committed batch template at `configs/pipeline/default.yaml`.
+- Native `huggingface_api` translation path via `huggingface_hub.AsyncInferenceClient`.
+- Shared Hugging Face API helper for token/env resolution, model normalization, async retry, and notebook-safe sync bridging.
+- Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
 - `pipeline.ipynb` now uses explicit section dicts plus `NotebookSession`; it no longer owns config assembly, invalidation, `globals()` syncing, or `START_STAGE` / `STOP_STAGE`.
@@ -24,7 +27,11 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - `run_pipeline()` remains the dependency-aware batch path; notebook stage execution now has intentionally different UX semantics.
 - Runtime output is now frontend-aware: CLI runs use compact stage-first console output, notebook runs stay slightly more explanatory, and raw third-party stdout/stderr is redirected into `runs/<run_id>/logs/runtime.log`.
 - Nested progress-bar noise was reduced so normal runs show at most one primary progress bar per stage.
+- `huggingface_api` embeddings now use the native Hugging Face async client instead of LiteLLM, while BERTopic labeling keeps BERTopic's LiteLLM adapter with normalized HF-native model ids.
+- Pipeline config preparation now injects `HF_TOKEN` (with compatibility fallbacks) into translation, embedding, and BERTopic labeling configs when `huggingface_api` is selected.
+- Packaging extras now install `huggingface-hub` for topic and API translation paths.
 
 ### Docs
 - `README.md` now documents inline notebook section configs, `configs/pipeline/default.yaml`, and `.env` as the only secret location.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
+- README/runtime templates now document `HF_TOKEN`, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).

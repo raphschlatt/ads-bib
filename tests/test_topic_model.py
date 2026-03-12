@@ -235,6 +235,34 @@ def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
         )
 
 
+def test_create_llm_huggingface_api_normalizes_model_and_passes_api_key(monkeypatch):
+    calls: dict = {}
+
+    class _FakeLiteLLM:
+        def __init__(self, **kwargs):
+            calls["kwargs"] = kwargs
+
+    fake_representation = types.ModuleType("bertopic.representation")
+    fake_representation.LiteLLM = _FakeLiteLLM
+    monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
+
+    llm = tm_backends._create_llm(
+        provider="huggingface_api",
+        model="unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+        prompt="topic: <label>",
+        nr_docs=8,
+        diversity=0.2,
+        delay=0.3,
+        llm_max_new_tokens=64,
+        api_key="hf-token",
+    )
+
+    assert isinstance(llm, _FakeLiteLLM)
+    assert calls["kwargs"]["model"] == "huggingface/featherless-ai/unsloth/Qwen2.5-72B-Instruct"
+    assert calls["kwargs"]["generator_kwargs"]["api_key"] == "hf-token"
+    assert calls["kwargs"]["generator_kwargs"]["max_tokens"] == 64
+
+
 class _FakeLayer:
     def __init__(self, labels):
         self.cluster_labels = np.asarray(labels, dtype=int)
@@ -1320,33 +1348,40 @@ def test_openrouter_embedder_prealloc_keeps_dtype(monkeypatch):
 
 
 def test_embed_huggingface_api_prealloc_keeps_order(monkeypatch):
-    fake_litellm = types.ModuleType("litellm")
+    calls: dict[str, Any] = {}
 
-    def _fake_embedding(model, input):
-        del model
-        return {
-            "usage": {"prompt_tokens": len(input)},
-            "data": [{"embedding": [float(int(text.split('_')[1])), 1.0]} for text in input],
-        }
+    class _Client:
+        async def feature_extraction(self, input, *, model):
+            calls.setdefault("batches", []).append((model, list(input)))
+            return np.asarray(
+                [[float(int(text.split("_")[1])), 1.0] for text in input],
+                dtype=np.float32,
+            )
 
-    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
-        del max_retries, delay, backoff, on_retry
-        return func()
-
-    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
-    fake_litellm.embedding = _fake_embedding
-    monkeypatch.setattr(tm_embeddings, "retry_call", _fake_retry_call)
+    monkeypatch.setattr(
+        tm_embeddings,
+        "create_async_inference_client",
+        lambda *, model, api_key: (_Client(), type("Spec", (), {"model_id": "test-model"})()),
+    )
 
     emb = tm_embeddings._embed_huggingface_api(
         [f"doc_{i}" for i in range(5)],
-        model="huggingface/test-model",
+        model="test-model",
         batch_size=2,
         dtype=np.float32,
+        max_workers=2,
+        show_progress=False,
+        api_key="hf-token",
     )
 
     assert emb.shape == (5, 2)
     assert emb.dtype == np.float32
     assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert calls["batches"] == [
+        ("test-model", ["doc_0", "doc_1"]),
+        ("test-model", ["doc_2", "doc_3"]),
+        ("test-model", ["doc_4"]),
+    ]
 
 
 def test_compute_embeddings_defaults_to_float16(monkeypatch):

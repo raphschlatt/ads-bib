@@ -19,6 +19,11 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils.huggingface_api import (
+    normalize_huggingface_model,
+    normalize_huggingface_model_for_litellm,
+    resolve_huggingface_api_key,
+)
 from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
@@ -295,8 +300,14 @@ def _create_llm(
     if provider in ("huggingface_api", "openrouter"):
         from bertopic.representation import LiteLLM
 
+        resolved_model = model
+        resolved_api_key = api_key
+        if provider == "huggingface_api":
+            resolved_model = normalize_huggingface_model(model)
+            resolved_api_key = resolve_huggingface_api_key(api_key)
+
         kwargs: dict[str, Any] = {
-            "model": model,
+            "model": resolved_model,
             "prompt": prompt,
             "nr_docs": nr_docs,
             "diversity": diversity,
@@ -308,10 +319,14 @@ def _create_llm(
             },
         }
         if provider == "openrouter":
-            if not model.startswith("openrouter/"):
-                kwargs["model"] = f"openrouter/{model}"
-            if api_key:
-                kwargs["generator_kwargs"]["api_key"] = api_key
+            if not resolved_model.startswith("openrouter/"):
+                kwargs["model"] = f"openrouter/{resolved_model}"
+            if resolved_api_key:
+                kwargs["generator_kwargs"]["api_key"] = resolved_api_key
+        else:
+            kwargs["model"] = normalize_huggingface_model_for_litellm(resolved_model)
+            if resolved_api_key:
+                kwargs["generator_kwargs"]["api_key"] = resolved_api_key
         return LiteLLM(**kwargs)
 
     raise ValueError(f"Unknown LLM provider: {provider}")
@@ -922,7 +937,7 @@ def fit_bertopic(
     clustering_params : dict, optional
         Parameters forwarded to the selected clustering backend.
     api_key : str, optional
-        Required for ``llm_provider="openrouter"``.
+        Required for ``llm_provider="openrouter"`` and ``llm_provider="huggingface_api"``.
     openrouter_cost_mode : str
         Cost resolution mode for OpenRouter usage.
     cost_tracker : CostTracker, optional
@@ -933,11 +948,14 @@ def fit_bertopic(
     BERTopic
         Fitted BERTopic instance.
     """
+    if llm_provider == "huggingface_api":
+        llm_model = normalize_huggingface_model(llm_model)
+        api_key = resolve_huggingface_api_key(api_key)
     validate_provider(
         llm_provider,
         valid=set(BERTOPIC_LLM_PROVIDERS),
         api_key=api_key,
-        requires_key={"openrouter"},
+        requires_key={"openrouter", "huggingface_api"},
         requires_import=BERTOPIC_LLM_PROVIDER_IMPORTS,
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)

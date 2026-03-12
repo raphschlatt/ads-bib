@@ -86,6 +86,28 @@ def test_pipeline_config_rejects_huggingface_api_for_toponymy():
         )
 
 
+def test_prepare_pipeline_config_injects_hf_keys(monkeypatch):
+    monkeypatch.setenv("HF_TOKEN", "hf-token")
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "translate": {"provider": "huggingface_api", "api_key": None},
+            "topic_model": {
+                "backend": "bertopic",
+                "embedding_provider": "huggingface_api",
+                "embedding_api_key": None,
+                "llm_provider": "huggingface_api",
+                "llm_api_key": None,
+            },
+        }
+    )
+
+    prepared = pipeline.prepare_pipeline_config(config)
+
+    assert prepared.translate.api_key == "hf-token"
+    assert prepared.topic_model.embedding_api_key == "hf-token"
+    assert prepared.topic_model.llm_api_key == "hf-token"
+
+
 def test_pipeline_config_rejects_unknown_gguf_pooling():
     with pytest.raises(ValueError, match="Unknown GGUF pooling type"):
         pipeline.PipelineConfig.from_dict(

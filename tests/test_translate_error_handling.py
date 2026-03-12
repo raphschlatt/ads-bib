@@ -88,6 +88,30 @@ def test_translate_dataframe_gguf_logs_failure_examples(monkeypatch, caplog):
     assert out_df.loc[0, "Title_en"] == "bonjour"
 
 
+def test_translate_dataframe_huggingface_api_logs_failure_examples(monkeypatch, caplog):
+    caplog.set_level(logging.WARNING, logger="ads_bib.translate")
+    df = pd.DataFrame({"Title": ["hola"], "Title_lang": ["es"]})
+
+    def _fake_translate_rows_huggingface_api(*args, **kwargs):
+        del args, kwargs
+        return 0, 0, [(0, "RuntimeError: hf api down")]
+
+    monkeypatch.setattr(tr, "_translate_rows_huggingface_api", _fake_translate_rows_huggingface_api)
+
+    out_df, _ = tr.translate_dataframe(
+        df,
+        columns=["Title"],
+        provider="huggingface_api",
+        model="Qwen/Qwen2.5-72B-Instruct:featherless-ai",
+        api_key="dummy",
+        max_workers=1,
+    )
+
+    assert "Title: 1 translations failed" in caplog.text
+    assert "RuntimeError: hf api down" in caplog.text
+    assert out_df.loc[0, "Title_en"] == "hola"
+
+
 def test_detect_languages_raises_clear_error_for_missing_columns():
     df = pd.DataFrame({"Title": ["hola"]})
 

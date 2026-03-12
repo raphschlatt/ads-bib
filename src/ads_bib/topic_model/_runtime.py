@@ -16,7 +16,7 @@ EMBEDDING_PROVIDER_IMPORTS = {
     "local": "sentence_transformers",
     "gguf": "llama_cpp",
     "openrouter": "litellm",
-    "huggingface_api": "litellm",
+    "huggingface_api": "huggingface_hub",
 }
 
 BERTOPIC_LLM_PROVIDER_IMPORTS = {

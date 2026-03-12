@@ -54,6 +54,7 @@ topic = [
     "datamapplot",
     "pacmap",
     "fast-hdbscan",
+    "huggingface-hub",
     "litellm",
     "openai",
     "toponymy",
@@ -64,7 +65,7 @@ topic = [
 umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
 translate-local = ["llama-cpp-python", "huggingface-hub"]
-translate-api = ["openai"]
+translate-api = ["openai", "huggingface-hub"]
 translate-nllb = ["ctranslate2", "transformers", "sentencepiece", "huggingface-hub"]
 gguf = ["llama-cpp-python", "huggingface-hub"]
 test = ["pytest>=7", "ruff>=0.6"]

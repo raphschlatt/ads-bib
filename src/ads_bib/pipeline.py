@@ -16,6 +16,7 @@ import yaml
 
 from . import prompts
 from ads_bib._utils.gguf_backend import normalize_gguf_pooling
+from ads_bib._utils.huggingface_api import resolve_huggingface_api_key
 from ads_bib._utils.checkpoints import (
     load_disambiguated_snapshot,
     load_tokenized_snapshot,
@@ -504,15 +505,25 @@ def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
         prepared.search.ads_token = os.getenv("ADS_TOKEN") or os.getenv("ADS_API_KEY")
 
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+    huggingface_api_key = resolve_huggingface_api_key()
     if prepared.translate.provider == "openrouter" and not prepared.translate.api_key:
         prepared.translate.api_key = openrouter_api_key
+    if prepared.translate.provider == "huggingface_api" and not prepared.translate.api_key:
+        prepared.translate.api_key = huggingface_api_key
     if (
         prepared.topic_model.embedding_provider == "openrouter"
         and not prepared.topic_model.embedding_api_key
     ):
         prepared.topic_model.embedding_api_key = openrouter_api_key
+    if (
+        prepared.topic_model.embedding_provider == "huggingface_api"
+        and not prepared.topic_model.embedding_api_key
+    ):
+        prepared.topic_model.embedding_api_key = huggingface_api_key
     if prepared.topic_model.llm_provider == "openrouter" and not prepared.topic_model.llm_api_key:
         prepared.topic_model.llm_api_key = openrouter_api_key
+    if prepared.topic_model.llm_provider == "huggingface_api" and not prepared.topic_model.llm_api_key:
+        prepared.topic_model.llm_api_key = huggingface_api_key
 
     return prepared
 

@@ -133,9 +133,10 @@ def test_explicit_reset_creates_fresh_notebook_session(tmp_path):
     assert first.run is not second.run
 
 
-def test_env_fallback_injection_uses_ads_and_openrouter_keys(tmp_path, monkeypatch):
+def test_env_fallback_injection_uses_ads_openrouter_and_hf_keys(tmp_path, monkeypatch):
     monkeypatch.setenv("ADS_TOKEN", "ads-token")
     monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-token")
+    monkeypatch.setenv("HF_TOKEN", "hf-token")
 
     session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
     session.set_section("search", {"query": "q", "ads_token": None})
@@ -164,13 +165,42 @@ def test_env_fallback_injection_uses_ads_and_openrouter_keys(tmp_path, monkeypat
     assert session.config.topic_model.embedding_api_key == "openrouter-token"
     assert session.config.topic_model.llm_api_key == "openrouter-token"
 
+    session.set_section(
+        "translate",
+        {
+            "provider": "huggingface_api",
+            "api_key": None,
+            "fasttext_model": str(tmp_path / "lid.176.bin"),
+        },
+    )
+    session.set_section(
+        "topic_model",
+        {
+            "embedding_provider": "huggingface_api",
+            "embedding_model": "Qwen/Qwen3-Embedding-8B",
+            "embedding_api_key": None,
+            "llm_provider": "huggingface_api",
+            "llm_model": "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+            "llm_api_key": None,
+        },
+    )
+
+    assert session.config.translate.api_key == "hf-token"
+    assert session.config.topic_model.embedding_api_key == "hf-token"
+    assert session.config.topic_model.llm_api_key == "hf-token"
+
 
 def test_notebook_session_loads_env_file_before_fallback_resolution(tmp_path, monkeypatch):
     monkeypatch.delenv("ADS_TOKEN", raising=False)
     monkeypatch.delenv("ADS_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
+    monkeypatch.delenv("HF_API_KEY", raising=False)
     (tmp_path / ".env").write_text(
-        "ADS_API_KEY=ads-from-dotenv\nOPENROUTER_API_KEY=openrouter-from-dotenv\n",
+        "ADS_API_KEY=ads-from-dotenv\n"
+        "OPENROUTER_API_KEY=openrouter-from-dotenv\n"
+        "HF_TOKEN=hf-from-dotenv\n",
         encoding="utf-8",
     )
 
@@ -187,6 +217,17 @@ def test_notebook_session_loads_env_file_before_fallback_resolution(tmp_path, mo
 
     assert session.config.search.ads_token == "ads-from-dotenv"
     assert session.config.translate.api_key == "openrouter-from-dotenv"
+
+    session.set_section(
+        "translate",
+        {
+            "provider": "huggingface_api",
+            "api_key": None,
+            "fasttext_model": str(tmp_path / "lid.176.bin"),
+        },
+    )
+
+    assert session.config.translate.api_key == "hf-from-dotenv"
 
 
 def test_search_config_change_blocks_later_snapshot_resume(tmp_path):

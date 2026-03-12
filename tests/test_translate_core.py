@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import pandas as pd
 import pytest
 
@@ -243,6 +242,117 @@ def test_translate_openrouter_uses_shared_chat_core(monkeypatch):
     assert cost == 0.01
     assert calls["retry_label"] == "OpenRouter translation call"
     assert calls["model"] == "openrouter/test-model"
+
+
+def test_translate_huggingface_api_uses_async_client(monkeypatch):
+    calls: dict = {}
+
+    class _Response:
+        class _Usage:
+            prompt_tokens = 9
+            completion_tokens = 4
+
+        class _Choice:
+            class _Message:
+                content = "Hallo-EN"
+
+            message = _Message()
+
+        choices = [_Choice()]
+        usage = _Usage()
+
+    class _Client:
+        async def chat_completion(self, *, model, messages, max_tokens, temperature):
+            calls["model"] = model
+            calls["messages"] = messages
+            calls["max_tokens"] = max_tokens
+            calls["temperature"] = temperature
+            return _Response()
+
+    monkeypatch.setattr(
+        tr,
+        "create_async_inference_client",
+        lambda *, model, api_key: (_Client(), type("Spec", (), {"model_id": "unsloth/Qwen2.5-72B-Instruct"})()),
+    )
+
+    translated, pt, ct = tr._translate_huggingface_api(
+        "Hallo",
+        "en",
+        "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+        "dummy",
+        source_lang="de",
+        max_tokens=512,
+    )
+
+    assert translated == "Hallo-EN"
+    assert pt == 9
+    assert ct == 4
+    assert calls["model"] == "unsloth/Qwen2.5-72B-Instruct"
+    assert calls["max_tokens"] == 512
+    assert calls["temperature"] == 0.0
+    assert calls["messages"][0]["content"].startswith("Translate from de to en.")
+
+
+def test_translate_dataframe_huggingface_api_success_tracks_usage(monkeypatch):
+    df = pd.DataFrame({"Title": ["Hallo", "Hello"], "Title_lang": ["de", "en"]})
+    calls: dict = {}
+
+    def _fake_translate_rows_huggingface_api(
+        out_df,
+        *,
+        source_col,
+        target_col,
+        to_translate,
+        target_lang,
+        model,
+        api_key,
+        max_workers,
+        max_tokens,
+        show_progress,
+        progress_callback,
+    ):
+        del source_col, target_lang, max_workers, max_tokens, show_progress, progress_callback
+        calls["model"] = model
+        calls["api_key"] = api_key
+        out_df.at[to_translate.index[0], target_col] = "Hallo-EN"
+        return 6, 3, []
+
+    monkeypatch.setenv("HF_TOKEN", "hf-token")
+    monkeypatch.setattr(tr, "_translate_rows_huggingface_api", _fake_translate_rows_huggingface_api)
+
+    out_df, cost_info = tr.translate_dataframe(
+        df,
+        columns=["Title"],
+        provider="huggingface_api",
+        model="huggingface/featherless-ai/unsloth/Qwen2.5-72B-Instruct",
+        api_key=None,
+        max_workers=2,
+        max_translation_tokens=777,
+    )
+
+    assert out_df["Title_en"].tolist() == ["Hallo-EN", "Hello"]
+    assert cost_info["provider"] == "huggingface_api"
+    assert cost_info["prompt_tokens"] == 6
+    assert cost_info["completion_tokens"] == 3
+    assert cost_info["cost_usd"] is None
+    assert calls["model"] == "unsloth/Qwen2.5-72B-Instruct:featherless-ai"
+    assert calls["api_key"] == "hf-token"
+
+
+def test_translate_dataframe_huggingface_api_requires_api_key(monkeypatch):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
+    monkeypatch.delenv("HF_API_KEY", raising=False)
+    df = pd.DataFrame({"Title": ["Hallo"], "Title_lang": ["de"]})
+
+    with pytest.raises(ValueError, match="requires an API key"):
+        tr.translate_dataframe(
+            df,
+            columns=["Title"],
+            provider="huggingface_api",
+            model="Qwen/Qwen2.5-72B-Instruct:featherless-ai",
+            api_key=None,
+        )
 
 
 def test_translate_dataframe_validates_max_translation_tokens():

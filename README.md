@@ -44,6 +44,7 @@ python -m ipykernel install --user --name ADS_env --display-name "ADS_env"
 ```env
 ADS_TOKEN=...
 OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
+HF_TOKEN=...            # optional unless huggingface_api backends are used
 ```
 
 4. Choose one entrypoint:
@@ -120,11 +121,19 @@ Topic-model runtimes are intentionally split by interface and runtime style:
 
 | Interface | Supported providers | Notes |
 | --- | --- | --- |
-| Translation | `nllb`, `gguf`, `openrouter` | Current translation path stays unchanged. |
+| Translation | `nllb`, `gguf`, `huggingface_api`, `openrouter` | `huggingface_api` uses the native Hugging Face Inference API client. |
 | Embeddings | `local`, `gguf`, `huggingface_api`, `openrouter` | `local` is the default local CPU/GPU path; `gguf` is optional. |
-| BERTopic labeling | `local`, `gguf`, `huggingface_api`, `openrouter` | `local` uses transformers on CPU/GPU. |
+| BERTopic labeling | `local`, `gguf`, `huggingface_api`, `openrouter` | `huggingface_api` is normalized to BERTopic's LiteLLM adapter internally. |
 | Toponymy naming | `local`, `gguf`, `openrouter` | `huggingface_api` is not a Toponymy naming provider. |
 | Toponymy text embeddings | `local`, `gguf`, `openrouter` | `toponymy_embedding_model` only overrides the model id. |
+
+For `huggingface_api`, use HF-native model ids:
+
+- no explicit provider: `Qwen/Qwen3-Embedding-8B`
+- explicit HF inference provider: `unsloth/Qwen2.5-72B-Instruct:featherless-ai`
+
+`HF_TOKEN` is the canonical env var. `HUGGINGFACE_API_KEY` and `HF_API_KEY`
+remain accepted as fallbacks for compatibility.
 
 Current local baseline models:
 
@@ -313,6 +322,15 @@ Symptom: provider validation/auth/cost resolution failures.
 Fix:
 - Ensure `OPENROUTER_API_KEY` is set.
 - Use supported provider names and model identifiers.
+
+### Hugging Face API provider errors
+Symptom: `huggingface_api` validation/auth/runtime failures.
+
+Fix:
+- Ensure `HF_TOKEN` is set.
+- `HUGGINGFACE_API_KEY` and `HF_API_KEY` are accepted as fallback env vars.
+- Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or
+  `unsloth/Qwen2.5-72B-Instruct:featherless-ai`.
 
 ### spaCy model unavailable
 Symptom: tokenization model load error.

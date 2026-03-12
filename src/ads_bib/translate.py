@@ -13,6 +13,14 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from ads_bib._utils.cleaning import require_columns as _require_columns
+from ads_bib._utils.huggingface_api import (
+    create_async_inference_client,
+    gather_limited,
+    normalize_huggingface_model,
+    resolve_huggingface_api_key,
+    retry_async_call,
+    run_async_sync_compatible,
+)
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -26,7 +34,7 @@ from ads_bib._utils.openrouter_costs import (
 
 logger = logging.getLogger(__name__)
 
-TranslationProvider: TypeAlias = Literal["openrouter", "gguf", "nllb"]
+TranslationProvider: TypeAlias = Literal["openrouter", "huggingface_api", "gguf", "nllb"]
 
 
 class TranslationCostInfo(TypedDict):
@@ -278,6 +286,182 @@ def _translate_rows_openrouter(
             total_ct += ct
 
     return total_pt, total_ct, call_records, failed
+
+
+# ---------------------------------------------------------------------------
+# Hugging Face Inference API backend
+# ---------------------------------------------------------------------------
+
+
+def _build_huggingface_translation_prompt(
+    text: str,
+    *,
+    target_lang: str,
+    source_lang: str | None,
+) -> str:
+    """Build a deterministic direct-translation prompt for HF chat models."""
+    if source_lang:
+        return f"Translate from {source_lang} to {target_lang}. Output ONLY the translation:\n\n{text}"
+    return f"Translate to {target_lang}. Output ONLY the translation:\n\n{text}"
+
+
+def _extract_huggingface_usage(response: object) -> tuple[int, int]:
+    """Extract prompt/completion token counts from HF chat responses if available."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return 0, 0
+    return (
+        int(getattr(usage, "prompt_tokens", 0) or 0),
+        int(getattr(usage, "completion_tokens", 0) or 0),
+    )
+
+
+def _translate_huggingface_api(
+    text: str,
+    target_lang: str,
+    model: str,
+    api_key: str | None,
+    *,
+    source_lang: str | None = None,
+    max_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
+) -> tuple[str, int, int]:
+    """Translate one text via the native HF async inference client."""
+    client, spec = create_async_inference_client(model=model, api_key=api_key)
+    prompt = _build_huggingface_translation_prompt(
+        str(text),
+        target_lang=target_lang,
+        source_lang=source_lang,
+    )
+
+    async def _run_request():
+        async def _request():
+            return await client.chat_completion(
+                model=spec.model_id,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+
+        return await retry_async_call(
+            _request,
+            max_retries=2,
+            delay=1.0,
+            backoff="linear",
+        )
+
+    response = run_async_sync_compatible(_run_request)
+    translated = str(response.choices[0].message.content or "").strip()
+    pt, ct = _extract_huggingface_usage(response)
+    return translated, pt, ct
+
+
+def _translate_rows_huggingface_api(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_col: str,
+    to_translate: pd.DataFrame,
+    target_lang: str,
+    model: str,
+    api_key: str | None,
+    max_workers: int,
+    max_tokens: int,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
+) -> tuple[int, int, list[tuple[object, str]]]:
+    """Translate selected rows with the native HF async client."""
+    if to_translate.empty:
+        return 0, 0, []
+
+    lang_col = f"{source_col}_lang"
+    items = [
+        (idx, str(row[source_col]), str(row.get(lang_col, "") or "") or None)
+        for idx, row in to_translate.iterrows()
+    ]
+    client, spec = create_async_inference_client(model=model, api_key=api_key)
+    total_pt = 0
+    total_ct = 0
+    failed: list[tuple[object, str]] = []
+    progress = tqdm(
+        total=len(items),
+        desc=f"  {source_col}",
+        disable=(not show_progress) or (progress_callback is not None),
+    )
+
+    async def _do_translate(item: tuple[object, str, str | None]) -> tuple[object, str | None, int, int, str | None]:
+        idx, text, source_lang = item
+
+        def _on_retry(retry_index: int, max_retries: int, wait: float, exc: Exception) -> None:
+            logger.warning(
+                "  HF API translation row %s failed (%s: %s). Retry %s/%s in %.0fs ...",
+                idx,
+                type(exc).__name__,
+                exc,
+                retry_index,
+                max_retries,
+                wait,
+            )
+
+        prompt = _build_huggingface_translation_prompt(
+            text,
+            target_lang=target_lang,
+            source_lang=source_lang,
+        )
+
+        async def _request():
+            return await client.chat_completion(
+                model=spec.model_id,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+
+        try:
+            response = await retry_async_call(
+                _request,
+                max_retries=2,
+                delay=1.0,
+                backoff="linear",
+                on_retry=_on_retry,
+            )
+        except Exception as exc:
+            return idx, None, 0, 0, f"{type(exc).__name__}: {exc}"
+
+        translated = str(response.choices[0].message.content or "").strip()
+        pt, ct = _extract_huggingface_usage(response)
+        return idx, translated, pt, ct, None
+
+    def _on_complete(
+        item: tuple[object, str, str | None],
+        result: tuple[object, str | None, int, int, str | None],
+    ) -> None:
+        del item, result
+        if progress_callback is not None:
+            progress_callback(1)
+        else:
+            progress.update(1)
+
+    try:
+        results = run_async_sync_compatible(
+            lambda: gather_limited(
+                items,
+                _do_translate,
+                max_concurrency=max_workers,
+                on_complete=_on_complete,
+            )
+        )
+    finally:
+        progress.close()
+
+    for idx, translated, pt, ct, error_msg in results:
+        total_pt += pt
+        total_ct += ct
+        if translated is not None:
+            df.at[idx, target_col] = translated
+        else:
+            failed.append((idx, error_msg or "unknown error"))
+
+    return total_pt, total_ct, failed
 
 
 # ---------------------------------------------------------------------------
@@ -722,23 +906,24 @@ def translate_dataframe(
     columns : list[str]
         Columns to translate (e.g. ``["Title", "Abstract"]``).
     provider : str
-        ``"openrouter"``, ``"gguf"``, or ``"nllb"``.
+        ``"openrouter"``, ``"huggingface_api"``, ``"gguf"``, or ``"nllb"``.
     model : str
         Model identifier. Examples:
 
         - OpenRouter: ``"gpt-4o"``
+        - Hugging Face API: ``"Qwen/Qwen2.5-72B-Instruct:featherless-ai"``
         - GGUF: ``"mradermacher/translategemma-4b-it-GGUF"``
         - NLLB: ``"JustFrederik/nllb-200-distilled-600M-ct2-int8"`` (default)
     target_lang : str
         Target language code.
     api_key : str, optional
-        Required for ``provider="openrouter"``.
+        Required for ``provider="openrouter"`` and ``provider="huggingface_api"``.
     api_base : str
         OpenRouter API base URL.
     max_workers : int
-        Concurrent workers for OpenRouter.
+        Concurrent workers for remote translation providers.
     max_translation_tokens : int
-        Token ceiling per translation call (OpenRouter and GGUF).
+        Token ceiling per translation call (OpenRouter, Hugging Face API, and GGUF).
     gguf_n_ctx : int
         GGUF context window.
     gguf_threads : int, optional
@@ -762,12 +947,15 @@ def translate_dataframe(
         ``(translated_df, cost_info)``.
     """
     from .config import validate_provider
+    if provider == "huggingface_api":
+        model = normalize_huggingface_model(model)
+        api_key = resolve_huggingface_api_key(api_key)
     validate_provider(
         provider,
-        valid={"openrouter", "gguf", "nllb"},
+        valid={"openrouter", "huggingface_api", "gguf", "nllb"},
         api_key=api_key,
-        requires_key={"openrouter"},
-        requires_import={"gguf": "llama_cpp", "nllb": "ctranslate2"},
+        requires_key={"openrouter", "huggingface_api"},
+        requires_import={"huggingface_api": "huggingface_hub", "gguf": "llama_cpp", "nllb": "ctranslate2"},
     )
     df = df.copy()
     if max_translation_tokens <= 0:
@@ -837,6 +1025,23 @@ def translate_dataframe(
             total_pt += pt
             total_ct += ct
             call_records.extend(records)
+
+        elif provider == "huggingface_api":
+            pt, ct, failed = _translate_rows_huggingface_api(
+                df,
+                source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
+                target_lang=target_lang,
+                model=model,
+                api_key=api_key,
+                max_workers=max_workers,
+                max_tokens=max_translation_tokens,
+                show_progress=show_progress,
+                progress_callback=progress_callback,
+            )
+            total_pt += pt
+            total_ct += ct
 
         elif provider == "gguf":
             assert gguf_model_path is not None
