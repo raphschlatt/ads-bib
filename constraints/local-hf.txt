@@ -1,0 +1,4 @@
+# Stable local HF stack for BERTopic/KeyBERT in ADS_env.
+transformers>=4.56,<5
+sentence-transformers>=5.1,<5.2
+accelerate>=0.31,<1.13

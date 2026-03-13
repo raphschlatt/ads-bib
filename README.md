@@ -220,8 +220,9 @@ Runtime notes:
 - GGUF is valuable for local small-model portability, lower footprint, and simpler local setup. It is not assumed to be the fastest CPU path for embeddings.
 - The current GGUF embedding path is sequential per text because of the current `llama-cpp-python` integration here. That is a property of this binding/runtime path, not a general claim about GGUF or `llama.cpp`.
 - Translation prompts are centralized for the chat-based remote providers (`openrouter`, `huggingface_api`); `gguf` and `nllb` keep their provider-native translation paths.
-- Embeddings and local labeling require a recent HF stack in `ADS_env`:
-  `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+- Local BERTopic/KeyBERT runs in `ADS_env` should follow the tested HF constraints:
+  `python -m pip install -U -c constraints/local-hf.txt "transformers>=4.56,<5" "sentence-transformers>=5.1,<5.2" "accelerate>=0.31,<1.13"`
+- The package dependencies stay intentionally broader in `pyproject.toml`; the constraints file is the local runtime guardrail for notebook/CLI topic modeling.
 - Windows-friendly GGUF install:
   `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
 
@@ -377,8 +378,8 @@ Fix:
 Symptom: errors such as `Transformers does not recognize this architecture`.
 
 Fix:
-- Upgrade the local HF stack in `ADS_env`:
-  `uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"`
+- Re-align the local HF stack in `ADS_env` to the tested constraints:
+  `python -m pip install -U -c constraints/local-hf.txt "transformers>=4.56,<5" "sentence-transformers>=5.1,<5.2" "accelerate>=0.31,<1.13"`
 - Restart kernel/session after upgrade.
 
 ### Windows OpenMP runtime conflict (`OMP: Error #15`)

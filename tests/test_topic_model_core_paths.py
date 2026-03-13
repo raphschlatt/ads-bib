@@ -216,6 +216,9 @@ def test_fit_bertopic_suppresses_minilm_load_report_for_keybert(monkeypatch, cap
             logging.getLogger("transformers.modeling_utils").warning(
                 "BertModel LOAD REPORT from: sentence-transformers/all-MiniLM-L6-v2"
             )
+            logging.getLogger("transformers.integrations.tensor_parallel").warning(
+                "The following layers were not sharded: embeddings.word_embeddings.weight"
+            )
 
     fake_bertopic = types.ModuleType("bertopic")
     fake_bertopic.BERTopic = _FakeBERTopic
@@ -270,6 +273,7 @@ def test_fit_bertopic_suppresses_minilm_load_report_for_keybert(monkeypatch, cap
     assert calls["sentence_transformer_model"] == "sentence-transformers/all-MiniLM-L6-v2"
     assert calls["init_kwargs"]["embedding_model"].__class__ is _FakeSentenceTransformer
     assert "LOAD REPORT" not in caplog.text
+    assert "not sharded" not in caplog.text
 
 
 def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypatch):

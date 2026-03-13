@@ -55,6 +55,15 @@ def test_official_pipeline_config_directory_contains_four_presets():
     ]
 
 
+def test_readme_references_local_hf_constraints_file():
+    project_root = Path(__file__).resolve().parents[1]
+    constraints_path = project_root / "constraints" / "local-hf.txt"
+    readme = (project_root / "README.md").read_text(encoding="utf-8")
+
+    assert constraints_path.exists()
+    assert "constraints/local-hf.txt" in readme
+
+
 def test_openrouter_pipeline_config_template_loads():
     config = pipeline.PipelineConfig.from_yaml(
         Path(__file__).resolve().parents[1] / "configs" / "pipeline" / "openrouter.yaml"

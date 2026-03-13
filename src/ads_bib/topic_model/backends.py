@@ -8,7 +8,7 @@ GGUF helpers.
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 import inspect
 import logging
 from typing import Any, Literal, TypeAlias, cast
@@ -1004,13 +1004,15 @@ def fit_bertopic(
     if "KeyBERT" in pipeline_models or "KeyBERT" in parallel_models:
         from sentence_transformers import SentenceTransformer
 
-        suppress_minilm_report = (
-            temporarily_raise_logger_level("transformers.modeling_utils", level=logging.ERROR)
-            if keybert_model == DEFAULT_KEYBERT_MODEL
-            else nullcontext()
-        )
         with capture_external_output(get_runtime_log_path()):
-            with suppress_minilm_report:
+            if keybert_model == DEFAULT_KEYBERT_MODEL:
+                with temporarily_raise_logger_level("transformers.modeling_utils", level=logging.ERROR):
+                    with temporarily_raise_logger_level(
+                        "transformers.integrations.tensor_parallel",
+                        level=logging.ERROR,
+                    ):
+                        emb_model = SentenceTransformer(keybert_model)
+            else:
                 emb_model = SentenceTransformer(keybert_model)
     elif embedding_model_name:
         from sentence_transformers import SentenceTransformer
