@@ -188,7 +188,7 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert calls["usage"]["prompt_tokens"] == 9
 
 
-def test_fit_bertopic_uses_configured_keybert_model_and_suppresses_loading_report(monkeypatch):
+def test_fit_bertopic_suppresses_minilm_load_report_for_keybert(monkeypatch, caplog):
     calls: dict = {}
 
     class _FakeBERTopic:
@@ -213,6 +213,9 @@ def test_fit_bertopic_uses_configured_keybert_model_and_suppresses_loading_repor
     class _FakeSentenceTransformer:
         def __init__(self, model_name):
             calls["sentence_transformer_model"] = model_name
+            logging.getLogger("transformers.modeling_utils").warning(
+                "BertModel LOAD REPORT from: sentence-transformers/all-MiniLM-L6-v2"
+            )
 
     fake_bertopic = types.ModuleType("bertopic")
     fake_bertopic.BERTopic = _FakeBERTopic
@@ -248,39 +251,25 @@ def test_fit_bertopic_uses_configured_keybert_model_and_suppresses_loading_repor
 
     monkeypatch.setattr(tm_backends, "capture_external_output", _fake_capture_external_output)
     monkeypatch.setattr(tm_backends, "get_runtime_log_path", lambda: None)
-
-    suppress_calls: dict[str, object] = {}
-
-    @contextmanager
-    def _fake_raise_logger_level(logger_name: str, *, level: int):
-        suppress_calls["logger_name"] = logger_name
-        suppress_calls["level"] = level
-        yield
-
-    monkeypatch.setattr(tm_backends, "temporarily_raise_logger_level", _fake_raise_logger_level)
-
-    model = tm.fit_bertopic(
-        documents=["d1", "d2"],
-        reduced_5d=np.ones((2, 5), dtype=np.float32),
-        llm_provider="openrouter",
-        llm_model="openrouter/model",
-        pipeline_models=["KeyBERT"],
-        parallel_models=[],
-        keybert_model="sentence-transformers/all-MiniLM-L6-v2",
-        clustering_method="hdbscan",
-        clustering_params={"min_cluster_size": 10},
-        top_n_words=10,
-        min_df=1,
-        api_key="key",
-    )
+    with caplog.at_level(logging.WARNING):
+        model = tm.fit_bertopic(
+            documents=["d1", "d2"],
+            reduced_5d=np.ones((2, 5), dtype=np.float32),
+            llm_provider="openrouter",
+            llm_model="openrouter/model",
+            pipeline_models=["KeyBERT"],
+            parallel_models=[],
+            clustering_method="hdbscan",
+            clustering_params={"min_cluster_size": 10},
+            top_n_words=10,
+            min_df=1,
+            api_key="key",
+        )
 
     assert isinstance(model, _FakeBERTopic)
     assert calls["sentence_transformer_model"] == "sentence-transformers/all-MiniLM-L6-v2"
     assert calls["init_kwargs"]["embedding_model"].__class__ is _FakeSentenceTransformer
-    assert suppress_calls == {
-        "logger_name": "transformers.utils.loading_report",
-        "level": logging.ERROR,
-    }
+    assert "LOAD REPORT" not in caplog.text
 
 
 def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypatch):
@@ -342,7 +331,6 @@ def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypat
         llm_model="openrouter/model",
         pipeline_models=["POS"],
         parallel_models=["MMR"],
-        keybert_model="sentence-transformers/all-MiniLM-L6-v2",
         clustering_method="hdbscan",
         clustering_params={"min_cluster_size": 10},
         top_n_words=10,

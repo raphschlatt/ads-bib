@@ -174,7 +174,6 @@ class TopicModelConfig:
     embedding_provider: str = "openrouter"
     embedding_model: str = "google/gemini-embedding-001"
     embedding_api_key: str | None = None
-    keybert_model: str | None = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: int = 64
     embedding_max_workers: int = 20
     gguf_embedding_pooling: str = "cls"
@@ -1227,7 +1226,6 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                 llm_model=cfg.llm_model,
                 llm_prompt=_resolve_topic_prompt(cfg),
                 llm_max_new_tokens=cfg.bertopic_label_max_tokens,
-                keybert_model=cfg.keybert_model,
                 pipeline_models=cfg.pipeline_models,
                 parallel_models=cfg.parallel_models,
                 min_df=resolved["min_df"],
@@ -1260,7 +1258,6 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         llm_model=cfg.llm_model,
                         llm_prompt=_resolve_topic_prompt(cfg),
                         llm_max_new_tokens=cfg.bertopic_label_max_tokens,
-                        keybert_model=cfg.keybert_model,
                         pipeline_models=cfg.pipeline_models,
                         parallel_models=cfg.parallel_models,
                         min_df=resolved["min_df"],

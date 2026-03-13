@@ -1100,12 +1100,12 @@ def test_load_llama_omits_optional_none_kwargs(monkeypatch):
 
 
 def test_temporarily_raise_logger_level_restores_previous_level():
-    logger = logging.getLogger("transformers.utils.loading_report")
+    logger = logging.getLogger("example.logger")
     previous_level = logger.level
     logger.setLevel(logging.INFO)
     try:
         with logging_utils.temporarily_raise_logger_level(
-            "transformers.utils.loading_report",
+            "example.logger",
             level=logging.ERROR,
         ):
             assert logger.level == logging.ERROR

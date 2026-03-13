@@ -8,7 +8,7 @@ GGUF helpers.
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import inspect
 import logging
 from typing import Any, Literal, TypeAlias, cast
@@ -57,6 +57,7 @@ logger = logging.getLogger("ads_bib.topic_model")
 DEFAULT_CLUSTER_MIN_SIZE = 180       # ~0.1-0.2% of typical corpus (87k-180k docs) -> 50-70 topics
 DEFAULT_BERTOPIC_TOP_N_WORDS = 20     # Keywords per topic for c-TF-IDF representation
 DEFAULT_POS_SPACY_MODEL = "en_core_web_md"
+DEFAULT_KEYBERT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128   # Concise topic labels (4-7 words)
 DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256  # Toponymy needs more tokens for hierarchical labels
 BERTopicLLMProvider: TypeAlias = Literal["local", "gguf", "huggingface_api", "openrouter"]
@@ -910,7 +911,7 @@ def fit_bertopic(
     llm_delay: float = 0.3,
     llm_max_new_tokens: int = DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS,
     embedding_model_name: str | None = None,
-    keybert_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+    keybert_model: str = DEFAULT_KEYBERT_MODEL,
     min_df: int = 2,
     clustering_method: str = "fast_hdbscan",
     clustering_params: dict | None = None,
@@ -1003,8 +1004,13 @@ def fit_bertopic(
     if "KeyBERT" in pipeline_models or "KeyBERT" in parallel_models:
         from sentence_transformers import SentenceTransformer
 
+        suppress_minilm_report = (
+            temporarily_raise_logger_level("transformers.modeling_utils", level=logging.ERROR)
+            if keybert_model == DEFAULT_KEYBERT_MODEL
+            else nullcontext()
+        )
         with capture_external_output(get_runtime_log_path()):
-            with temporarily_raise_logger_level("transformers.utils.loading_report", level=logging.ERROR):
+            with suppress_minilm_report:
                 emb_model = SentenceTransformer(keybert_model)
     elif embedding_model_name:
         from sentence_transformers import SentenceTransformer

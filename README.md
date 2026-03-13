@@ -211,7 +211,7 @@ Notes:
 - `local_cpu` uses a small instruct-tuned GGUF that is already validated against the baseline `ADS_env` runtime instead of pinning a `qwen35` model family that current `llama-cpp-python` cannot load.
 - `local_gpu` stays inside the package's current local GPU surface: GGUF for translation and labeling, local HF embeddings for the encoder path.
 - Toponymy still has no `huggingface_api` provider path.
-- All four official presets now declare `keybert_model: sentence-transformers/all-MiniLM-L6-v2` explicitly. `KeyBERT` therefore no longer hides a second local helper model behind BERTopic defaults.
+- BERTopic still uses the small local `sentence-transformers/all-MiniLM-L6-v2` helper model for `KeyBERT` representations. That helper stays implicit and is not a separate official config surface.
 - API presets still use that small local KeyBERT helper model for BERTopic representations even when translation, embeddings, and labeling run remotely.
 - Stable official GGUF presets should only point at architectures that are known to load in the baseline `ADS_env` stack. Experimental families such as `qwen35` belong on an explicit upgrade track, not in the default presets.
 
