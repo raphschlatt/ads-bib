@@ -1,6 +1,6 @@
 # ADS Pipeline (`ads-bib`) - Package ToDo
 
-Stand: 2026-03-12
+Stand: 2026-03-13
 Ziel: erster externer Release eines notebook-first Research-Packages mit externem AND-Adapter.
 
 ## Festgelegte Entscheidungen
@@ -93,8 +93,8 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-09): `.readthedocs.yaml` ist nicht vorhanden; `README.md` ist der zentrale Doku-Einstiegspunkt im Repo.
 - [x] HF-API-Auth-/Env-Doku ergaenzen.
   - Evidenz (2026-03-12): `README.md` dokumentiert jetzt `HF_TOKEN` als einzigen Env-Namen plus HF-native Modell-IDs; `src/ads_bib/pipeline.py` injiziert HF-Tokens fuer Translation/Embeddings/BERTopic; `tests/test_notebook_session.py` und `tests/test_pipeline_runner.py` decken die `HF_TOKEN`-Injektion ab.
-- [x] Drei offizielle Package-Config-Templates festziehen.
-  - Evidenz (2026-03-12): `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml` und `configs/pipeline/local.yaml` definieren jetzt die offiziellen OpenRouter-/HF-/Local-Roads mit konkreten Modellen; `tests/test_pipeline_runner.py` parst und validiert alle drei Templates.
+- [x] Vier offizielle Package-Config-Templates festziehen.
+  - Evidenz (2026-03-13): `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml` und `configs/pipeline/local_gpu.yaml` definieren jetzt die offiziellen OpenRouter-/HF-/Local-CPU-/Local-GPU-Roads mit konkreten Modellen; `tests/test_pipeline_runner.py` parst und validiert alle vier Templates.
 - [x] Translation-Prompt-Vertrag fuer chat-basierte Provider zentralisieren.
   - Evidenz (2026-03-12): `src/ads_bib/prompts.py` kapselt jetzt den gemeinsamen wissenschaftlichen Translation-Prompt fuer `openrouter` und `huggingface_api`; `src/ads_bib/translate.py` nutzt denselben Message-Build-Pfad fuer beide; `tests/test_translate_core.py` assertet dieselben Prompt-Messages.
 

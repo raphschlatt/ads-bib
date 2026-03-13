@@ -10,9 +10,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Shared package runner in `ads_bib.pipeline` with structured `PipelineConfig`, named stages, and reusable stage functions.
 - Thin CLI batch entrypoint: `ads-bib run --config ...` with optional `--from`, `--to`, `--run-name`, and `--set` overrides.
 - Notebook adapter in `ads_bib.notebook` with `NotebookSession` and package-side config invalidation.
-- Committed batch template at `configs/pipeline/default.yaml`.
 - Native `huggingface_api` translation path via `huggingface_hub.AsyncInferenceClient`.
-- Official batch templates at `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml`, and `configs/pipeline/local.yaml`.
+- Official batch templates at `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, and `configs/pipeline/local_gpu.yaml`.
 - Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
@@ -31,10 +30,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Pipeline config preparation now injects `HF_TOKEN` into translation, embedding, and BERTopic labeling configs when `huggingface_api` is selected.
 - CLI runs now persist `run_summary.yaml` just like notebook runs, including partial/failure status metadata.
 - OpenRouter and Hugging Face chat translation now share the same centralized scientific translation prompt contract.
-- `configs/pipeline/default.yaml` now reflects the proven OpenRouter defaults (`google/gemini-3.1-flash-lite-preview` plus `qwen/qwen3-embedding-8b`).
+- Official config roads now ship as four aligned Hawking presets instead of the earlier generic trio: `openrouter.yaml`, `hf_api.yaml`, `local_cpu.yaml`, and `local_gpu.yaml`.
+- Stable local presets now pin only GGUF model families that are validated against the baseline `ADS_env` runtime; the CPU labeling preset uses `Qwen/Qwen2.5-0.5B-Instruct-GGUF` instead of unsupported `qwen35` variants.
+- Local BERTopic/KeyBERT runs now document `constraints/local-hf.txt` as the tested runtime guardrail for the current HF stack.
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
 
 ### Docs
-- `README.md` now documents inline notebook section configs, `configs/pipeline/default.yaml`, and `.env` as the only secret location.
+- `README.md` now documents inline notebook section configs, the four official config roads, the local HF constraints file, and `.env` as the only secret location.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
-- README/runtime templates now document `HF_TOKEN`, the three official config roads, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).
+- README/runtime templates now document `HF_TOKEN`, the four official config roads, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).
