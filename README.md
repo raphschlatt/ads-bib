@@ -138,6 +138,54 @@ For `huggingface_api`, use HF-native model ids:
 
 Use `HF_TOKEN` as the single Hugging Face env var across the repo.
 
+## Choosing a Runtime
+
+No single provider stack is best for all three inference types in this
+pipeline. Translation, embeddings, and topic labeling have different compute
+profiles, so the best choice depends on whether you optimize for local cost,
+local speed, remote convenience, or label quality.
+
+### Rule of Thumb
+
+- CPU-first and lowest recurring cost: use [local_cpu.yaml](/mnt/c/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/configs/pipeline/local_cpu.yaml).
+- Local NVIDIA GPU on the current package surface: use [local_gpu.yaml](/mnt/c/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/configs/pipeline/local_gpu.yaml).
+- Lowest setup friction and one managed remote stack: use [openrouter.yaml](/mnt/c/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/configs/pipeline/openrouter.yaml).
+- Hugging Face-native hosted inference: use [hf_api.yaml](/mnt/c/Users/rapha/Documents/Studium/Promotionsstudium/MPIWG/2_Notebooks/ADS_Pipeline/configs/pipeline/hf_api.yaml).
+- In all cases: precompute embeddings once and reuse them. That is the most important speed lever for BERTopic iteration.
+
+### What Tends To Win Where
+
+| Step | Best current CPU choice | Best current local GPU choice | Best remote choice | Why |
+| --- | --- | --- | --- | --- |
+| Translation | `nllb` via CTranslate2 | GGUF TranslateGemma in the current package | `openrouter` or `huggingface_api` chat translation | CPU translation is a seq2seq workload where CTranslate2 is the strongest current local path here. The package does not yet ship a local Transformers translation road, so the GPU-local preset stays on the supported GGUF path. |
+| Embeddings | `local` HF encoder | `local` HF encoder | remote embedding API | Embeddings are encoder-style, batched, and compute-bound. In this codebase the local HF path is the default local encoder road; GGUF embeddings remain optional for portability, not the throughput default. |
+| Topic labeling | small GGUF | stronger local GGUF | remote chat LLM | BERTopic labels topics from keywords plus a few representative docs, so the local labeling step can stay small. Remote models buy convenience and often quality, but at token cost. |
+
+### Quality, Price, Speed
+
+- Best price discipline: `local_cpu.yaml`. Translation is local `nllb`, embeddings are local HF, and only a small local GGUF model is used for labeling.
+- Best local speed on the current implementation: `local_gpu.yaml`. The main gain comes from keeping embeddings on the local HF path instead of GGUF; that matters more than squeezing every stage into one runtime family.
+- Best convenience: `openrouter.yaml`. One remote road, minimal local model management, compact config surface.
+- Best HF-native hosted route: `hf_api.yaml`. Useful when you want Hugging Face-managed inference and HF model IDs, but it is still a paid remote path and not the cheapest way to iterate.
+- Best label quality usually comes from larger remote models or a stronger local GPU label model, not from changing the embedding runtime alone.
+
+### Why GGUF Is Optional, Not The Default Encoder Path
+
+- GGUF is valuable here for small local generative models, portability, and lower local footprint.
+- GGUF is not assumed to be the fastest path for embeddings.
+- In this repository, the current `llama-cpp-python` embedding path is intentionally sequential per text. That is a limitation of the current local binding/runtime path here, not a claim about GGUF or `llama.cpp` in general.
+- Because of that, official presets use GGUF for local generation workloads first, and the `local` HF path for embeddings.
+
+### Current Scope vs Future Upgrades
+
+The official presets are constrained by the package surface that exists today
+and by the models already present locally. They do not try to encode every
+theoretical best-in-class stack.
+
+- If TEI becomes a first-class local embedding road, it would be a natural future GPU encoder upgrade.
+- If a clean local Transformers or vLLM translation/labeling road is added and benchmarked, the local GPU preset can be revisited.
+- Until then, the four official configs deliberately prefer clean, supported paths over aspirational ones.
+
 ## Official Config Roads
 
 These are the package-facing batch defaults. All four presets target the same
