@@ -258,15 +258,21 @@ def _load_llama(
         model_path=model_path,
         n_ctx=n_ctx,
         n_gpu_layers=n_gpu_layers,
-        n_threads=n_threads,
-        n_threads_batch=n_threads_batch,
         vocab_only=vocab_only,
         embedding=embedding,
-        pooling_type=pooling_type,
         verbose=verbose,
     )
+    # llama-cpp-python expects an integer pooling type when the argument is
+    # provided. Non-embedding call sites here should omit it entirely rather
+    # than forwarding ``None``.
     if n_batch is not None:
         kwargs["n_batch"] = n_batch
+    if n_threads is not None:
+        kwargs["n_threads"] = n_threads
+    if n_threads_batch is not None:
+        kwargs["n_threads_batch"] = n_threads_batch
+    if pooling_type is not None:
+        kwargs["pooling_type"] = pooling_type
 
     try:
         with safe_stdio():

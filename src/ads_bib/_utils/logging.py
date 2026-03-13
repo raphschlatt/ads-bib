@@ -137,6 +137,18 @@ def capture_external_output(log_file: Path | None = None):
             yield
 
 
+@contextmanager
+def temporarily_raise_logger_level(logger_name: str, *, level: int) -> None:
+    """Temporarily raise one logger to at least ``level`` and then restore it."""
+    logger = logging.getLogger(logger_name)
+    previous_level = logger.level
+    logger.setLevel(max(level, logger.getEffectiveLevel()))
+    try:
+        yield
+    finally:
+        logger.setLevel(previous_level)
+
+
 class StageReporter:
     """Curated stage-first console output for CLI and notebook runs."""
 

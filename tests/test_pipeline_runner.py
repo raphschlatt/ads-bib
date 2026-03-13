@@ -31,6 +31,8 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
             "  query: author:test\n"
             "translate:\n"
             "  fasttext_model: data/models/lid.176.bin\n"
+            "topic_model:\n"
+            "  keybert_model: sentence-transformers/all-MiniLM-L6-v2\n"
         ),
         encoding="utf-8",
     )
@@ -42,6 +44,7 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert data["run"]["start_stage"] == "translate"
     assert data["search"]["query"] == "author:test"
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
+    assert data["topic_model"]["keybert_model"] == "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def test_official_pipeline_config_directory_contains_four_presets():
@@ -70,6 +73,7 @@ def test_openrouter_pipeline_config_template_loads():
     assert data["tokenize"]["fallback_model"] == "en_core_web_md"
     assert data["translate"]["model"] == "google/gemini-3.1-flash-lite-preview"
     assert data["topic_model"]["embedding_model"] == "qwen/qwen3-embedding-8b"
+    assert data["topic_model"]["keybert_model"] == "sentence-transformers/all-MiniLM-L6-v2"
     assert data["topic_model"]["llm_model"] == "google/gemini-3.1-flash-lite-preview"
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
@@ -81,6 +85,7 @@ def test_openrouter_pipeline_config_template_loads():
         "translate_model",
         "embedding_provider",
         "embedding_model",
+        "keybert_model",
         "llm_provider",
         "llm_model",
         "gguf_pooling",
@@ -92,6 +97,7 @@ def test_openrouter_pipeline_config_template_loads():
             "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
             "huggingface_api",
             "Qwen/Qwen3-Embedding-8B",
+            "sentence-transformers/all-MiniLM-L6-v2",
             "huggingface_api",
             "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
             "cls",
@@ -102,8 +108,9 @@ def test_openrouter_pipeline_config_template_loads():
             "data/models/nllb-200-distilled-600M-ct2-int8",
             "local",
             "google/embeddinggemma-300m",
+            "sentence-transformers/all-MiniLM-L6-v2",
             "gguf",
-            "unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf",
+            "Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf",
             "cls",
         ),
         (
@@ -112,6 +119,7 @@ def test_openrouter_pipeline_config_template_loads():
             "mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf",
             "local",
             "google/embeddinggemma-300m",
+            "sentence-transformers/all-MiniLM-L6-v2",
             "gguf",
             "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf",
             "cls",
@@ -124,6 +132,7 @@ def test_official_pipeline_config_templates_load(
     translate_model,
     embedding_provider,
     embedding_model,
+    keybert_model,
     llm_provider,
     llm_model,
     gguf_pooling,
@@ -139,6 +148,7 @@ def test_official_pipeline_config_templates_load(
     assert config.translate.max_workers == 8
     assert config.topic_model.embedding_provider == embedding_provider
     assert config.topic_model.embedding_model == embedding_model
+    assert config.topic_model.keybert_model == keybert_model
     assert config.topic_model.embedding_batch_size == 32
     assert config.topic_model.embedding_max_workers == 8
     assert config.topic_model.llm_provider == llm_provider
@@ -168,6 +178,57 @@ def test_official_pipeline_config_templates_load(
         "bibliographic_coupling": 3,
         "author_co_citation": 5,
     }
+
+
+def test_run_topic_fit_stage_forwards_keybert_model(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+            "topic_model": {
+                "backend": "bertopic",
+                "keybert_model": "sentence-transformers/all-MiniLM-L6-v2",
+                "llm_provider": "openrouter",
+                "llm_model": "google/gemini-3.1-flash-lite-preview",
+                "embedding_provider": "local",
+                "embedding_model": "google/embeddinggemma-300m",
+                "cluster_params": {"min_cluster_size": 2, "min_samples": 1},
+                "min_df": 1,
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.documents = ["doc-a", "doc-b"]
+    ctx.embeddings = np.ones((2, 4), dtype=np.float32)
+    ctx.reduced_5d = np.ones((2, 5), dtype=np.float32)
+
+    calls: dict[str, object] = {}
+
+    class _FakeTopicModel:
+        topics_ = [0, 1]
+
+        def get_topic_info(self):
+            return pd.DataFrame({"Topic": [0, 1], "Name": ["Topic 0", "Topic 1"]})
+
+    def _fake_fit_bertopic(documents, reduced_5d, **kwargs):
+        calls["documents"] = list(documents)
+        calls["shape"] = reduced_5d.shape
+        calls["kwargs"] = kwargs
+        return _FakeTopicModel()
+
+    monkeypatch.setattr(pipeline, "fit_bertopic", _fake_fit_bertopic)
+    monkeypatch.setattr(
+        pipeline,
+        "reduce_outliers",
+        lambda topic_model, documents, topics, reduced_5d, **kwargs: np.asarray(topics),
+    )
+
+    pipeline.run_topic_fit_stage(ctx)
+
+    assert calls["documents"] == ["doc-a", "doc-b"]
+    assert calls["shape"] == (2, 5)
+    assert calls["kwargs"]["keybert_model"] == "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def test_pipeline_config_allows_huggingface_api_for_bertopic():

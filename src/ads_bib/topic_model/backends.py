@@ -24,7 +24,11 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model_for_litellm,
     resolve_huggingface_api_key,
 )
-from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
+from ads_bib._utils.logging import (
+    capture_external_output,
+    get_runtime_log_path,
+    temporarily_raise_logger_level,
+)
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -1000,7 +1004,8 @@ def fit_bertopic(
         from sentence_transformers import SentenceTransformer
 
         with capture_external_output(get_runtime_log_path()):
-            emb_model = SentenceTransformer(keybert_model)
+            with temporarily_raise_logger_level("transformers.utils.loading_report", level=logging.ERROR):
+                emb_model = SentenceTransformer(keybert_model)
     elif embedding_model_name:
         from sentence_transformers import SentenceTransformer
 

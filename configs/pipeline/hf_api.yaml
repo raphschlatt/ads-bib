@@ -45,6 +45,7 @@ topic_model:
   embedding_provider: huggingface_api
   embedding_model: Qwen/Qwen3-Embedding-8B
   embedding_api_key: null
+  keybert_model: sentence-transformers/all-MiniLM-L6-v2
   embedding_batch_size: 32
   embedding_max_workers: 8
   gguf_embedding_pooling: cls

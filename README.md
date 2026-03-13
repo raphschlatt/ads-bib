@@ -202,14 +202,18 @@ defaults:
 | --- | --- | --- | --- | --- |
 | `configs/pipeline/openrouter.yaml` | OpenRouter | `google/gemini-3.1-flash-lite-preview` | `qwen/qwen3-embedding-8b` | `google/gemini-3.1-flash-lite-preview` |
 | `configs/pipeline/hf_api.yaml` | Hugging Face API | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` | `Qwen/Qwen3-Embedding-8B` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` |
-| `configs/pipeline/local_cpu.yaml` | Local CPU | `data/models/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `google/embeddinggemma-300m` (`local`) | `unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf` (`gguf`) |
+| `configs/pipeline/local_cpu.yaml` | Local CPU | `data/models/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `google/embeddinggemma-300m` (`local`) | `Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf` (`gguf`) |
 | `configs/pipeline/local_gpu.yaml` | Local GPU | `mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf` (`gguf`) | `google/embeddinggemma-300m` (`local`) | `unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf` (`gguf`) |
 
 Notes:
 
 - `local_cpu` keeps the settled CPU translation path: `nllb` via CTranslate2.
+- `local_cpu` uses a small instruct-tuned GGUF that is already validated against the baseline `ADS_env` runtime instead of pinning a `qwen35` model family that current `llama-cpp-python` cannot load.
 - `local_gpu` stays inside the package's current local GPU surface: GGUF for translation and labeling, local HF embeddings for the encoder path.
 - Toponymy still has no `huggingface_api` provider path.
+- All four official presets now declare `keybert_model: sentence-transformers/all-MiniLM-L6-v2` explicitly. `KeyBERT` therefore no longer hides a second local helper model behind BERTopic defaults.
+- API presets still use that small local KeyBERT helper model for BERTopic representations even when translation, embeddings, and labeling run remotely.
+- Stable official GGUF presets should only point at architectures that are known to load in the baseline `ADS_env` stack. Experimental families such as `qwen35` belong on an explicit upgrade track, not in the default presets.
 
 Runtime notes:
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import logging
 import sys
 import types
 
@@ -185,6 +186,172 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert calls["record_kwargs"]["step"] == "llm_labeling"
     assert calls["record_kwargs"]["llm_provider"] == "openrouter"
     assert calls["usage"]["prompt_tokens"] == 9
+
+
+def test_fit_bertopic_uses_configured_keybert_model_and_suppresses_loading_report(monkeypatch):
+    calls: dict = {}
+
+    class _FakeBERTopic:
+        def __init__(self, **kwargs):
+            calls["init_kwargs"] = kwargs
+
+        def fit_transform(self, documents, reduced_5d):
+            calls["fit_documents"] = list(documents)
+            calls["fit_shape"] = reduced_5d.shape
+            return np.zeros(len(documents), dtype=int), None
+
+    class _FakeBaseDimensionalityReduction:
+        pass
+
+    class _FakeClassTfidfTransformer:
+        pass
+
+    class _FakeCountVectorizer:
+        def __init__(self, **kwargs):
+            calls["vectorizer_kwargs"] = kwargs
+
+    class _FakeSentenceTransformer:
+        def __init__(self, model_name):
+            calls["sentence_transformer_model"] = model_name
+
+    fake_bertopic = types.ModuleType("bertopic")
+    fake_bertopic.BERTopic = _FakeBERTopic
+    fake_dim = types.ModuleType("bertopic.dimensionality")
+    fake_dim.BaseDimensionalityReduction = _FakeBaseDimensionalityReduction
+    fake_vec = types.ModuleType("bertopic.vectorizers")
+    fake_vec.ClassTfidfTransformer = _FakeClassTfidfTransformer
+
+    fake_sklearn = types.ModuleType("sklearn")
+    fake_feature_extraction = types.ModuleType("sklearn.feature_extraction")
+    fake_text = types.ModuleType("sklearn.feature_extraction.text")
+    fake_text.CountVectorizer = _FakeCountVectorizer
+
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
+
+    monkeypatch.setitem(sys.modules, "bertopic", fake_bertopic)
+    monkeypatch.setitem(sys.modules, "bertopic.dimensionality", fake_dim)
+    monkeypatch.setitem(sys.modules, "bertopic.vectorizers", fake_vec)
+    monkeypatch.setitem(sys.modules, "sklearn", fake_sklearn)
+    monkeypatch.setitem(sys.modules, "sklearn.feature_extraction", fake_feature_extraction)
+    monkeypatch.setitem(sys.modules, "sklearn.feature_extraction.text", fake_text)
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    cluster_model = object()
+    monkeypatch.setattr(tm_backends, "_build_representation_model", lambda **kwargs: {"rep": kwargs})
+    monkeypatch.setattr(tm_backends, "_create_cluster_model", lambda method, params: cluster_model)
+
+    @contextmanager
+    def _fake_capture_external_output(*args, **kwargs):
+        del args, kwargs
+        yield
+
+    monkeypatch.setattr(tm_backends, "capture_external_output", _fake_capture_external_output)
+    monkeypatch.setattr(tm_backends, "get_runtime_log_path", lambda: None)
+
+    suppress_calls: dict[str, object] = {}
+
+    @contextmanager
+    def _fake_raise_logger_level(logger_name: str, *, level: int):
+        suppress_calls["logger_name"] = logger_name
+        suppress_calls["level"] = level
+        yield
+
+    monkeypatch.setattr(tm_backends, "temporarily_raise_logger_level", _fake_raise_logger_level)
+
+    model = tm.fit_bertopic(
+        documents=["d1", "d2"],
+        reduced_5d=np.ones((2, 5), dtype=np.float32),
+        llm_provider="openrouter",
+        llm_model="openrouter/model",
+        pipeline_models=["KeyBERT"],
+        parallel_models=[],
+        keybert_model="sentence-transformers/all-MiniLM-L6-v2",
+        clustering_method="hdbscan",
+        clustering_params={"min_cluster_size": 10},
+        top_n_words=10,
+        min_df=1,
+        api_key="key",
+    )
+
+    assert isinstance(model, _FakeBERTopic)
+    assert calls["sentence_transformer_model"] == "sentence-transformers/all-MiniLM-L6-v2"
+    assert calls["init_kwargs"]["embedding_model"].__class__ is _FakeSentenceTransformer
+    assert suppress_calls == {
+        "logger_name": "transformers.utils.loading_report",
+        "level": logging.ERROR,
+    }
+
+
+def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypatch):
+    calls: dict = {}
+
+    class _FakeBERTopic:
+        def __init__(self, **kwargs):
+            calls["init_kwargs"] = kwargs
+
+        def fit_transform(self, documents, reduced_5d):
+            return np.zeros(len(documents), dtype=int), None
+
+    class _FakeBaseDimensionalityReduction:
+        pass
+
+    class _FakeClassTfidfTransformer:
+        pass
+
+    class _FakeCountVectorizer:
+        def __init__(self, **kwargs):
+            calls["vectorizer_kwargs"] = kwargs
+
+    class _BrokenSentenceTransformer:
+        def __init__(self, model_name):
+            del model_name
+            raise AssertionError("KeyBERT helper model should not load when KeyBERT is disabled")
+
+    fake_bertopic = types.ModuleType("bertopic")
+    fake_bertopic.BERTopic = _FakeBERTopic
+    fake_dim = types.ModuleType("bertopic.dimensionality")
+    fake_dim.BaseDimensionalityReduction = _FakeBaseDimensionalityReduction
+    fake_vec = types.ModuleType("bertopic.vectorizers")
+    fake_vec.ClassTfidfTransformer = _FakeClassTfidfTransformer
+
+    fake_sklearn = types.ModuleType("sklearn")
+    fake_feature_extraction = types.ModuleType("sklearn.feature_extraction")
+    fake_text = types.ModuleType("sklearn.feature_extraction.text")
+    fake_text.CountVectorizer = _FakeCountVectorizer
+
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    fake_sentence_transformers.SentenceTransformer = _BrokenSentenceTransformer
+
+    monkeypatch.setitem(sys.modules, "bertopic", fake_bertopic)
+    monkeypatch.setitem(sys.modules, "bertopic.dimensionality", fake_dim)
+    monkeypatch.setitem(sys.modules, "bertopic.vectorizers", fake_vec)
+    monkeypatch.setitem(sys.modules, "sklearn", fake_sklearn)
+    monkeypatch.setitem(sys.modules, "sklearn.feature_extraction", fake_feature_extraction)
+    monkeypatch.setitem(sys.modules, "sklearn.feature_extraction.text", fake_text)
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    cluster_model = object()
+    monkeypatch.setattr(tm_backends, "_build_representation_model", lambda **kwargs: {"rep": kwargs})
+    monkeypatch.setattr(tm_backends, "_create_cluster_model", lambda method, params: cluster_model)
+
+    model = tm.fit_bertopic(
+        documents=["d1", "d2"],
+        reduced_5d=np.ones((2, 5), dtype=np.float32),
+        llm_provider="openrouter",
+        llm_model="openrouter/model",
+        pipeline_models=["POS"],
+        parallel_models=["MMR"],
+        keybert_model="sentence-transformers/all-MiniLM-L6-v2",
+        clustering_method="hdbscan",
+        clustering_params={"min_cluster_size": 10},
+        top_n_words=10,
+        min_df=1,
+        api_key="key",
+    )
+
+    assert isinstance(model, _FakeBERTopic)
+    assert calls["init_kwargs"]["embedding_model"] is None
 
 
 def test_compute_embeddings_validates_provider():

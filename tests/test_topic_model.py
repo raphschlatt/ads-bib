@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 import ads_bib.topic_model as tm
+from ads_bib._utils import logging as logging_utils
 from ads_bib.topic_model import backends as tm_backends
 from ads_bib.topic_model import embeddings as tm_embeddings
 from ads_bib.topic_model import reduction as tm_reduction
@@ -1075,6 +1076,62 @@ def test_ensure_embedding_model_loads_llama_with_cls_pooling(monkeypatch):
     assert safe_calls == [fake_model]
 
 
+def test_load_llama_omits_optional_none_kwargs(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    calls: dict[str, Any] = {}
+
+    class _FakeLlama:
+        def __init__(self, **kwargs):
+            calls["kwargs"] = kwargs
+
+    fake_llama_cpp = types.ModuleType("llama_cpp")
+    fake_llama_cpp.Llama = _FakeLlama
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
+    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
+
+    model = gguf_mod._load_llama("/fake/model.gguf", n_ctx=512)
+
+    assert isinstance(model, _FakeLlama)
+    assert "n_batch" not in calls["kwargs"]
+    assert "n_threads" not in calls["kwargs"]
+    assert "n_threads_batch" not in calls["kwargs"]
+    assert "pooling_type" not in calls["kwargs"]
+
+
+def test_temporarily_raise_logger_level_restores_previous_level():
+    logger = logging.getLogger("transformers.utils.loading_report")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        with logging_utils.temporarily_raise_logger_level(
+            "transformers.utils.loading_report",
+            level=logging.ERROR,
+        ):
+            assert logger.level == logging.ERROR
+        assert logger.level == logging.INFO
+    finally:
+        logger.setLevel(previous_level)
+
+
+def test_load_llama_wraps_unknown_qwen35_architecture_with_actionable_error(monkeypatch):
+    import ads_bib._utils.gguf_backend as gguf_mod
+
+    class _FakeLlama:
+        def __init__(self, **kwargs):
+            del kwargs
+            raise ValueError("Failed to load model from file: /fake/model.gguf (unknown model architecture: 'qwen35')")
+
+    fake_llama_cpp = types.ModuleType("llama_cpp")
+    fake_llama_cpp.Llama = _FakeLlama
+    fake_llama_cpp.__version__ = "0.3.16"
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
+    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
+
+    with pytest.raises(RuntimeError, match="supports its architecture"):
+        gguf_mod._load_llama("/fake/model.gguf", n_ctx=512)
+
+
 def test_ensure_embedding_model_loads_llama_with_last_pooling(monkeypatch):
     import ads_bib._utils.gguf_backend as gguf_mod
 
@@ -1866,12 +1923,19 @@ def test_create_llm_gguf_uses_native_bertopic_llamacpp(monkeypatch):
     fake_representation.LlamaCPP = _FakeBERTopicLlamaCPP
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
-    fake_llm = object()  # stand-in for a Llama instance
-
     import ads_bib._utils.gguf_backend as gguf_mod
 
+    class _FakeLlama:
+        def __init__(self, **kwargs):
+            if "pooling_type" in kwargs and kwargs["pooling_type"] is None:
+                raise TypeError("pooling_type must be omitted, not None")
+            calls["llama_kwargs"] = kwargs
+
     monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
-    monkeypatch.setattr(gguf_mod, "_load_llama", lambda path, **kw: fake_llm)
+    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
+    fake_llama_cpp = types.ModuleType("llama_cpp")
+    fake_llama_cpp.Llama = _FakeLlama
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
     safe_calls: list = []
     monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
 
@@ -1887,11 +1951,14 @@ def test_create_llm_gguf_uses_native_bertopic_llamacpp(monkeypatch):
     )
 
     assert isinstance(llm, _FakeBERTopicLlamaCPP)
-    assert calls["model"] is fake_llm
+    assert isinstance(calls["model"], _FakeLlama)
     assert calls["pipeline_kwargs"] == {"max_tokens": 64}
     assert calls["nr_docs"] == 8
     assert calls["diversity"] == 0.2
-    assert safe_calls == [fake_llm]
+    assert calls["llama_kwargs"]["model_path"] == "/fake/gguf.gguf"
+    assert calls["llama_kwargs"]["n_ctx"] == 4096
+    assert "pooling_type" not in calls["llama_kwargs"]
+    assert safe_calls == [calls["model"]]
 
 
 def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
