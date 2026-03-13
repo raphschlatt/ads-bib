@@ -51,6 +51,15 @@ def get_console_logger() -> logging.Logger:
     return logging.getLogger(_CONSOLE_LOGGER_NAME)
 
 
+def get_console_stream():
+    """Return the active console handler stream when runtime logging is configured."""
+    console_logger = get_console_logger()
+    for handler in console_logger.handlers:
+        if getattr(handler, "_ads_bib_handler_name", None) == _CONSOLE_HANDLER_NAME:
+            return getattr(handler, "stream", None)
+    return None
+
+
 def configure_runtime_logging(
     *,
     output_mode: OutputMode,
@@ -186,6 +195,9 @@ class StageReporter:
             return
 
         kwargs: dict[str, object] = {"total": total, "desc": f"  {desc}", "leave": True}
+        console_stream = get_console_stream()
+        if console_stream is not None:
+            kwargs["file"] = console_stream
         if self.output_mode == "cli":
             kwargs["dynamic_ncols"] = False
             kwargs["ncols"] = 78

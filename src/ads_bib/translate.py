@@ -18,6 +18,7 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
 )
+from ads_bib._utils.logging import get_console_stream
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -691,6 +692,31 @@ def _is_nllb_model_ready(model_dir: Path) -> bool:
     )
 
 
+def _is_nllb_model_cached(model: str) -> bool:
+    """Check whether all required NLLB model files are already present in the HF cache."""
+    from huggingface_hub import try_to_load_from_cache
+
+    return all(
+        isinstance(try_to_load_from_cache(repo_id=model, filename=name), str)
+        for name in _NLLB_CT2_REQUIRED_FILES
+    )
+
+
+def _build_console_tqdm_class():
+    """Return a tqdm subclass that writes Hub download progress to the curated console stream."""
+    console_stream = get_console_stream()
+    if console_stream is None:
+        return None
+
+    class _ConsoleTqdm(tqdm):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("file", console_stream)
+            kwargs.setdefault("leave", True)
+            super().__init__(*args, **kwargs)
+
+    return _ConsoleTqdm
+
+
 def _ensure_nllb_model(model: str, *, cache_dir: Path | None = None) -> tuple:
     """Load and cache the CTranslate2 NLLB translator + HuggingFace tokenizer."""
     global _nllb_translator, _nllb_tokenizer, _nllb_model_path
@@ -715,15 +741,19 @@ def _ensure_nllb_model(model: str, *, cache_dir: Path | None = None) -> tuple:
         model_dir = Path(model)
     elif cache_dir is not None and _is_nllb_model_ready(cache_dir / Path(model).name):
         model_dir = cache_dir / Path(model).name
+    elif _is_nllb_model_cached(model):
+        model_dir = Path(snapshot_download(repo_id=model, local_files_only=True))
     else:
         target_dir = cache_dir / Path(model).name if cache_dir else None
         if target_dir and _is_nllb_model_ready(target_dir):
             model_dir = target_dir
         else:
             logger.info("Downloading NLLB model %s …", model)
+            tqdm_class = _build_console_tqdm_class()
             dl_path = snapshot_download(
                 repo_id=model,
                 local_dir=str(target_dir) if target_dir else None,
+                tqdm_class=tqdm_class,
             )
             model_dir = Path(dl_path)
 

@@ -8,7 +8,9 @@ GGUF helpers.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from contextlib import contextmanager
+import importlib
 import inspect
 import logging
 from typing import Any, Literal, TypeAlias, cast
@@ -233,6 +235,154 @@ def _suppress_manual_topics_warning():
         logger_name.removeFilter(warning_filter)
 
 
+def _configure_deterministic_generation_pipeline(generator: Any) -> None:
+    """Normalize local HF generation defaults for deterministic topic labeling."""
+    model = getattr(generator, "model", None)
+    generation_config = getattr(model, "generation_config", None)
+    if generation_config is None:
+        return
+
+    generation_config.do_sample = False
+    generation_config.max_length = None
+
+    # Some instruct checkpoints ship sampling-oriented defaults in generation_config.
+    # For deterministic labeling we reset them to greedy-compatible values.
+    for name, value in {
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 50,
+        "min_p": None,
+        "typical_p": 1.0,
+        "epsilon_cutoff": 0.0,
+        "eta_cutoff": 0.0,
+    }.items():
+        if hasattr(generation_config, name):
+            setattr(generation_config, name, value)
+
+
+@contextmanager
+def _bridge_bertopic_label_progress(*, reporter: Any | None, desc: str):
+    """Route BERTopic's per-topic labeling loops through the shared stage reporter."""
+    if reporter is None:
+        yield
+        return
+
+    patched: list[tuple[Any, Any]] = []
+    state: dict[str, Any] = {"cm": None, "pbar": None, "total": None}
+
+    def _refresh_total(total: int | None) -> None:
+        pbar = state["pbar"]
+        if pbar is None:
+            cm = reporter.progress(total=total, desc=desc)
+            state["cm"] = cm
+            state["pbar"] = cm.__enter__()
+            state["total"] = total
+            return
+
+        if total is None:
+            return
+        current_total = state["total"]
+        if current_total is None:
+            try:
+                pbar.total = total
+            except Exception:
+                pass
+            else:
+                state["total"] = total
+                refresh = getattr(pbar, "refresh", None)
+                if callable(refresh):
+                    refresh()
+            return
+
+        try:
+            pbar.total = current_total + total
+        except Exception:
+            return
+        state["total"] = current_total + total
+        refresh = getattr(pbar, "refresh", None)
+        if callable(refresh):
+            refresh()
+
+    def _infer_total(iterable: Any, explicit_total: Any) -> int | None:
+        if explicit_total is not None:
+            return int(explicit_total)
+        try:
+            return len(iterable)
+        except Exception:
+            return None
+
+    def _update(amount: int = 1) -> None:
+        pbar = state["pbar"]
+        if pbar is not None:
+            pbar.update(int(amount))
+
+    def _bridge_tqdm(iterable: Any = None, *args: Any, **kwargs: Any) -> Any:
+        del args
+        total = _infer_total(iterable, kwargs.get("total"))
+        _refresh_total(total)
+
+        if iterable is None:
+            return _ReporterTqdmProxy(update_callback=_update)
+
+        class _ReporterIterable:
+            def __iter__(self) -> Iterator[Any]:
+                for item in iterable:
+                    yield item
+                    _update(1)
+
+            def update(self, amount: int = 1) -> None:
+                _update(amount)
+
+            def close(self) -> None:
+                return None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                del exc_type, exc, tb
+                return None
+
+        return _ReporterIterable()
+
+    class _ReporterTqdmProxy:
+        def __init__(self, *, update_callback):
+            self._update_callback = update_callback
+
+        def update(self, amount: int = 1) -> None:
+            self._update_callback(amount)
+
+        def close(self) -> None:
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            del exc_type, exc, tb
+            return None
+
+    try:
+        for module_name in (
+            "bertopic.representation._textgeneration",
+            "bertopic.representation._litellm",
+            "bertopic.representation._llamacpp",
+        ):
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                continue
+            patched.append((module, getattr(module, "tqdm", None)))
+            setattr(module, "tqdm", _bridge_tqdm)
+        yield
+    finally:
+        for module, original_tqdm in reversed(patched):
+            setattr(module, "tqdm", original_tqdm)
+        cm = state["cm"]
+        if cm is not None:
+            cm.__exit__(None, None, None)
+
+
 def _create_llm(
     provider: str,
     model: str,
@@ -268,10 +418,7 @@ def _create_llm(
                 )
         except Exception as exc:
             raise_with_local_hf_compat_hint(model=model, use_case="topic labeling", exc=exc)
-        # Clear max_length from model's generation_config to suppress
-        # "Both max_new_tokens and max_length seem to have been set" warnings.
-        if hasattr(gen, "model") and hasattr(gen.model, "generation_config"):
-            gen.model.generation_config.max_length = None
+        _configure_deterministic_generation_pipeline(gen)
         return TextGeneration(
             gen,
             prompt=prompt,
@@ -793,6 +940,9 @@ def _build_toponymy_models(
                 )
         except Exception as exc:
             raise_with_local_hf_compat_hint(model=llm_model, use_case="toponymy labeling", exc=exc)
+        local_generator = getattr(llm_wrapper, "llm", None)
+        if local_generator is not None:
+            _configure_deterministic_generation_pipeline(local_generator)
 
         llm_usage = None
         if cost_tracker is not None:

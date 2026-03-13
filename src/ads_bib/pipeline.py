@@ -54,6 +54,7 @@ from ads_bib.topic_model import (
     reduce_dimensions,
     reduce_outliers,
 )
+from ads_bib.topic_model import backends as topic_model_backends
 from ads_bib.topic_model._runtime import (
     BERTOPIC_LLM_PROVIDERS,
     EMBEDDING_PROVIDERS,
@@ -1249,7 +1250,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                 cost_tracker=ctx.tracker,
             )
         else:
-            with reporter.progress(total=1, desc="fit") as fit_pbar:
+            reporter.detail("preparing BERTopic clustering and label generation")
+            with topic_model_backends._bridge_bertopic_label_progress(reporter=reporter, desc="fit"):
                 with capture_external_output(ctx.runtime_log_path):
                     topic_model = fit_bertopic(
                         ctx.documents,
@@ -1268,10 +1270,12 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         cost_tracker=ctx.tracker,
                         show_progress=False,
                     )
-                if fit_pbar is not None:
-                    fit_pbar.update(1)
             topics = np.array(topic_model.topics_)
-            with reporter.progress(total=1, desc="outlier refresh") as refresh_pbar:
+            reporter.detail("reassigning outliers before topic-label refresh")
+            with topic_model_backends._bridge_bertopic_label_progress(
+                reporter=reporter,
+                desc="outlier refresh",
+            ):
                 with capture_external_output(ctx.runtime_log_path):
                     topics = reduce_outliers(
                         topic_model,
@@ -1286,8 +1290,6 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         cost_tracker=ctx.tracker,
                         show_progress=False,
                     )
-                if refresh_pbar is not None:
-                    refresh_pbar.update(1)
         topic_info = topic_model.get_topic_info()
     elif cfg.backend in {"toponymy", "toponymy_evoc"}:
         clusterer_params = (

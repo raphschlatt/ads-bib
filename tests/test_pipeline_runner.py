@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 import yaml
@@ -228,6 +229,67 @@ def test_run_topic_fit_stage_uses_implicit_keybert_default(tmp_path, monkeypatch
     assert calls["documents"] == ["doc-a", "doc-b"]
     assert calls["shape"] == (2, 5)
     assert "keybert_model" not in calls["kwargs"]
+
+
+def test_run_topic_fit_stage_uses_bertopic_progress_bridge(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+            "topic_model": {
+                "backend": "bertopic",
+                "llm_provider": "gguf",
+                "llm_model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf",
+                "embedding_provider": "local",
+                "embedding_model": "google/embeddinggemma-300m",
+                "cluster_params": {"min_cluster_size": 2, "min_samples": 1},
+                "min_df": 1,
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.documents = ["doc-a", "doc-b"]
+    ctx.embeddings = np.ones((2, 4), dtype=np.float32)
+    ctx.reduced_5d = np.ones((2, 5), dtype=np.float32)
+
+    calls: dict[str, object] = {"descs": [], "details": []}
+
+    class _FakeTopicModel:
+        topics_ = [0, 1]
+
+        def get_topic_info(self):
+            return pd.DataFrame({"Topic": [0, 1], "Name": ["Topic 0", "Topic 1"]})
+
+    @contextmanager
+    def _fake_bridge(*, reporter, desc: str):
+        calls["descs"].append(desc)
+        assert reporter is ctx.reporter
+        yield
+
+    class _FakeReporter:
+        output_mode = "cli"
+
+        def detail(self, message: str, *args: object) -> None:
+            calls["details"].append(message % args if args else message)
+
+    ctx.reporter = _FakeReporter()
+
+    monkeypatch.setattr(pipeline.topic_model_backends, "_bridge_bertopic_label_progress", _fake_bridge)
+    monkeypatch.setattr(pipeline, "fit_bertopic", lambda documents, reduced_5d, **kwargs: _FakeTopicModel())
+    monkeypatch.setattr(
+        pipeline,
+        "reduce_outliers",
+        lambda topic_model, documents, topics, reduced_5d, **kwargs: np.asarray(topics),
+    )
+
+    pipeline.run_topic_fit_stage(ctx)
+
+    assert calls["descs"] == ["fit", "outlier refresh"]
+    assert calls["details"] == [
+        "preparing BERTopic clustering and label generation",
+        "reassigning outliers before topic-label refresh",
+    ]
 
 
 def test_pipeline_config_allows_huggingface_api_for_bertopic():

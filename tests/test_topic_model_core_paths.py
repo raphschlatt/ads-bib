@@ -346,6 +346,81 @@ def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypat
     assert calls["init_kwargs"]["embedding_model"] is None
 
 
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "bertopic.representation._textgeneration",
+        "bertopic.representation._litellm",
+    ],
+)
+def test_bridge_bertopic_label_progress_updates_reporter_incrementally(monkeypatch, module_name):
+    fake_module = types.ModuleType(module_name)
+    original_tqdm = object()
+    fake_module.tqdm = original_tqdm
+    monkeypatch.setitem(sys.modules, module_name, fake_module)
+
+    class _FakeProgressBar:
+        def __init__(self, total: int | None) -> None:
+            self.total = total
+            self.updates: list[int] = []
+            self.refreshed_totals: list[int | None] = []
+
+        def update(self, amount: int = 1) -> None:
+            self.updates.append(int(amount))
+
+        def refresh(self) -> None:
+            self.refreshed_totals.append(self.total)
+
+    class _FakeProgressContext:
+        def __init__(self, progress_bar: _FakeProgressBar) -> None:
+            self._progress_bar = progress_bar
+
+        def __enter__(self) -> _FakeProgressBar:
+            return self._progress_bar
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            del exc_type, exc, tb
+            return None
+
+    class _FakeReporter:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int | None, str]] = []
+            self.progress_bar: _FakeProgressBar | None = None
+
+        def progress(self, *, total: int | None, desc: str):
+            self.calls.append((total, desc))
+            self.progress_bar = _FakeProgressBar(total)
+            return _FakeProgressContext(self.progress_bar)
+
+    reporter = _FakeReporter()
+
+    with tm_backends._bridge_bertopic_label_progress(reporter=reporter, desc="fit"):
+        for _ in fake_module.tqdm(["topic-a", "topic-b", "topic-c"], disable=True):
+            pass
+        for _ in fake_module.tqdm(["topic-d"], disable=True):
+            pass
+
+    assert reporter.calls == [(3, "fit")]
+    assert reporter.progress_bar is not None
+    assert reporter.progress_bar.updates == [1, 1, 1, 1]
+    assert reporter.progress_bar.total == 4
+    assert reporter.progress_bar.refreshed_totals == [4]
+    assert fake_module.tqdm is original_tqdm
+
+
+def test_bridge_bertopic_label_progress_keeps_modules_unchanged_without_reporter(monkeypatch):
+    module_name = "bertopic.representation._llamacpp"
+    fake_module = types.ModuleType(module_name)
+    original_tqdm = object()
+    fake_module.tqdm = original_tqdm
+    monkeypatch.setitem(sys.modules, module_name, fake_module)
+
+    with tm_backends._bridge_bertopic_label_progress(reporter=None, desc="fit"):
+        assert fake_module.tqdm is original_tqdm
+
+    assert fake_module.tqdm is original_tqdm
+
+
 def test_compute_embeddings_validates_provider():
     with pytest.raises(ValueError, match="Invalid provider 'bad_provider'"):
         tm.compute_embeddings(["doc"], provider="bad_provider", model="m")

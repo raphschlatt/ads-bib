@@ -173,13 +173,29 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
 
     fake_transformers = types.ModuleType("transformers")
 
+    class _FakeGenerationConfig:
+        def __init__(self):
+            self.do_sample = True
+            self.max_length = 1024
+            self.temperature = 0.7
+            self.top_p = 0.8
+            self.top_k = 20
+            self.min_p = 0.2
+            self.typical_p = 0.95
+            self.epsilon_cutoff = 0.01
+            self.eta_cutoff = 0.02
+
+    class _FakeGenerator:
+        def __init__(self):
+            self.model = types.SimpleNamespace(generation_config=_FakeGenerationConfig())
+
     def _fake_pipeline(task, *, model, device_map, dtype=None, torch_dtype=None):
         calls["task"] = task
         calls["model"] = model
         calls["device_map"] = device_map
         calls["dtype"] = dtype
         calls["torch_dtype"] = torch_dtype
-        return "fake-generator"
+        return _FakeGenerator()
 
     fake_transformers.pipeline = _fake_pipeline
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
@@ -201,9 +217,18 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
     assert calls["device_map"] == "auto"
     assert calls["dtype"] == "auto"
     assert calls["torch_dtype"] is None
-    assert calls["generator"] == "fake-generator"
     assert calls["prompt"] == "topic: <label>"
     assert calls["pipeline_kwargs"] == {"do_sample": False, "max_new_tokens": 64, "num_return_sequences": 1}
+    generation_config = calls["generator"].model.generation_config
+    assert generation_config.do_sample is False
+    assert generation_config.max_length is None
+    assert generation_config.temperature == 1.0
+    assert generation_config.top_p == 1.0
+    assert generation_config.top_k == 50
+    assert generation_config.min_p is None
+    assert generation_config.typical_p == 1.0
+    assert generation_config.epsilon_cutoff == 0.0
+    assert generation_config.eta_cutoff == 0.0
 
 
 def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):

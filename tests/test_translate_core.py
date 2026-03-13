@@ -1,4 +1,8 @@
 from __future__ import annotations
+import io
+from pathlib import Path
+import sys
+import types
 import pandas as pd
 import pytest
 
@@ -494,6 +498,118 @@ def test_nllb_lang_code_mapping():
     assert tr._resolve_nllb_lang_code("en") == "eng_Latn"
     assert tr._resolve_nllb_lang_code("zh") == "zho_Hans"
     assert tr._resolve_nllb_lang_code("xx_nonexistent") is None
+
+
+def test_ensure_nllb_model_cache_hit_skips_download_progress_class(monkeypatch):
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(tr, "_nllb_translator", None)
+    monkeypatch.setattr(tr, "_nllb_tokenizer", None)
+    monkeypatch.setattr(tr, "_nllb_model_path", None)
+
+    fake_ctranslate2 = types.ModuleType("ctranslate2")
+
+    class _FakeTranslator:
+        def __init__(self, model_dir, **kwargs):
+            calls["translator_model_dir"] = model_dir
+            calls["translator_kwargs"] = kwargs
+
+    fake_ctranslate2.Translator = _FakeTranslator
+
+    fake_transformers = types.ModuleType("transformers")
+
+    class _FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, model_id):
+            calls["tokenizer_model_id"] = model_id
+            return object()
+
+    fake_transformers.AutoTokenizer = _FakeAutoTokenizer
+
+    fake_hf = types.ModuleType("huggingface_hub")
+
+    def _fake_try_to_load_from_cache(repo_id, filename, cache_dir=None, revision=None, repo_type=None):
+        del cache_dir, revision, repo_type
+        calls.setdefault("cache_checks", []).append((repo_id, filename))
+        return f"/hf-cache/{filename}"
+
+    def _fake_snapshot_download(repo_id, **kwargs):
+        calls["snapshot_repo_id"] = repo_id
+        calls["snapshot_kwargs"] = kwargs
+        return "/hf-cache/model"
+
+    fake_hf.try_to_load_from_cache = _fake_try_to_load_from_cache
+    fake_hf.snapshot_download = _fake_snapshot_download
+
+    monkeypatch.setitem(sys.modules, "ctranslate2", fake_ctranslate2)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setattr(tr, "get_console_stream", lambda: io.StringIO())
+
+    tr._ensure_nllb_model("repo/nllb-model")
+
+    assert calls["snapshot_repo_id"] == "repo/nllb-model"
+    assert calls["snapshot_kwargs"]["local_files_only"] is True
+    assert calls["snapshot_kwargs"].get("tqdm_class") is None
+    assert Path(str(calls["translator_model_dir"])).as_posix() == "/hf-cache/model"
+    assert calls["tokenizer_model_id"] == tr._NLLB_TOKENIZER_ID
+
+
+def test_ensure_nllb_model_cache_miss_passes_download_progress_class(monkeypatch):
+    calls: dict[str, object] = {}
+    console_stream = io.StringIO()
+
+    monkeypatch.setattr(tr, "_nllb_translator", None)
+    monkeypatch.setattr(tr, "_nllb_tokenizer", None)
+    monkeypatch.setattr(tr, "_nllb_model_path", None)
+
+    fake_ctranslate2 = types.ModuleType("ctranslate2")
+
+    class _FakeTranslator:
+        def __init__(self, model_dir, **kwargs):
+            calls["translator_model_dir"] = model_dir
+            calls["translator_kwargs"] = kwargs
+
+    fake_ctranslate2.Translator = _FakeTranslator
+
+    fake_transformers = types.ModuleType("transformers")
+
+    class _FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, model_id):
+            calls["tokenizer_model_id"] = model_id
+            return object()
+
+    fake_transformers.AutoTokenizer = _FakeAutoTokenizer
+
+    fake_hf = types.ModuleType("huggingface_hub")
+
+    def _fake_try_to_load_from_cache(repo_id, filename, cache_dir=None, revision=None, repo_type=None):
+        del repo_id, filename, cache_dir, revision, repo_type
+        return None
+
+    def _fake_snapshot_download(repo_id, **kwargs):
+        calls["snapshot_repo_id"] = repo_id
+        calls["snapshot_kwargs"] = kwargs
+        return "/hf-cache/model"
+
+    fake_hf.try_to_load_from_cache = _fake_try_to_load_from_cache
+    fake_hf.snapshot_download = _fake_snapshot_download
+
+    monkeypatch.setitem(sys.modules, "ctranslate2", fake_ctranslate2)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+    monkeypatch.setattr(tr, "get_console_stream", lambda: console_stream)
+
+    tr._ensure_nllb_model("repo/nllb-model")
+
+    assert calls["snapshot_repo_id"] == "repo/nllb-model"
+    assert calls["snapshot_kwargs"]["tqdm_class"] is not None
+    progress_bar = calls["snapshot_kwargs"]["tqdm_class"](total=1, disable=True)
+    try:
+        assert progress_bar.total == 1
+    finally:
+        progress_bar.close()
 
 
 def test_translate_dataframe_nllb_requires_ctranslate2(monkeypatch):
