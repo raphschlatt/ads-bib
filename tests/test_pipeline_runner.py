@@ -44,14 +44,25 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
 
-def test_default_pipeline_config_template_loads():
+def test_official_pipeline_config_directory_contains_four_presets():
+    config_dir = Path(__file__).resolve().parents[1] / "configs" / "pipeline"
+    assert sorted(path.name for path in config_dir.glob("*.yaml")) == [
+        "hf_api.yaml",
+        "local_cpu.yaml",
+        "local_gpu.yaml",
+        "openrouter.yaml",
+    ]
+
+
+def test_openrouter_pipeline_config_template_loads():
     config = pipeline.PipelineConfig.from_yaml(
-        Path(__file__).resolve().parents[1] / "configs" / "pipeline" / "default.yaml"
+        Path(__file__).resolve().parents[1] / "configs" / "pipeline" / "openrouter.yaml"
     )
     data = config.to_dict()
 
     assert data["run"]["start_stage"] == "search"
     assert data["run"]["stop_stage"] is None
+    assert data["search"]["query"] == 'author:"Hawking, S*"'
     assert data["topic_model"]["llm_prompt_name"] == "physics"
     assert data["topic_model"]["gguf_embedding_pooling"] == "cls"
     assert data["author_disambiguation"]["enabled"] is False
@@ -64,10 +75,19 @@ def test_default_pipeline_config_template_loads():
 
 
 @pytest.mark.parametrize(
-    ("config_name", "translate_provider", "translate_model", "embedding_provider", "embedding_model", "llm_provider", "llm_model", "gguf_pooling"),
+    (
+        "config_name",
+        "translate_provider",
+        "translate_model",
+        "embedding_provider",
+        "embedding_model",
+        "llm_provider",
+        "llm_model",
+        "gguf_pooling",
+    ),
     [
         (
-            "huggingface_api.yaml",
+            "hf_api.yaml",
             "huggingface_api",
             "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
             "huggingface_api",
@@ -77,14 +97,24 @@ def test_default_pipeline_config_template_loads():
             "cls",
         ),
         (
-            "local.yaml",
+            "local_cpu.yaml",
             "nllb",
-            "JustFrederik/nllb-200-distilled-600M-ct2-int8",
-            "gguf",
-            "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
+            "data/models/nllb-200-distilled-600M-ct2-int8",
+            "local",
+            "google/embeddinggemma-300m",
             "gguf",
             "unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf",
-            "last",
+            "cls",
+        ),
+        (
+            "local_gpu.yaml",
+            "gguf",
+            "mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf",
+            "local",
+            "google/embeddinggemma-300m",
+            "gguf",
+            "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf",
+            "cls",
         ),
     ],
 )
@@ -104,12 +134,40 @@ def test_official_pipeline_config_templates_load(
 
     assert config.translate.provider == translate_provider
     assert config.translate.model == translate_model
+    assert config.search.query == 'author:"Hawking, S*"'
     assert config.translate.fasttext_model == "data/models/lid.176.bin"
+    assert config.translate.max_workers == 8
     assert config.topic_model.embedding_provider == embedding_provider
     assert config.topic_model.embedding_model == embedding_model
+    assert config.topic_model.embedding_batch_size == 32
+    assert config.topic_model.embedding_max_workers == 8
     assert config.topic_model.llm_provider == llm_provider
     assert config.topic_model.llm_model == llm_model
     assert config.topic_model.gguf_embedding_pooling == gguf_pooling
+    assert config.topic_model.params_5d == {
+        "n_neighbors": 30,
+        "metric": "angular",
+        "random_state": 42,
+    }
+    assert config.topic_model.params_2d == {
+        "n_neighbors": 30,
+        "metric": "angular",
+        "random_state": 42,
+    }
+    assert config.topic_model.cluster_params == {
+        "min_cluster_size": 15,
+        "min_samples": 3,
+        "cluster_selection_method": "eom",
+        "cluster_selection_epsilon": 0.05,
+    }
+    assert config.topic_model.min_df == 3
+    assert config.topic_model.bertopic_label_max_tokens == 64
+    assert config.citations.min_counts == {
+        "direct": 3,
+        "co_citation": 6,
+        "bibliographic_coupling": 3,
+        "author_co_citation": 5,
+    }
 
 
 def test_pipeline_config_allows_huggingface_api_for_bertopic():

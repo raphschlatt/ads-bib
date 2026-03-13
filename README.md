@@ -49,9 +49,10 @@ HF_TOKEN=...            # optional unless huggingface_api backends are used
 
 4. Choose one entrypoint:
    - Notebook: edit the inline section dicts in `pipeline.ipynb`
-   - CLI (OpenRouter road): `ads-bib run --config configs/pipeline/default.yaml`
-   - CLI (HF API road): `ads-bib run --config configs/pipeline/huggingface_api.yaml`
-   - CLI (local/no-API road): `ads-bib run --config configs/pipeline/local.yaml`
+   - CLI (OpenRouter road): `ads-bib run --config configs/pipeline/openrouter.yaml`
+   - CLI (HF API road): `ads-bib run --config configs/pipeline/hf_api.yaml`
+   - CLI (local CPU road): `ads-bib run --config configs/pipeline/local_cpu.yaml`
+   - CLI (local GPU road): `ads-bib run --config configs/pipeline/local_gpu.yaml`
 
 ## Entrypoints
 
@@ -86,15 +87,15 @@ parameters, and rerun only the cells that depend on your latest changes.
 Use the CLI when you want one config-driven run without notebook interaction.
 
 ```bash
-ads-bib run --config configs/pipeline/default.yaml
+ads-bib run --config configs/pipeline/openrouter.yaml
 ```
 
 Useful overrides:
 
 ```bash
-ads-bib run --config configs/pipeline/default.yaml --from topic_fit --to citations
-ads-bib run --config configs/pipeline/default.yaml --run-name my_run
-ads-bib run --config configs/pipeline/default.yaml --set topic_model.backend=toponymy
+ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
+ads-bib run --config configs/pipeline/openrouter.yaml --run-name my_run
+ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
 ```
 
 The CLI and notebook share the same package logic, but not the same control
@@ -139,19 +140,28 @@ Use `HF_TOKEN` as the single Hugging Face env var across the repo.
 
 ## Official Config Roads
 
-These are the package-facing batch defaults:
+These are the package-facing batch defaults. All four presets target the same
+author query, `author:"Hawking, S*"`, and share the same Hawking-tuned BERTopic
+defaults:
+
+- `pacmap` with `n_neighbors: 30`, `metric: angular`, `random_state: 42`
+- `fast_hdbscan` with `min_cluster_size: 15`, `min_samples: 3`
+- `min_df: 3`
+- `bertopic_label_max_tokens: 64`
+- citation thresholds `direct: 3`, `co_citation: 6`, `bibliographic_coupling: 3`, `author_co_citation: 5`
 
 | File | Intended road | Translation | Embeddings | BERTopic labeling |
 | --- | --- | --- | --- | --- |
-| `configs/pipeline/default.yaml` | OpenRouter | `google/gemini-3.1-flash-lite-preview` | `qwen/qwen3-embedding-8b` | `google/gemini-3.1-flash-lite-preview` |
-| `configs/pipeline/huggingface_api.yaml` | Hugging Face API | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` | `Qwen/Qwen3-Embedding-8B` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` |
-| `configs/pipeline/local.yaml` | Local / no API | `JustFrederik/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf` (`gguf`) | `unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf` (`gguf`) |
+| `configs/pipeline/openrouter.yaml` | OpenRouter | `google/gemini-3.1-flash-lite-preview` | `qwen/qwen3-embedding-8b` | `google/gemini-3.1-flash-lite-preview` |
+| `configs/pipeline/hf_api.yaml` | Hugging Face API | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` | `Qwen/Qwen3-Embedding-8B` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` |
+| `configs/pipeline/local_cpu.yaml` | Local CPU | `data/models/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `google/embeddinggemma-300m` (`local`) | `unsloth/Qwen3.5-0.8B-GGUF:Qwen3.5-0.8B-Q4_K_M.gguf` (`gguf`) |
+| `configs/pipeline/local_gpu.yaml` | Local GPU | `mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf` (`gguf`) | `google/embeddinggemma-300m` (`local`) | `unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf` (`gguf`) |
 
 Notes:
 
-- The local road intentionally uses `nllb` for translation. Local translation is not the GGUF chat path by default.
+- `local_cpu` keeps the settled CPU translation path: `nllb` via CTranslate2.
+- `local_gpu` stays inside the package's current local GPU surface: GGUF for translation and labeling, local HF embeddings for the encoder path.
 - Toponymy still has no `huggingface_api` provider path.
-- `treder_notebook*.yaml` files remain example runs, not package defaults.
 
 Runtime notes:
 
@@ -167,8 +177,7 @@ Runtime notes:
 
 - Notebook config lives inline in `pipeline.ipynb` as section dicts.
 - Batch config lives under `configs/pipeline/`:
-  - official package defaults: `default.yaml`, `huggingface_api.yaml`, `local.yaml`
-  - example runs: `treder_notebook.yaml`, `treder_notebook_hf.yaml`, `treder_notebook_local.yaml`
+  - official package defaults: `openrouter.yaml`, `hf_api.yaml`, `local_cpu.yaml`, `local_gpu.yaml`
   - generated run snapshot: `runs/<run_id>/config_used.yaml`
   - generated run summary: `runs/<run_id>/run_summary.yaml`
 - Secrets live only in `.env`.
@@ -276,7 +285,7 @@ Mapped pipeline outputs normalize these into aligned list columns:
 
 - `pipeline.ipynb` remains the main exploratory entrypoint for end-to-end ADS workflows.
 - `ads-bib run --config ...` provides the unattended batch runner with dependency-aware orchestration.
-- `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml`, and `configs/pipeline/local.yaml` are the official batch defaults; saved run configs are reusable copies.
+- `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, and `configs/pipeline/local_gpu.yaml` are the official batch defaults; saved run configs are reusable copies.
 - Both frontends persist `config_used.yaml` and `run_summary.yaml` inside the run directory.
 - `NotebookSession.run_stage(...)` is explicit and stage-oriented; `ads_bib.run_pipeline(...)` is the batch orchestrator.
 - The installable package provides reusable building blocks plus repository-local quality checks.

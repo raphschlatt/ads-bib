@@ -11,7 +11,7 @@ Engineering rules and operating conventions for this repository.
 ## 1) Architecture Map
 
 - Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
-- Official batch defaults: `configs/pipeline/default.yaml`, `configs/pipeline/huggingface_api.yaml`, `configs/pipeline/local.yaml`
+- Official batch defaults: `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, `configs/pipeline/local_gpu.yaml`
 - Shared runner: `src/ads_bib/pipeline.py`
 - Notebook adapter: `src/ads_bib/notebook.py`
 - Package root: `src/ads_bib/`
@@ -72,11 +72,11 @@ Seed entries:
 - `2026-02-27 | GGUF for local translation, HF for embeddings/labeling | autoregressive gen on CPU via torch is too slow; llama-cpp-python 10-50x faster | translate.py uses gguf_backend, topic labeling keeps transformers option | llama-cpp-python is optional dep with pre-built wheels`
 - `2026-03-03 | 3 translation backends: openrouter/gguf/nllb | GGUF overengineered for CPU (~750 lines calibration/pools removed); NLLB via CTranslate2 is 10-50x faster on CPU for seq2seq | gguf stays for GPU, nllb is default for CPU (200+ languages), openrouter for API | ctranslate2+sentencepiece as optional dep [translate-nllb]`
 - `2026-03-09 | Shared package runner with named stages | notebook-only orchestration drifted from CLI/testing needs | notebook and CLI now call the same pipeline functions with stage-based resume | remove numeric phase logic and duplicate orchestration paths`
-- `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/default.yaml | no notebook-local helpers or secret wiring to maintain`
+- `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/ | no notebook-local helpers or secret wiring to maintain`
 - `2026-03-09 | Notebook explicit, CLI orchestrated | shared stage functions had started mixing work, hidden prerequisite chaining, and snapshot resume | notebook stages run only their named work or same-stage resume; run_pipeline remains the only auto-chaining batch path | remove recursive stage calls and any tests/docs that depend on them`
 - `2026-03-09 | Curated frontend output with runtime log sink | raw tqdm/library/model-load output had made CLI and notebook hard to read | console output is now stage-first, frontend-specific, and raw third-party output is redirected to runs/<run_id>/logs/runtime.log | remove free-form stage banners and redundant nested progress bars`
 - `2026-03-12 | Shared run_summary across CLI and notebook | run artifacts had drifted between frontends and CLI lacked the final summary artifact | both frontends now persist run_summary.yaml with the same schema and status metadata | remove notebook-only summary handling`
-- `2026-03-12 | Three official package config roads | package entrypoint needed concrete, documented batch defaults instead of one generic file plus examples | configs/pipeline/default.yaml, huggingface_api.yaml, and local.yaml define the supported OpenRouter/HF/local roads | keep example Treder configs separate from package defaults`
+- `2026-03-13 | Four official Hawking config roads | package entrypoint now ships one aligned preset per runtime road for one small author corpus | configs/pipeline/openrouter.yaml, hf_api.yaml, local_cpu.yaml, and local_gpu.yaml define the supported OpenRouter/HF/local CPU/local GPU roads | remove old generic and Treder-specific config files`
 - `2026-03-12 | Shared chat translation prompt contract | OpenRouter and HF translation prompts had drifted after native HF client work | chat-based translation providers now use one centralized scientific prompt contract while gguf/nllb stay provider-native | remove provider-specific prompt duplication`
 - `2026-03-12 | No archive tree on default branch | closed notebooks/backlogs added repository noise without runtime value | the default branch stays lean and historical material remains recoverable via git history | remove archive files and stale archive references`
 
