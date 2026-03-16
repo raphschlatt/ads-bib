@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import contextlib
 import logging
-import sys
-import types
 
 import pandas as pd
 import pytest
 
 import ads_bib.config as cfg
 import ads_bib.translate as tr
-
-
-def _allow_llama_cpp(monkeypatch):
-    """Make validate_provider accept 'gguf' even when llama_cpp is not installed."""
-    _orig = cfg.find_spec
-    monkeypatch.setattr(cfg, "find_spec", lambda m: True if m == "llama_cpp" else _orig(m))
 
 
 def test_translate_dataframe_openrouter_logs_failure_examples(monkeypatch, caplog):
@@ -46,8 +37,7 @@ def test_translate_dataframe_openrouter_logs_failure_examples(monkeypatch, caplo
     assert out_df.loc[0, "Title_en"] == "hola"
 
 
-def test_translate_dataframe_gguf_logs_failure_examples(monkeypatch, caplog):
-    _allow_llama_cpp(monkeypatch)
+def test_translate_dataframe_llama_server_logs_failure_examples(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.WARNING, logger="ads_bib.translate")
     df = pd.DataFrame(
         {
@@ -55,32 +45,34 @@ def test_translate_dataframe_gguf_logs_failure_examples(monkeypatch, caplog):
             "Title_lang": ["fr"],
         }
     )
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
 
-    import ads_bib._utils.gguf_backend as gguf_mod
+    monkeypatch.setattr(
+        tr,
+        "ensure_llama_server",
+        lambda **kwargs: type("Handle", (), {"base_url": "http://127.0.0.1:8080"})(),
+    )
 
-    monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/path.gguf")
+    class _BoomCompletions:
+        def create(self, **kwargs):
+            raise ValueError("bad local model")
 
-    def _boom(
-        text,
-        target_lang,
-        *,
-        source_lang,
-        model_path,
-        n_ctx=4096,
-        n_threads=None,
-        n_threads_batch=None,
-        max_tokens=2048,
-    ):
-        raise ValueError("bad local model")
+    class _FakeClient:
+        chat = type("Chat", (), {"completions": _BoomCompletions()})()
 
-    monkeypatch.setattr(gguf_mod, "translate_gguf", _boom)
+    monkeypatch.setattr(tr, "build_openai_client", lambda **kwargs: _FakeClient())
+    monkeypatch.setattr(
+        tr,
+        "build_translation_messages",
+        lambda text, *, target_lang, source_lang=None: [{"role": "user", "content": text}],
+    )
 
     out_df, _ = tr.translate_dataframe(
         df,
         columns=["Title"],
-        provider="gguf",
-        model="local/model",
-        gguf_auto_chunk=False,
+        provider="llama_server",
+        model_path=str(model_file),
     )
 
     assert "Title: 1 translations failed" in caplog.text
@@ -151,56 +143,39 @@ def test_predict_language_falls_back_for_fasttext_numpy2_copy_error(monkeypatch,
 
 
 def test_translate_dataframe_raises_clear_error_when_source_column_missing(monkeypatch):
-    _allow_llama_cpp(monkeypatch)
     df = pd.DataFrame({"Title_lang": ["es"]})
 
     with pytest.raises(ValueError, match="translate_dataframe requires columns"):
         tr.translate_dataframe(
             df,
             columns=["Title"],
-            provider="gguf",
-            model="local/model",
+            provider="llama_server",
+            model_path="missing.gguf",
         )
 
 
-def test_translate_dataframe_gguf_requires_llama_cpp(monkeypatch):
+def test_translate_dataframe_llama_server_requires_openai(tmp_path, monkeypatch):
     df = pd.DataFrame({"Title": ["bonjour"], "Title_lang": ["fr"]})
+    fake_model = tmp_path / "model.gguf"
+    fake_model.write_text("fake", encoding="utf-8")
     monkeypatch.setattr(cfg, "find_spec", lambda module: None)
 
-    with pytest.raises(ImportError, match="requires optional dependency 'llama_cpp'"):
+    with pytest.raises(ImportError, match="requires optional dependency 'openai'"):
         tr.translate_dataframe(
             df,
             columns=["Title"],
-            provider="gguf",
-            model="mradermacher/translategemma-4b-it-GGUF",
+            provider="llama_server",
+            model_path=str(fake_model),
         )
 
 
-def test_gguf_import_error_includes_install_instructions():
-    from ads_bib._utils.gguf_backend import _INSTALL_HINT
+def test_translate_dataframe_llama_server_rejects_legacy_repo_file_string():
+    df = pd.DataFrame({"Title": ["bonjour"], "Title_lang": ["fr"]})
 
-    assert "llama-cpp-python" in _INSTALL_HINT
-    assert "extra-index-url" in _INSTALL_HINT
-
-
-def test_load_llama_gemma3_with_old_runtime_raises_actionable_hint(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    class _BrokenLlama:
-        def __init__(self, *args, **kwargs):
-            del args, kwargs
-            raise AssertionError()
-
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.__version__ = "0.2.24"
-    fake_llama_cpp.Llama = _BrokenLlama
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
-
-    with pytest.raises(RuntimeError) as exc:
-        gguf_mod._load_llama("C:/tmp/gemma-3-4b-it-Q4_K_M.gguf", n_ctx=512)
-
-    msg = str(exc.value)
-    assert "Gemma 3 GGUF requires a newer llama-cpp-python runtime" in msg
-    assert "(0.2.24)" in msg
-    assert "pip install -U llama-cpp-python" in msg
+    with pytest.raises(ValueError, match="Legacy model value"):
+        tr.translate_dataframe(
+            df,
+            columns=["Title"],
+            provider="llama_server",
+            model="mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf",
+        )

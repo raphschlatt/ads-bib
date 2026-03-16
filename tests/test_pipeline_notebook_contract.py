@@ -58,6 +58,7 @@ def test_pipeline_notebook_code_contract():
     assert 'session.set_section("run", RUN)' in code
     assert 'session.set_section("search", SEARCH)' in code
     assert 'session.set_section("translate", TRANSLATE)' in code
+    assert 'session.set_section("llama_server", LLAMA_SERVER)' in code
     assert 'session.set_section("tokenize", TOKENIZE)' in code
     assert 'session.set_section("author_disambiguation", AUTHOR_DISAMBIGUATION)' in code
     assert 'session.set_section("topic_model", TOPIC_MODEL)' in code
@@ -85,10 +86,17 @@ def test_pipeline_notebook_code_contract():
 
     assert 'TRANSLATE = {' in code
     assert '"api_key": None' in code
+    assert '"model_repo": None' in code
+    assert '"model_file": None' in code
+    assert '"model_path": None' in code
+    assert 'LLAMA_SERVER = {' in code
+    assert '"reasoning": "off"' in code
     assert '"spacy_model": "en_core_web_md"' in code
     assert '"fallback_model": "en_core_web_md"' in code
     assert 'TOPIC_MODEL = {' in code
-    assert '"gguf_embedding_pooling": "cls"' in code
+    assert '"llm_model_repo": None' in code
+    assert '"llm_model_file": None' in code
+    assert '"llm_model_path": None' in code
     assert '"llm_prompt_name": "physics"' in code
     assert 'CITATIONS = {' in code
     assert "run.save_config(globals())" not in code

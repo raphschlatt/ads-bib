@@ -6,6 +6,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
+import re
 import time
 from collections.abc import Callable
 from typing import Literal, TypeAlias, TypedDict
@@ -18,7 +19,13 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
 )
+from ads_bib._utils.llama_server import (
+    LlamaServerConfig,
+    build_openai_client,
+    ensure_llama_server,
+)
 from ads_bib._utils.logging import get_console_stream
+from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -32,7 +39,7 @@ from ads_bib._utils.openrouter_costs import (
 
 logger = logging.getLogger(__name__)
 
-TranslationProvider: TypeAlias = Literal["openrouter", "huggingface_api", "gguf", "nllb"]
+TranslationProvider: TypeAlias = Literal["openrouter", "huggingface_api", "llama_server", "nllb"]
 
 
 class TranslationCostInfo(TypedDict):
@@ -139,9 +146,9 @@ def detect_languages(
 
 from ads_bib.prompts import build_translation_messages
 DEFAULT_TRANSLATION_MAX_TOKENS = 2048
-DEFAULT_GGUF_CHUNK_INPUT_TOKENS = 384
-DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS = 48
-DEFAULT_GGUF_TRANSLATION_RETRIES = 2
+DEFAULT_LLAMA_SERVER_CHUNK_CHARS = 12000
+DEFAULT_LLAMA_SERVER_CHUNK_OVERLAP_CHARS = 1500
+DEFAULT_LOCAL_TRANSLATION_RETRIES = 2
 
 
 def _prepare_translation_targets(
@@ -495,7 +502,7 @@ def _translate_rows_huggingface_api(
 
 
 # ---------------------------------------------------------------------------
-# GGUF backend  (GPU-accelerated, or CPU fallback)
+# llama-server backend  (local GGUF generation)
 # ---------------------------------------------------------------------------
 
 def _merge_translated_chunks(chunks: list[str]) -> str:
@@ -525,49 +532,110 @@ def _merge_translated_chunks(chunks: list[str]) -> str:
     return merged.strip()
 
 
-def _translate_text_with_gguf(
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from LLM output."""
+    return text.replace("<think>", "").split("</think>", 1)[-1].strip()
+
+
+def _split_text_by_chars(
+    text: str,
+    *,
+    chunk_chars: int,
+    chunk_overlap_chars: int,
+) -> list[str]:
+    """Split long text with paragraph-aware character windows."""
+    if chunk_chars <= 0:
+        raise ValueError("llama_server_chunk_chars must be > 0.")
+    if chunk_overlap_chars < 0:
+        raise ValueError("llama_server_chunk_overlap_chars must be >= 0.")
+    if chunk_overlap_chars >= chunk_chars:
+        raise ValueError("llama_server_chunk_overlap_chars must be < llama_server_chunk_chars.")
+
+    text = str(text)
+    if len(text) <= chunk_chars:
+        return [text]
+
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", text) if part.strip()]
+    chunks: list[str] = []
+    current = ""
+    for paragraph in paragraphs:
+        candidate = paragraph if not current else f"{current}\n\n{paragraph}"
+        if len(candidate) <= chunk_chars:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = paragraph
+            continue
+        start = 0
+        while start < len(paragraph):
+            end = min(start + chunk_chars, len(paragraph))
+            chunk = paragraph[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            if end >= len(paragraph):
+                break
+            start = max(0, end - chunk_overlap_chars)
+    if current:
+        chunks.append(current)
+    if chunks:
+        return chunks
+
+    start = 0
+    out: list[str] = []
+    while start < len(text):
+        end = min(start + chunk_chars, len(text))
+        chunk = text[start:end].strip()
+        if chunk:
+            out.append(chunk)
+        if end >= len(text):
+            break
+        start = max(0, end - chunk_overlap_chars)
+    return out or [text]
+
+
+def _translate_text_with_llama_server(
     text: str,
     *,
     target_lang: str,
     source_lang: str,
-    model_path: str,
+    model_spec: ModelSpec,
     max_tokens: int,
-    n_ctx: int,
-    n_threads: int | None,
-    n_threads_batch: int | None,
-    auto_chunk: bool,
-    chunk_input_tokens: int,
-    chunk_overlap_tokens: int,
-    retries: int = DEFAULT_GGUF_TRANSLATION_RETRIES,
+    llama_server_config: LlamaServerConfig,
+    runtime_log_path: Path | None,
+    chunk_chars: int,
+    chunk_overlap_chars: int,
+    retries: int = DEFAULT_LOCAL_TRANSLATION_RETRIES,
 ) -> tuple[str, int]:
-    from ads_bib._utils.gguf_backend import split_text_by_gguf_tokens, translate_gguf
-
-    chunks = [str(text)]
-    if auto_chunk and len(str(text)) > chunk_input_tokens * 4:
-        chunks = split_text_by_gguf_tokens(
-            str(text),
-            model_path=model_path,
-            max_input_tokens=chunk_input_tokens,
-            overlap_tokens=chunk_overlap_tokens,
-        )
+    handle = ensure_llama_server(
+        model_spec=model_spec,
+        config=llama_server_config,
+        runtime_log_path=runtime_log_path,
+    )
+    client = build_openai_client(handle=handle)
+    api_model = Path(model_spec.resolve()).name
+    chunks = _split_text_by_chars(
+        str(text),
+        chunk_chars=chunk_chars,
+        chunk_overlap_chars=chunk_overlap_chars,
+    )
 
     translated_chunks: list[str] = []
     for chunk in chunks:
         last_exc: Exception | None = None
         for attempt in range(max(0, retries) + 1):
             try:
-                translated_chunks.append(
-                    translate_gguf(
+                response = client.chat.completions.create(
+                    model=api_model,
+                    messages=build_translation_messages(
                         chunk,
-                        target_lang,
+                        target_lang=target_lang,
                         source_lang=source_lang,
-                        model_path=model_path,
-                        n_ctx=n_ctx,
-                        n_threads=n_threads,
-                        n_threads_batch=n_threads_batch,
-                        max_tokens=max_tokens,
-                    )
+                    ),
+                    max_tokens=max_tokens,
+                    temperature=0,
                 )
+                translated_chunks.append(_strip_think_tags(str(response.choices[0].message.content or "")))
                 last_exc = None
                 break
             except Exception as exc:
@@ -580,25 +648,23 @@ def _translate_text_with_gguf(
     return (merged if merged else str(text)), len(chunks)
 
 
-def _translate_rows_gguf(
+def _translate_rows_llama_server(
     df: pd.DataFrame,
     *,
     source_col: str,
     target_col: str,
     to_translate: pd.DataFrame,
     target_lang: str,
-    model_path: str,
+    model_spec: ModelSpec,
     max_tokens: int,
-    n_ctx: int,
-    n_threads: int | None,
-    n_threads_batch: int | None,
-    auto_chunk: bool,
-    chunk_input_tokens: int,
-    chunk_overlap_tokens: int,
+    llama_server_config: LlamaServerConfig,
+    runtime_log_path: Path | None,
+    chunk_chars: int,
+    chunk_overlap_chars: int,
     show_progress: bool = True,
     progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[list[tuple[object, str]], int, int, float]:
-    """Translate selected rows with a local GGUF model (single-worker)."""
+    """Translate selected rows with one local llama-server runtime."""
     lang_col = f"{source_col}_lang"
     failed: list[tuple[object, str]] = []
     chunked_docs = 0
@@ -615,18 +681,16 @@ def _translate_rows_gguf(
         if progress_callback is not None:
             progress_callback(1)
         try:
-            translated, chunk_count = _translate_text_with_gguf(
+            translated, chunk_count = _translate_text_with_llama_server(
                 str(text),
                 target_lang=target_lang,
                 source_lang=str(src_lang),
-                model_path=model_path,
+                model_spec=model_spec,
                 max_tokens=max_tokens,
-                n_ctx=n_ctx,
-                n_threads=n_threads,
-                n_threads_batch=n_threads_batch,
-                auto_chunk=auto_chunk,
-                chunk_input_tokens=chunk_input_tokens,
-                chunk_overlap_tokens=chunk_overlap_tokens,
+                llama_server_config=llama_server_config,
+                runtime_log_path=runtime_log_path,
+                chunk_chars=chunk_chars,
+                chunk_overlap_chars=chunk_overlap_chars,
             )
             df.at[idx, target_col] = translated
             if chunk_count > 1:
@@ -937,19 +1001,19 @@ def translate_dataframe(
     columns: list[str],
     *,
     provider: TranslationProvider,
-    model: str,
+    model: str | None = None,
+    model_repo: str | None = None,
+    model_file: str | None = None,
+    model_path: str | None = None,
     target_lang: str = "en",
     api_key: str | None = None,
     api_base: str = DEFAULT_OPENROUTER_API_BASE,
     max_workers: int = 5,
     max_translation_tokens: int = DEFAULT_TRANSLATION_MAX_TOKENS,
-    # GGUF-specific (kept simple — single worker, optional chunking)
-    gguf_n_ctx: int = 4096,
-    gguf_threads: int | None = None,
-    gguf_threads_batch: int | None = None,
-    gguf_auto_chunk: bool = True,
-    gguf_chunk_input_tokens: int = DEFAULT_GGUF_CHUNK_INPUT_TOKENS,
-    gguf_chunk_overlap_tokens: int = DEFAULT_GGUF_CHUNK_OVERLAP_TOKENS,
+    llama_server_config: LlamaServerConfig | None = None,
+    runtime_log_path: Path | None = None,
+    llama_server_chunk_chars: int = DEFAULT_LLAMA_SERVER_CHUNK_CHARS,
+    llama_server_chunk_overlap_chars: int = DEFAULT_LLAMA_SERVER_CHUNK_OVERLAP_CHARS,
     # OpenRouter cost tracking
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
@@ -965,14 +1029,16 @@ def translate_dataframe(
     columns : list[str]
         Columns to translate (e.g. ``["Title", "Abstract"]``).
     provider : str
-        ``"openrouter"``, ``"huggingface_api"``, ``"gguf"``, or ``"nllb"``.
-    model : str
-        Model identifier. Examples:
+        ``"openrouter"``, ``"huggingface_api"``, ``"llama_server"``, or ``"nllb"``.
+    model : str, optional
+        Model identifier for remote providers or NLLB. Examples:
 
         - OpenRouter: ``"gpt-4o"``
         - Hugging Face API: ``"Qwen/Qwen2.5-72B-Instruct:featherless-ai"``
-        - GGUF: ``"mradermacher/translategemma-4b-it-GGUF"``
         - NLLB: ``"JustFrederik/nllb-200-distilled-600M-ct2-int8"`` (default)
+    model_repo, model_file, model_path : str, optional
+        Local GGUF model specification for ``provider="llama_server"``.
+        Provide either ``model_path`` or the pair ``model_repo`` + ``model_file``.
     target_lang : str
         Target language code.
     api_key : str, optional
@@ -982,19 +1048,15 @@ def translate_dataframe(
     max_workers : int
         Concurrent workers for remote translation providers.
     max_translation_tokens : int
-        Token ceiling per translation call (OpenRouter, Hugging Face API, and GGUF).
-    gguf_n_ctx : int
-        GGUF context window.
-    gguf_threads : int, optional
-        Threads for the GGUF model instance.
-    gguf_threads_batch : int, optional
-        Prompt/batch thread count for the GGUF model instance.
-    gguf_auto_chunk : bool
-        If ``True``, split long texts into token chunks (GGUF only).
-    gguf_chunk_input_tokens : int
-        Maximum GGUF input tokens per chunk.
-    gguf_chunk_overlap_tokens : int
-        Chunk overlap in tokens.
+        Token ceiling per translation call.
+    llama_server_config : LlamaServerConfig, optional
+        Shared local llama-server runtime settings.
+    runtime_log_path : Path, optional
+        Log sink for third-party model/runtime output.
+    llama_server_chunk_chars : int
+        Maximum characters per local llama-server chunk.
+    llama_server_chunk_overlap_chars : int
+        Character overlap between local llama-server chunks.
     openrouter_cost_mode : str
         ``"hybrid"`` (default), ``"strict"``, or ``"fast"``.
     cost_tracker : CostTracker, optional
@@ -1006,49 +1068,56 @@ def translate_dataframe(
         ``(translated_df, cost_info)``.
     """
     from .config import validate_provider
+    model_name = model
     if provider == "huggingface_api":
-        model = normalize_huggingface_model(model)
+        if not model_name:
+            raise ValueError("provider='huggingface_api' requires translate.model.")
+        model_name = normalize_huggingface_model(model_name)
         api_key = resolve_huggingface_api_key(api_key)
+    elif provider in {"openrouter", "nllb"} and not model_name:
+        raise ValueError(f"provider={provider!r} requires translate.model.")
+    llama_server_spec: ModelSpec | None = None
+    if provider == "llama_server":
+        llama_server_spec = ModelSpec.from_fields(
+            model_repo=model_repo,
+            model_file=model_file,
+            model_path=model_path,
+            legacy_value=model,
+            field_label="model",
+        )
     validate_provider(
         provider,
-        valid={"openrouter", "huggingface_api", "gguf", "nllb"},
+        valid={"openrouter", "huggingface_api", "llama_server", "nllb"},
         api_key=api_key,
         requires_key={"openrouter", "huggingface_api"},
-        requires_import={"huggingface_api": "huggingface_hub", "gguf": "llama_cpp", "nllb": "ctranslate2"},
+        requires_import={
+            "huggingface_api": "huggingface_hub",
+            "llama_server": "openai",
+            "nllb": "ctranslate2",
+        },
     )
     df = df.copy()
     if max_translation_tokens <= 0:
         raise ValueError("max_translation_tokens must be > 0.")
     if max_workers <= 0:
         raise ValueError("max_workers must be > 0.")
-    if gguf_n_ctx <= 0:
-        raise ValueError("gguf_n_ctx must be > 0.")
-    if gguf_threads is not None and int(gguf_threads) <= 0:
-        raise ValueError("gguf_threads must be > 0 when provided.")
-    if gguf_threads_batch is not None and int(gguf_threads_batch) <= 0:
-        raise ValueError("gguf_threads_batch must be > 0 when provided.")
-    if gguf_chunk_input_tokens <= 0:
-        raise ValueError("gguf_chunk_input_tokens must be > 0.")
-    if gguf_chunk_overlap_tokens < 0:
-        raise ValueError("gguf_chunk_overlap_tokens must be >= 0.")
-    if gguf_chunk_overlap_tokens >= gguf_chunk_input_tokens:
-        raise ValueError("gguf_chunk_overlap_tokens must be < gguf_chunk_input_tokens.")
+    if llama_server_chunk_chars <= 0:
+        raise ValueError("llama_server_chunk_chars must be > 0.")
+    if llama_server_chunk_overlap_chars < 0:
+        raise ValueError("llama_server_chunk_overlap_chars must be >= 0.")
+    if llama_server_chunk_overlap_chars >= llama_server_chunk_chars:
+        raise ValueError("llama_server_chunk_overlap_chars must be < llama_server_chunk_chars.")
     _require_columns(df, columns, function_name="translate_dataframe")
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     total_pt = 0
     total_ct = 0
     call_records: list[dict[str, str | float | None]] = []
-
-    # Pre-resolve GGUF model path once.
-    gguf_model_path: str | None = None
-    if provider == "gguf":
-        from ads_bib._utils.gguf_backend import resolve_gguf_model
-        gguf_model_path = resolve_gguf_model(model)
-        logger.info(
-            "  GGUF translation | n_ctx=%s | threads=%s | threads_batch=%s | chunking=%s(%s/%s)",
-            gguf_n_ctx, gguf_threads, gguf_threads_batch,
-            gguf_auto_chunk, gguf_chunk_input_tokens, gguf_chunk_overlap_tokens,
-        )
+    model_label = (
+        llama_server_spec.display_name()
+        if llama_server_spec is not None
+        else str(model_name)
+    )
+    server_config = llama_server_config or LlamaServerConfig()
 
     for col in columns:
         en_col, to_translate = _prepare_translation_targets(
@@ -1063,7 +1132,7 @@ def translate_dataframe(
 
         logger.info(
             "  %s: translating %s entries with %s/%s ...",
-            col, f"{n:,}", provider, model,
+            col, f"{n:,}", provider, model_label,
         )
 
         if provider == "openrouter":
@@ -1073,7 +1142,7 @@ def translate_dataframe(
                 target_col=en_col,
                 to_translate=to_translate,
                 target_lang=target_lang,
-                model=model,
+                model=str(model_name),
                 api_key=api_key,
                 api_base=api_base,
                 max_workers=max_workers,
@@ -1092,7 +1161,7 @@ def translate_dataframe(
                 target_col=en_col,
                 to_translate=to_translate,
                 target_lang=target_lang,
-                model=model,
+                model=str(model_name),
                 api_key=api_key,
                 max_workers=max_workers,
                 max_tokens=max_translation_tokens,
@@ -1102,22 +1171,20 @@ def translate_dataframe(
             total_pt += pt
             total_ct += ct
 
-        elif provider == "gguf":
-            assert gguf_model_path is not None
-            failed, chunked_docs, total_chunks, elapsed_s = _translate_rows_gguf(
+        elif provider == "llama_server":
+            assert llama_server_spec is not None
+            failed, chunked_docs, total_chunks, elapsed_s = _translate_rows_llama_server(
                 df,
                 source_col=col,
                 target_col=en_col,
                 to_translate=to_translate,
                 target_lang=target_lang,
-                model_path=gguf_model_path,
+                model_spec=llama_server_spec,
                 max_tokens=max_translation_tokens,
-                n_ctx=gguf_n_ctx,
-                n_threads=gguf_threads,
-                n_threads_batch=gguf_threads_batch,
-                auto_chunk=gguf_auto_chunk,
-                chunk_input_tokens=gguf_chunk_input_tokens,
-                chunk_overlap_tokens=gguf_chunk_overlap_tokens,
+                llama_server_config=server_config,
+                runtime_log_path=runtime_log_path,
+                chunk_chars=llama_server_chunk_chars,
+                chunk_overlap_chars=llama_server_chunk_overlap_chars,
                 show_progress=show_progress,
                 progress_callback=progress_callback,
             )
@@ -1136,7 +1203,7 @@ def translate_dataframe(
                 target_col=en_col,
                 to_translate=to_translate,
                 target_lang=target_lang,
-                model=model,
+                model=str(model_name),
                 show_progress=show_progress,
                 progress_callback=progress_callback,
             )
@@ -1161,7 +1228,7 @@ def translate_dataframe(
         "prompt_tokens": total_pt,
         "completion_tokens": total_ct,
         "provider": provider,
-        "model": model,
+        "model": model_label,
         "cost_usd": total_cost_usd,
         "cost_mode": openrouter_cost_mode if provider == "openrouter" else None,
         "cost_summary": cost_summary,
@@ -1170,7 +1237,7 @@ def translate_dataframe(
         cost_tracker.add(
             step="translation",
             provider=provider,
-            model=model,
+            model=model_label,
             prompt_tokens=total_pt,
             completion_tokens=total_ct,
             cost_usd=total_cost_usd,

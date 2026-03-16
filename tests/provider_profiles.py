@@ -13,11 +13,11 @@ class ProviderProfile:
 
     profile_id: str
     topic_backend: TopicBackend
-    translation_provider: Literal["openrouter", "huggingface_api", "gguf"]
+    translation_provider: Literal["openrouter", "huggingface_api", "llama_server", "nllb"]
     translation_model: str
-    embedding_provider: Literal["openrouter", "huggingface_api", "local", "gguf"]
+    embedding_provider: Literal["openrouter", "huggingface_api", "local"]
     embedding_model: str
-    llm_provider: Literal["openrouter", "huggingface_api", "local", "gguf"]
+    llm_provider: Literal["openrouter", "huggingface_api", "local", "llama_server"]
     llm_model: str
     translation_api_key: str | None = None
     embedding_api_key: str | None = None
@@ -49,12 +49,12 @@ REQUIRED_PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
     ProviderProfile(
         profile_id="local_bertopic",
         topic_backend="bertopic",
-        translation_provider="gguf",
-        translation_model="mradermacher/translategemma-4b-it-GGUF",
+        translation_provider="nllb",
+        translation_model="JustFrederik/nllb-200-distilled-600M-ct2-int8",
         embedding_provider="local",
         embedding_model="google/embeddinggemma-300m",
-        llm_provider="local",
-        llm_model="Qwen/Qwen3-0.6B",
+        llm_provider="llama_server",
+        llm_model="local-server",
     ),
     ProviderProfile(
         profile_id="huggingface_api_bertopic",
@@ -85,11 +85,11 @@ REQUIRED_PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
     ProviderProfile(
         profile_id="local_toponymy",
         topic_backend="toponymy",
-        translation_provider="gguf",
-        translation_model="mradermacher/translategemma-4b-it-GGUF",
+        translation_provider="nllb",
+        translation_model="JustFrederik/nllb-200-distilled-600M-ct2-int8",
         embedding_provider="local",
         embedding_model="google/embeddinggemma-300m",
-        llm_provider="local",
-        llm_model="Qwen/Qwen3-0.6B",
+        llm_provider="llama_server",
+        llm_model="local-server",
     ),
 )

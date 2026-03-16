@@ -32,6 +32,7 @@ SECTION_NAMES: tuple[str, ...] = (
     "run",
     "search",
     "translate",
+    "llama_server",
     "tokenize",
     "author_disambiguation",
     "topic_model",
@@ -68,7 +69,16 @@ def _earliest_invalidation_stage(
 
     stage_checks: list[tuple[StageName, list[tuple[str, ...]]]] = [
         ("search", [("search",)]),
-        ("translate", [("translate",), ("run", "openrouter_cost_mode")]),
+        (
+            "translate",
+            [
+                ("translate",),
+                ("translate", "model_repo"),
+                ("translate", "model_file"),
+                ("translate", "model_path"),
+                ("run", "openrouter_cost_mode"),
+            ],
+        ),
         ("tokenize", [("tokenize",)]),
         ("author_disambiguation", [("author_disambiguation",)]),
         (
@@ -81,7 +91,6 @@ def _earliest_invalidation_stage(
                 ("topic_model", "embedding_api_key"),
                 ("topic_model", "embedding_batch_size"),
                 ("topic_model", "embedding_max_workers"),
-                ("topic_model", "gguf_embedding_pooling"),
             ],
         ),
         (
@@ -105,6 +114,9 @@ def _earliest_invalidation_stage(
                 ("topic_model", "llm_prompt"),
                 ("topic_model", "llm_provider"),
                 ("topic_model", "llm_model"),
+                ("topic_model", "llm_model_repo"),
+                ("topic_model", "llm_model_file"),
+                ("topic_model", "llm_model_path"),
                 ("topic_model", "llm_api_key"),
                 ("topic_model", "bertopic_label_max_tokens"),
                 ("topic_model", "toponymy_local_label_max_tokens"),
@@ -116,6 +128,7 @@ def _earliest_invalidation_stage(
                 ("topic_model", "outlier_threshold"),
             ],
         ),
+        ("topic_fit", [("llama_server",)]),
         ("visualize", [("visualization",)]),
         ("curate", [("curation",)]),
         ("citations", [("citations",)]),

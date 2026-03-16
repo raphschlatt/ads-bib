@@ -75,13 +75,20 @@ def test_openrouter_pipeline_config_template_loads():
     assert data["run"]["stop_stage"] is None
     assert data["search"]["query"] == 'author:"Hawking, S*"'
     assert data["topic_model"]["llm_prompt_name"] == "physics"
-    assert data["topic_model"]["gguf_embedding_pooling"] == "cls"
     assert data["author_disambiguation"]["enabled"] is False
     assert data["tokenize"]["spacy_model"] == "en_core_web_md"
     assert data["tokenize"]["fallback_model"] == "en_core_web_md"
     assert data["translate"]["model"] == "google/gemini-3.1-flash-lite-preview"
+    assert data["translate"]["model_repo"] is None
+    assert data["translate"]["model_file"] is None
+    assert data["translate"]["model_path"] is None
+    assert data["llama_server"]["command"] == "llama-server"
+    assert data["llama_server"]["reasoning"] == "off"
     assert data["topic_model"]["embedding_model"] == "qwen/qwen3-embedding-8b"
     assert data["topic_model"]["llm_model"] == "google/gemini-3.1-flash-lite-preview"
+    assert data["topic_model"]["llm_model_repo"] is None
+    assert data["topic_model"]["llm_model_file"] is None
+    assert data["topic_model"]["llm_model_path"] is None
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
 
@@ -90,42 +97,58 @@ def test_openrouter_pipeline_config_template_loads():
         "config_name",
         "translate_provider",
         "translate_model",
+        "translate_model_repo",
+        "translate_model_file",
         "embedding_provider",
         "embedding_model",
         "llm_provider",
         "llm_model",
-        "gguf_pooling",
+        "llm_model_repo",
+        "llm_model_file",
+        "llm_model_path",
     ),
     [
         (
             "hf_api.yaml",
             "huggingface_api",
             "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+            None,
+            None,
             "huggingface_api",
             "Qwen/Qwen3-Embedding-8B",
             "huggingface_api",
             "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
-            "cls",
+            None,
+            None,
+            None,
         ),
         (
             "local_cpu.yaml",
             "nllb",
             "data/models/nllb-200-distilled-600M-ct2-int8",
+            None,
+            None,
             "local",
             "google/embeddinggemma-300m",
-            "gguf",
-            "Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            "cls",
+            "llama_server",
+            None,
+            None,
+            None,
+            "data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
         ),
         (
             "local_gpu.yaml",
-            "gguf",
-            "mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf",
+            "llama_server",
+            None,
+            "mradermacher/translategemma-4b-it-GGUF",
+            "translategemma-4b-it.Q4_K_M.gguf",
             "local",
             "google/embeddinggemma-300m",
-            "gguf",
-            "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf",
-            "cls",
+            "llama_server",
+            None,
+            "unsloth/gemma-3-4b-it-GGUF",
+            "gemma-3-4b-it-Q4_K_M.gguf",
+            None,
         ),
     ],
 )
@@ -133,11 +156,15 @@ def test_official_pipeline_config_templates_load(
     config_name,
     translate_provider,
     translate_model,
+    translate_model_repo,
+    translate_model_file,
     embedding_provider,
     embedding_model,
     llm_provider,
     llm_model,
-    gguf_pooling,
+    llm_model_repo,
+    llm_model_file,
+    llm_model_path,
 ):
     config = pipeline.PipelineConfig.from_yaml(
         Path(__file__).resolve().parents[1] / "configs" / "pipeline" / config_name
@@ -145,16 +172,22 @@ def test_official_pipeline_config_templates_load(
 
     assert config.translate.provider == translate_provider
     assert config.translate.model == translate_model
+    assert config.translate.model_repo == translate_model_repo
+    assert config.translate.model_file == translate_model_file
+    assert config.translate.model_path is None
     assert config.search.query == 'author:"Hawking, S*"'
     assert config.translate.fasttext_model == "data/models/lid.176.bin"
     assert config.translate.max_workers == 8
+    assert config.llama_server.command == "llama-server"
     assert config.topic_model.embedding_provider == embedding_provider
     assert config.topic_model.embedding_model == embedding_model
     assert config.topic_model.embedding_batch_size == 32
     assert config.topic_model.embedding_max_workers == 8
     assert config.topic_model.llm_provider == llm_provider
     assert config.topic_model.llm_model == llm_model
-    assert config.topic_model.gguf_embedding_pooling == gguf_pooling
+    assert config.topic_model.llm_model_repo == llm_model_repo
+    assert config.topic_model.llm_model_file == llm_model_file
+    assert config.topic_model.llm_model_path == llm_model_path
     assert config.topic_model.params_5d == {
         "n_neighbors": 30,
         "metric": "angular",
@@ -239,8 +272,8 @@ def test_run_topic_fit_stage_uses_bertopic_progress_bridge(tmp_path, monkeypatch
             "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
             "topic_model": {
                 "backend": "bertopic",
-                "llm_provider": "gguf",
-                "llm_model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf",
+                "llm_provider": "llama_server",
+                "llm_model_path": "data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
                 "embedding_provider": "local",
                 "embedding_model": "google/embeddinggemma-300m",
                 "cluster_params": {"min_cluster_size": 2, "min_samples": 1},
@@ -342,13 +375,13 @@ def test_prepare_pipeline_config_injects_hf_keys(monkeypatch):
     assert prepared.topic_model.llm_api_key == "hf-token"
 
 
-def test_pipeline_config_rejects_unknown_gguf_pooling():
-    with pytest.raises(ValueError, match="Unknown GGUF pooling type"):
+def test_pipeline_config_rejects_legacy_llama_server_model_string():
+    with pytest.raises(ValueError, match="Legacy topic_model.llm_model value"):
         pipeline.PipelineConfig.from_dict(
             {
                 "topic_model": {
-                    "embedding_provider": "gguf",
-                    "gguf_embedding_pooling": "bogus",
+                    "llm_provider": "llama_server",
+                    "llm_model": "unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf",
                 }
             }
         )

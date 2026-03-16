@@ -309,6 +309,7 @@ def _run_offline_mocked_pipeline(
         del target_lang, model, api_key, api_base, source_lang, max_tokens
         return f"EN::{text}", 4, 2, "gid-1", 0.01
 
+    fake_translation_model_path: str | None = None
     if profile.translation_provider == "openrouter":
         monkeypatch.setattr(tr, "_translate_openrouter", _fake_translate_openrouter)
         monkeypatch.setattr(
@@ -349,14 +350,54 @@ def _run_offline_mocked_pipeline(
             return len(to_translate) * 4, len(to_translate) * 2, []
 
         monkeypatch.setattr(tr, "_translate_rows_huggingface_api", _fake_translate_rows_huggingface_api)
-    else:
-        import ads_bib._utils.gguf_backend as gguf_mod
+    elif profile.translation_provider == "nllb":
+        def _fake_translate_rows_nllb(
+            out_df,
+            *,
+            source_col,
+            target_col,
+            to_translate,
+            target_lang,
+            model,
+            cache_dir=None,
+            show_progress=True,
+            progress_callback=None,
+        ):
+            del target_lang, model, cache_dir, show_progress, progress_callback
+            for idx, text in zip(to_translate.index, to_translate[source_col]):
+                out_df.at[idx, target_col] = f"EN::{text}"
+            return [], 0.01
 
-        monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/path.gguf")
+        monkeypatch.setattr(tr, "_translate_rows_nllb", _fake_translate_rows_nllb)
+    else:
+        fake_model = run_dir / "translation-model.gguf"
+        fake_model.write_text("fake", encoding="utf-8")
+        fake_translation_model_path = str(fake_model)
         monkeypatch.setattr(
-            gguf_mod,
-            "translate_gguf",
-            lambda text, target_lang, **kw: f"EN::{text}",
+            tr,
+            "ensure_llama_server",
+            lambda **kwargs: types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1"),
+        )
+
+        class _FakeCompletions:
+            def create(self, *, model, messages, max_tokens, temperature):
+                del model, max_tokens, temperature
+                return types.SimpleNamespace(
+                    choices=[
+                        types.SimpleNamespace(
+                            message=types.SimpleNamespace(content=f"EN::{messages[-1]['content']}")
+                        )
+                    ]
+                )
+
+        class _FakeClient:
+            chat = types.SimpleNamespace(completions=_FakeCompletions())
+
+        monkeypatch.setattr(tr, "build_openai_client", lambda **kwargs: _FakeClient())
+        monkeypatch.setattr(
+            tr,
+            "build_translation_messages",
+            lambda text, *, target_lang, source_lang=None: [{"role": "user", "content": text}],
         )
 
     publications = tr.detect_languages(publications, ["Title", "Abstract"])
@@ -365,6 +406,7 @@ def _run_offline_mocked_pipeline(
         columns=["Title", "Abstract"],
         provider=profile.translation_provider,
         model=profile.translation_model,
+        model_path=fake_translation_model_path,
         api_key=profile.translation_api_key,
         max_workers=1,
     )

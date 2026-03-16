@@ -1,9 +1,4 @@
-"""Topic-model backends (BERTopic and Toponymy) and clustering orchestration.
-
-`local` uses the Hugging Face stack on CPU or GPU. `gguf` remains a separate
-optional local runtime with llama-cpp-python-specific behavior isolated in
-GGUF helpers.
-"""
+"""Topic-model backends (BERTopic and Toponymy) and clustering orchestration."""
 
 from __future__ import annotations
 
@@ -13,6 +8,7 @@ from contextlib import contextmanager
 import importlib
 import inspect
 import logging
+from pathlib import Path
 from typing import Any, Literal, TypeAlias, cast
 import warnings
 
@@ -26,11 +22,17 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model_for_litellm,
     resolve_huggingface_api_key,
 )
+from ads_bib._utils.llama_server import (
+    LlamaServerConfig,
+    build_openai_client,
+    ensure_llama_server,
+)
 from ads_bib._utils.logging import (
     capture_external_output,
     get_runtime_log_path,
     temporarily_raise_logger_level,
 )
+from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
     openrouter_usage_from_response,
@@ -52,7 +54,7 @@ from ads_bib.topic_model._runtime import (
     TOPONYMY_EMBEDDING_PROVIDERS,
     TOPONYMY_LLM_PROVIDERS,
 )
-from ads_bib.topic_model.embeddings import GGUFEmbedder, OpenRouterEmbedder
+from ads_bib.topic_model.embeddings import OpenRouterEmbedder
 
 logger = logging.getLogger("ads_bib.topic_model")
 
@@ -62,9 +64,9 @@ DEFAULT_POS_SPACY_MODEL = "en_core_web_md"
 DEFAULT_KEYBERT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128   # Concise topic labels (4-7 words)
 DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 256  # Toponymy needs more tokens for hierarchical labels
-BERTopicLLMProvider: TypeAlias = Literal["local", "gguf", "huggingface_api", "openrouter"]
-ToponymyLLMProvider: TypeAlias = Literal["local", "gguf", "openrouter"]
-ToponymyEmbeddingProvider: TypeAlias = Literal["local", "gguf", "openrouter"]
+BERTopicLLMProvider: TypeAlias = Literal["local", "llama_server", "huggingface_api", "openrouter"]
+ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "openrouter"]
+ToponymyEmbeddingProvider: TypeAlias = Literal["local", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
 
 
@@ -366,7 +368,7 @@ def _bridge_bertopic_label_progress(*, reporter: Any | None, desc: str):
         for module_name in (
             "bertopic.representation._textgeneration",
             "bertopic.representation._litellm",
-            "bertopic.representation._llamacpp",
+            "bertopic.representation._openai",
         ):
             try:
                 module = importlib.import_module(module_name)
@@ -383,15 +385,34 @@ def _bridge_bertopic_label_progress(*, reporter: Any | None, desc: str):
             cm.__exit__(None, None, None)
 
 
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> reasoning blocks from LLM output."""
+    return text.replace("<think>", "").split("</think>", 1)[-1].strip()
+
+
+def _strip_think_tags_from_topics(topic_model) -> None:
+    """Post-process BERTopic representations to remove any leaked think tags."""
+    reps = getattr(topic_model, "topic_representations_", None)
+    if not reps:
+        return
+    for topic_id, words in reps.items():
+        reps[topic_id] = [
+            (_strip_think_tags(w), score) for w, score in words
+        ]
+
+
 def _create_llm(
     provider: str,
     model: str,
+    model_spec: ModelSpec | None,
     prompt: str,
     nr_docs: int,
     diversity: float,
     delay: float,
     llm_max_new_tokens: int,
     api_key: str | None,
+    llama_server_config: LlamaServerConfig | None,
+    runtime_log_path: Path | None,
 ) -> Any:
     """Create configured BERTopic LLM representation backend."""
     llm_max_new_tokens = max(1, int(llm_max_new_tokens))
@@ -429,22 +450,21 @@ def _create_llm(
             },
         )
 
-    if provider == "gguf":
-        from bertopic.representation import LlamaCPP as BERTopicLlamaCPP
+    if provider == "llama_server":
+        from bertopic.representation import OpenAI as BERTopicOpenAI
 
-        from ads_bib._utils.gguf_backend import (
-            _load_llama,
-            _make_llama_jupyter_safe,
-            resolve_gguf_model,
+        if model_spec is None:
+            raise ValueError("llama_server provider requires a resolved ModelSpec.")
+        handle = ensure_llama_server(
+            model_spec=model_spec,
+            config=llama_server_config or LlamaServerConfig(),
+            runtime_log_path=runtime_log_path,
         )
-
-        model_path = resolve_gguf_model(model)
-        llm = _load_llama(model_path, n_ctx=4096)
-        _make_llama_jupyter_safe(llm)
-        return BERTopicLlamaCPP(
-            model=llm,
+        return BERTopicOpenAI(
+            client=build_openai_client(handle=handle),
+            model=Path(model_spec.resolve()).name,
             prompt=prompt,
-            pipeline_kwargs={"max_tokens": llm_max_new_tokens},
+            generator_kwargs={"max_tokens": llm_max_new_tokens, "temperature": 0.0},
             nr_docs=nr_docs,
             diversity=diversity,
         )
@@ -488,6 +508,7 @@ def _build_representation_model(
     *,
     llm_provider: str,
     llm_model: str,
+    llm_model_spec: ModelSpec | None,
     llm_prompt: str | None,
     pipeline_models: list[str],
     parallel_models: list[str],
@@ -498,6 +519,8 @@ def _build_representation_model(
     llm_max_new_tokens: int,
     api_key: str | None,
     pos_spacy_model: str,
+    llama_server_config: LlamaServerConfig | None,
+    runtime_log_path: Path | None,
 ) -> dict[str, Any]:
     """Build BERTopic representation models for sequential and parallel use."""
     from bertopic.representation import MaximalMarginalRelevance, PartOfSpeech
@@ -522,12 +545,15 @@ def _build_representation_model(
         _create_llm(
             llm_provider,
             llm_model,
+            llm_model_spec,
             prompt,
             llm_nr_docs,
             llm_diversity,
             llm_delay,
             llm_max_new_tokens,
             api_key,
+            llama_server_config,
+            runtime_log_path,
         )
     )
 
@@ -812,13 +838,15 @@ def _build_toponymy_models(
     llm_provider_norm: str,
     embedding_provider_norm: str,
     llm_model: str,
+    llm_model_spec: ModelSpec | None,
     embedding_model: str,
     api_key: str | None,
     openrouter_api_base: str,
     max_workers: int,
     local_llm_max_new_tokens: int,
     cost_tracker: "CostTracker | None",
-    gguf_pooling: str = "cls",
+    llama_server_config: LlamaServerConfig | None,
+    runtime_log_path: Path | None,
 ) -> tuple[Any, dict[str, Any] | None, Any]:
     """Build Toponymy naming and text-embedding components."""
     if llm_provider_norm == "openrouter":
@@ -828,48 +856,30 @@ def _build_toponymy_models(
             base_url=openrouter_api_base,
             max_workers=max_workers,
         )
-    elif llm_provider_norm == "gguf":
-        from ads_bib._utils.gguf_backend import (
-            gguf_supports_gpu_offload,
-            _make_llama_jupyter_safe,
-            recommended_gguf_thread_settings,
-            safe_stdio,
-            resolve_gguf_model,
-        )
-
-        model_path = resolve_gguf_model(llm_model)
+    elif llm_provider_norm == "llama_server":
         try:
-            from toponymy.llm_wrappers import LlamaCppNamer
+            from toponymy.llm_wrappers import OpenAINamer
         except ImportError as exc:
             raise ImportError(
-                "Toponymy GGUF labeling requires 'toponymy' with LlamaCppNamer and "
-                "'llama-cpp-python'. Install with: pip install toponymy llama-cpp-python"
+                "llm_provider='llama_server' requires optional dependency 'openai' "
+                "and Toponymy's OpenAINamer wrapper."
             ) from exc
-        n_threads, n_threads_batch = recommended_gguf_thread_settings()
-        gpu_offload = gguf_supports_gpu_offload()
-        logger.info(
-            "  Toponymy GGUF runtime hint | threads=%s | threads_batch=%s | gpu_offload=%s",
-            n_threads,
-            n_threads_batch,
-            gpu_offload,
+        if llm_model_spec is None:
+            raise ValueError("llama_server provider requires a resolved ModelSpec.")
+        handle = ensure_llama_server(
+            model_spec=llm_model_spec,
+            config=llama_server_config or LlamaServerConfig(),
+            runtime_log_path=runtime_log_path,
         )
-        with safe_stdio():
-            try:
-                llm_wrapper = LlamaCppNamer(
-                    model_path=model_path,
-                    n_ctx=4096,
-                    n_gpu_layers=-1,
-                    n_threads=n_threads,
-                    n_threads_batch=n_threads_batch,
-                    verbose=False,
-                )
-            except TypeError:
-                llm_wrapper = LlamaCppNamer(
-                    model_path=model_path, n_ctx=4096, n_gpu_layers=-1, verbose=False,
-                )
-        _make_llama_jupyter_safe(llm_wrapper.llm)
+        llm_wrapper = OpenAINamer(
+            api_key="local",
+            model=Path(llm_model_spec.resolve()).name,
+            base_url=handle.base_url,
+        )
         if cost_tracker is not None:
-            logger.info("  GGUF Toponymy LLM selected; token/cost tracking is unavailable for this step.")
+            logger.info(
+                "  llama_server Toponymy LLM selected; token/cost tracking is unavailable for this step."
+            )
         llm_usage = None
     else:
         try:
@@ -959,12 +969,6 @@ def _build_toponymy_models(
             api_base=openrouter_api_base,
             max_workers=max_workers,
         )
-    elif embedding_provider_norm == "gguf":
-        text_embedding_model = GGUFEmbedder(
-            model=embedding_model,
-            max_workers=max_workers,
-            pooling=gguf_pooling,
-        )
     else:
         try:
             from sentence_transformers import SentenceTransformer
@@ -1052,6 +1056,9 @@ def fit_bertopic(
     *,
     llm_provider: BERTopicLLMProvider = "local",
     llm_model: str = "google/gemma-3-1b-it",
+    llm_model_repo: str | None = None,
+    llm_model_file: str | None = None,
+    llm_model_path: str | None = None,
     llm_prompt: str | None = None,
     pipeline_models: list[str] | None = None,
     parallel_models: list[str] | None = None,
@@ -1071,6 +1078,8 @@ def fit_bertopic(
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",
     cost_tracker: "CostTracker | None" = None,
+    llama_server_config: LlamaServerConfig | None = None,
+    runtime_log_path: Path | None = None,
 ) -> "BERTopic":
     """Fit BERTopic on pre-reduced document vectors.
 
@@ -1081,7 +1090,7 @@ def fit_bertopic(
     reduced_5d : np.ndarray
         Five-dimensional vectors used directly for clustering.
     llm_provider : str
-        Labeling backend: ``"local"``, ``"gguf"``, ``"huggingface_api"``, ``"openrouter"``.
+        Labeling backend: ``"local"``, ``"llama_server"``, ``"huggingface_api"``, ``"openrouter"``.
     llm_model : str
         LLM model used for topic naming.
     llm_max_new_tokens : int
@@ -1103,7 +1112,17 @@ def fit_bertopic(
     BERTopic
         Fitted BERTopic instance.
     """
-    if llm_provider == "huggingface_api":
+    llm_model_spec = None
+    if llm_provider == "llama_server":
+        llm_model_spec = ModelSpec.from_fields(
+            model_repo=llm_model_repo,
+            model_file=llm_model_file,
+            model_path=llm_model_path,
+            legacy_value=llm_model,
+            field_label="llm_model",
+        )
+        llm_model = llm_model_spec.display_name()
+    elif llm_provider == "huggingface_api":
         llm_model = normalize_huggingface_model(llm_model)
         api_key = resolve_huggingface_api_key(api_key)
     validate_provider(
@@ -1131,6 +1150,7 @@ def fit_bertopic(
     rep_model = _build_representation_model(
         llm_provider=llm_provider,
         llm_model=llm_model,
+        llm_model_spec=llm_model_spec,
         llm_prompt=llm_prompt,
         pipeline_models=pipeline_models,
         parallel_models=parallel_models,
@@ -1141,6 +1161,8 @@ def fit_bertopic(
         llm_max_new_tokens=llm_max_new_tokens,
         api_key=api_key,
         pos_spacy_model=pos_spacy_model,
+        llama_server_config=llama_server_config,
+        runtime_log_path=runtime_log_path,
     )
 
     n_docs = len(documents)
@@ -1201,6 +1223,8 @@ def fit_bertopic(
         cost_tracker=cost_tracker,
     )
 
+    _strip_think_tags_from_topics(topic_model)
+
     return topic_model
 
 
@@ -1217,6 +1241,9 @@ def fit_toponymy(
     layer_index: int = 0,
     llm_provider: ToponymyLLMProvider = "openrouter",
     llm_model: str = "google/gemini-3-flash-preview",
+    llm_model_repo: str | None = None,
+    llm_model_file: str | None = None,
+    llm_model_path: str | None = None,
     embedding_provider: ToponymyEmbeddingProvider = "local",
     embedding_model: str = "google/gemini-embedding-001",
     api_key: str | None = None,
@@ -1229,7 +1256,8 @@ def fit_toponymy(
     corpus_description: str = "collection of research papers",
     verbose: bool = True,
     cost_tracker: "CostTracker | None" = None,
-    gguf_pooling: str = "cls",
+    llama_server_config: LlamaServerConfig | None = None,
+    runtime_log_path: Path | None = None,
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
     """Fit Toponymy (or Toponymy+EVoC) and return topic assignments.
 
@@ -1276,6 +1304,16 @@ def fit_toponymy(
         backend=backend,
         api_key=api_key,
     )
+    llm_model_spec = None
+    if llm_provider_norm == "llama_server":
+        llm_model_spec = ModelSpec.from_fields(
+            model_repo=llm_model_repo,
+            model_file=llm_model_file,
+            model_path=llm_model_path,
+            legacy_value=llm_model,
+            field_label="llm_model",
+        )
+        llm_model = llm_model_spec.display_name()
     from toponymy import Toponymy, ToponymyClusterer
 
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
@@ -1294,13 +1332,15 @@ def fit_toponymy(
         llm_provider_norm=llm_provider_norm,
         embedding_provider_norm=embedding_provider_norm,
         llm_model=llm_model,
+        llm_model_spec=llm_model_spec,
         embedding_model=embedding_model,
         api_key=api_key,
         openrouter_api_base=openrouter_api_base,
         max_workers=max_workers,
         local_llm_max_new_tokens=local_llm_max_new_tokens,
         cost_tracker=cost_tracker,
-        gguf_pooling=gguf_pooling,
+        llama_server_config=llama_server_config,
+        runtime_log_path=runtime_log_path,
     )
     topic_model, topics, topic_info = _fit_and_extract_toponymy_outputs(
         toponymy_cls=Toponymy,

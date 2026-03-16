@@ -8,13 +8,8 @@ import pytest
 
 import ads_bib.config as cfg
 import ads_bib.translate as tr
+from ads_bib._utils.model_specs import ModelSpec
 from ads_bib.prompts import build_translation_messages
-
-
-def _allow_llama_cpp(monkeypatch):
-    """Make validate_provider accept 'gguf' even when llama_cpp is not installed."""
-    _orig = cfg.find_spec
-    monkeypatch.setattr(cfg, "find_spec", lambda m: True if m == "llama_cpp" else _orig(m))
 
 
 def _allow_ctranslate2(monkeypatch):
@@ -104,16 +99,16 @@ def test_translate_dataframe_openrouter_success_tracks_cost(monkeypatch):
     assert tracker.entries[0]["cost_usd"] == 0.01
 
 
-def test_translate_dataframe_gguf_success_has_no_cost_tracking(monkeypatch, caplog):
-    _allow_llama_cpp(monkeypatch)
-    caplog.set_level("INFO", logger="ads_bib.translate")
+def test_translate_dataframe_llama_server_success_has_no_cost_tracking(tmp_path, monkeypatch):
     df = pd.DataFrame(
         {
             "Title": ["Hallo", "Hello"],
             "Title_lang": ["de", "en"],
         }
     )
-    calls: dict = {"texts": []}
+    calls: dict = {"texts": [], "messages": []}
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
 
     class _Tracker:
         def __init__(self):
@@ -122,90 +117,106 @@ def test_translate_dataframe_gguf_success_has_no_cost_tracking(monkeypatch, capl
         def add(self, **kwargs):
             self.entries.append(kwargs)
 
-    import ads_bib._utils.gguf_backend as gguf_mod
+    class _FakeCompletions:
+        def create(self, *, model, messages, max_tokens, temperature):
+            calls["model"] = model
+            calls["messages"].append(messages)
+            calls["max_tokens"] = max_tokens
+            calls["temperature"] = temperature
+            calls["texts"].append(messages[-1]["content"])
+            return types.SimpleNamespace(
+                choices=[
+                    types.SimpleNamespace(
+                        message=types.SimpleNamespace(content="Hallo-EN")
+                    )
+                ]
+            )
 
-    monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/path.gguf")
+    class _FakeClient:
+        chat = types.SimpleNamespace(completions=_FakeCompletions())
 
-    def _fake_translate_gguf(
-        text,
-        target_lang,
-        *,
-        source_lang,
-        model_path,
-        n_ctx=4096,
-        n_threads=None,
-        n_threads_batch=None,
-        max_tokens=2048,
-    ):
-        calls["texts"].append(text)
-        calls["target_lang"] = target_lang
-        calls["source_lang"] = source_lang
-        calls["model_path"] = model_path
-        calls["n_ctx"] = n_ctx
-        calls["n_threads"] = n_threads
-        calls["n_threads_batch"] = n_threads_batch
-        calls["max_tokens"] = max_tokens
-        return f"{text}-EN"
-
-    monkeypatch.setattr(gguf_mod, "translate_gguf", _fake_translate_gguf)
+    monkeypatch.setattr(
+        tr,
+        "ensure_llama_server",
+        lambda **kwargs: types.SimpleNamespace(base_url="http://127.0.0.1:8080"),
+    )
+    monkeypatch.setattr(tr, "build_openai_client", lambda **kwargs: _FakeClient())
+    monkeypatch.setattr(
+        tr,
+        "build_translation_messages",
+        lambda text, *, target_lang, source_lang=None: [{"role": "user", "content": text}],
+    )
 
     tracker = _Tracker()
     out_df, cost_info = tr.translate_dataframe(
         df,
         columns=["Title"],
-        provider="gguf",
-        model="mradermacher/translategemma-4b-it-GGUF",
+        provider="llama_server",
+        model_path=str(model_file),
         max_workers=1,
         max_translation_tokens=321,
-        gguf_auto_chunk=False,
         cost_tracker=tracker,
     )
 
     assert out_df["Title_en"].tolist() == ["Hallo-EN", "Hello"]
     assert calls["texts"] == ["Hallo"]
-    assert calls["target_lang"] == "en"
-    assert calls["model_path"] == "/fake/path.gguf"
-    assert calls["n_ctx"] == 4096
+    assert calls["model"] == "model.gguf"
     assert calls["max_tokens"] == 321
-    assert cost_info["provider"] == "gguf"
-    assert cost_info["model"] == "mradermacher/translategemma-4b-it-GGUF"
+    assert calls["temperature"] == 0
+    assert cost_info["provider"] == "llama_server"
+    assert cost_info["model"] == str(model_file)
     assert cost_info["prompt_tokens"] == 0
     assert cost_info["completion_tokens"] == 0
     assert cost_info["cost_usd"] is None
     assert cost_info["cost_mode"] is None
     assert cost_info["cost_summary"] is None
     assert tracker.entries == []
-    assert "GGUF translation" in caplog.text
 
 
-def test_translate_text_with_gguf_chunk_merge(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
+def test_translate_text_with_llama_server_chunk_merge(tmp_path, monkeypatch):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
 
     monkeypatch.setattr(
-        gguf_mod,
-        "split_text_by_gguf_tokens",
-        lambda text, *, model_path, max_input_tokens, overlap_tokens: ["A B C", "C D E"],
+        tr,
+        "_split_text_by_chars",
+        lambda text, *, chunk_chars, chunk_overlap_chars: ["A B C", "C D E"],
     )
 
-    def _fake_translate(text, target_lang, *, source_lang, model_path, **kwargs):
-        del target_lang, source_lang, model_path, kwargs
-        return {"A B C": "alpha beta gamma", "C D E": "gamma delta epsilon"}[text]
+    class _FakeCompletions:
+        def create(self, *, model, messages, max_tokens, temperature):
+            del model, max_tokens, temperature
+            text = messages[-1]["content"]
+            translated = {"A B C": "alpha beta gamma", "C D E": "gamma delta epsilon"}[text]
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=translated))]
+            )
 
-    monkeypatch.setattr(gguf_mod, "translate_gguf", _fake_translate)
-    # Text must be longer than chunk_input_tokens * 4 chars to trigger chunking
-    long_text = "x" * 2000
-    translated, chunk_count = tr._translate_text_with_gguf(
-        long_text,
+    class _FakeClient:
+        chat = types.SimpleNamespace(completions=_FakeCompletions())
+
+    monkeypatch.setattr(
+        tr,
+        "ensure_llama_server",
+        lambda **kwargs: types.SimpleNamespace(base_url="http://127.0.0.1:8080"),
+    )
+    monkeypatch.setattr(tr, "build_openai_client", lambda **kwargs: _FakeClient())
+    monkeypatch.setattr(
+        tr,
+        "build_translation_messages",
+        lambda text, *, target_lang, source_lang=None: [{"role": "user", "content": text}],
+    )
+
+    translated, chunk_count = tr._translate_text_with_llama_server(
+        "x" * 2000,
         target_lang="en",
         source_lang="de",
-        model_path="/fake/path.gguf",
+        model_spec=ModelSpec(model_path=str(model_file)),
         max_tokens=128,
-        n_ctx=4096,
-        n_threads=4,
-        n_threads_batch=8,
-        auto_chunk=True,
-        chunk_input_tokens=384,
-        chunk_overlap_tokens=48,
+        llama_server_config=tr.LlamaServerConfig(),
+        runtime_log_path=None,
+        chunk_chars=384,
+        chunk_overlap_chars=48,
     )
     assert chunk_count == 2
     assert translated == "alpha beta gamma delta epsilon"
@@ -391,17 +402,18 @@ def test_translate_dataframe_validates_max_translation_tokens():
         )
 
 
-def test_translate_dataframe_validates_gguf_chunk_overlap(monkeypatch):
-    _allow_llama_cpp(monkeypatch)
+def test_translate_dataframe_validates_llama_server_chunk_overlap(tmp_path):
     df = pd.DataFrame({"Title": ["Hallo"], "Title_lang": ["de"]})
-    with pytest.raises(ValueError, match="gguf_chunk_overlap_tokens must be < gguf_chunk_input_tokens"):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
+    with pytest.raises(ValueError, match="llama_server_chunk_overlap_chars must be < llama_server_chunk_chars"):
         tr.translate_dataframe(
             df,
             columns=["Title"],
-            provider="gguf",
-            model="mradermacher/translategemma-4b-it-GGUF",
-            gguf_chunk_input_tokens=128,
-            gguf_chunk_overlap_tokens=128,
+            provider="llama_server",
+            model_path=str(model_file),
+            llama_server_chunk_chars=128,
+            llama_server_chunk_overlap_chars=128,
         )
 
 
@@ -440,19 +452,15 @@ def test_translate_dataframe_openrouter_requires_api_key():
         )
 
 
-def test_resolve_gguf_model_local_path_passthrough(tmp_path):
+def test_model_spec_resolve_local_path_passthrough(tmp_path):
     fake_model = tmp_path / "model.gguf"
-    fake_model.write_text("fake")
+    fake_model.write_text("fake", encoding="utf-8")
 
-    from ads_bib._utils.gguf_backend import resolve_gguf_model
-
-    result = resolve_gguf_model(str(fake_model))
+    result = ModelSpec(model_path=str(fake_model)).resolve()
     assert result == str(fake_model.resolve())
 
 
-def test_resolve_gguf_model_downloads_from_hub(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
+def test_model_spec_resolve_downloads_from_hub(monkeypatch):
     calls: dict = {}
 
     def _fake_hf_hub_download(repo_id, filename):
@@ -464,30 +472,20 @@ def test_resolve_gguf_model_downloads_from_hub(monkeypatch):
 
     monkeypatch.setattr(huggingface_hub, "hf_hub_download", _fake_hf_hub_download)
 
-    result = gguf_mod.resolve_gguf_model("mradermacher/translategemma-4b-it-GGUF")
+    result = ModelSpec(
+        model_repo="mradermacher/translategemma-4b-it-GGUF",
+        model_file="translategemma-4b-it.Q4_K_M.gguf",
+    ).resolve()
     assert result == "/cached/path/model.gguf"
     assert calls["repo_id"] == "mradermacher/translategemma-4b-it-GGUF"
     assert calls["filename"] == "translategemma-4b-it.Q4_K_M.gguf"
 
 
-def test_resolve_gguf_model_explicit_filename(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    calls: dict = {}
-
-    def _fake_hf_hub_download(repo_id, filename):
-        calls["repo_id"] = repo_id
-        calls["filename"] = filename
-        return "/cached/path/custom.gguf"
-
-    import huggingface_hub
-
-    monkeypatch.setattr(huggingface_hub, "hf_hub_download", _fake_hf_hub_download)
-
-    result = gguf_mod.resolve_gguf_model("mradermacher/translategemma-4b-it-GGUF:custom.Q5_K_S.gguf")
-    assert result == "/cached/path/custom.gguf"
-    assert calls["repo_id"] == "mradermacher/translategemma-4b-it-GGUF"
-    assert calls["filename"] == "custom.Q5_K_S.gguf"
+def test_model_spec_rejects_legacy_repo_file_string():
+    with pytest.raises(ValueError, match="Legacy model value"):
+        ModelSpec.from_fields(
+            legacy_value="mradermacher/translategemma-4b-it-GGUF:custom.Q5_K_S.gguf",
+        )
 
 
 def test_nllb_lang_code_mapping():

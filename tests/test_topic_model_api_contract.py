@@ -50,7 +50,6 @@ def test_compute_embeddings_signature_contract():
         "cost_tracker",
         "show_progress",
         "progress_callback",
-        "gguf_pooling",
     ]
     _assert_keyword_only(
         tm.compute_embeddings,
@@ -66,7 +65,6 @@ def test_compute_embeddings_signature_contract():
             "cost_tracker",
             "show_progress",
             "progress_callback",
-            "gguf_pooling",
         ],
     )
     assert signature.parameters["dtype"].default == np.float16
@@ -107,6 +105,9 @@ def test_fit_bertopic_signature_contract():
         "reduced_5d",
         "llm_provider",
         "llm_model",
+        "llm_model_repo",
+        "llm_model_file",
+        "llm_model_path",
         "llm_prompt",
         "pipeline_models",
         "parallel_models",
@@ -126,12 +127,17 @@ def test_fit_bertopic_signature_contract():
         "api_key",
         "openrouter_cost_mode",
         "cost_tracker",
+        "llama_server_config",
+        "runtime_log_path",
     ]
     _assert_keyword_only(
         tm.fit_bertopic,
         [
             "llm_provider",
             "llm_model",
+            "llm_model_repo",
+            "llm_model_file",
+            "llm_model_path",
             "llm_prompt",
             "pipeline_models",
             "parallel_models",
@@ -151,6 +157,8 @@ def test_fit_bertopic_signature_contract():
             "api_key",
             "openrouter_cost_mode",
             "cost_tracker",
+            "llama_server_config",
+            "runtime_log_path",
         ],
     )
 
@@ -165,6 +173,9 @@ def test_fit_toponymy_signature_contract():
         "layer_index",
         "llm_provider",
         "llm_model",
+        "llm_model_repo",
+        "llm_model_file",
+        "llm_model_path",
         "embedding_provider",
         "embedding_model",
         "api_key",
@@ -177,7 +188,8 @@ def test_fit_toponymy_signature_contract():
         "corpus_description",
         "verbose",
         "cost_tracker",
-        "gguf_pooling",
+        "llama_server_config",
+        "runtime_log_path",
     ]
     _assert_keyword_only(
         tm.fit_toponymy,
@@ -186,6 +198,9 @@ def test_fit_toponymy_signature_contract():
             "layer_index",
             "llm_provider",
             "llm_model",
+            "llm_model_repo",
+            "llm_model_file",
+            "llm_model_path",
             "embedding_provider",
             "embedding_model",
             "api_key",
@@ -198,7 +213,8 @@ def test_fit_toponymy_signature_contract():
             "corpus_description",
             "verbose",
             "cost_tracker",
-            "gguf_pooling",
+            "llama_server_config",
+            "runtime_log_path",
         ],
     )
 

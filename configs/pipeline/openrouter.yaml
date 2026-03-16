@@ -16,10 +16,23 @@ translate:
   enabled: true
   provider: openrouter
   model: google/gemini-3.1-flash-lite-preview
+  model_repo: null
+  model_file: null
+  model_path: null
   api_key: null
   max_workers: 8
   max_tokens: 2048
   fasttext_model: data/models/lid.176.bin
+
+llama_server:
+  command: llama-server
+  host: 127.0.0.1
+  port: null
+  threads: null
+  ctx_size: 4096
+  gpu_layers: -1
+  startup_timeout_s: 120.0
+  reasoning: "off"
 
 tokenize:
   enabled: true
@@ -47,7 +60,6 @@ topic_model:
   embedding_api_key: null
   embedding_batch_size: 32
   embedding_max_workers: 8
-  gguf_embedding_pooling: cls
   reduction_method: pacmap
   params_5d:
     n_neighbors: 30
@@ -71,6 +83,9 @@ topic_model:
   llm_prompt: null
   llm_provider: openrouter
   llm_model: google/gemini-3.1-flash-lite-preview
+  llm_model_repo: null
+  llm_model_file: null
+  llm_model_path: null
   llm_api_key: null
   bertopic_label_max_tokens: 64
   toponymy_local_label_max_tokens: 256

@@ -74,16 +74,65 @@ def test_config_change_invalidates_from_correct_stage(tmp_path):
     assert context.curated_df is None
 
 
-def test_gguf_pooling_change_invalidates_embeddings_stage(tmp_path):
+def test_llama_server_section_change_invalidates_topic_fit_stage(tmp_path):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section(
+        "llama_server",
+        {
+            "command": "llama-server",
+            "host": "127.0.0.1",
+            "port": None,
+            "threads": None,
+            "ctx_size": 4096,
+            "gpu_layers": -1,
+            "startup_timeout_s": 120.0,
+        },
+    )
+    session.set_section(
+        "topic_model",
+        {
+            "embedding_provider": "local",
+            "embedding_model": "google/embeddinggemma-300m",
+            "llm_provider": "llama_server",
+            "llm_model_path": "data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
+        },
+    )
+
+    context = session._context
+    assert context is not None
+    context.embeddings = np.ones((2, 3))
+    context.reduced_5d = np.ones((2, 5))
+    context.topic_model = object()
+    context.topic_df = object()
+
+    session.set_section(
+        "llama_server",
+        {
+            "command": "llama-server",
+            "host": "127.0.0.1",
+            "port": None,
+            "threads": 6,
+            "ctx_size": 4096,
+            "gpu_layers": -1,
+            "startup_timeout_s": 120.0,
+        },
+    )
+
+    assert context.embeddings is not None
+    assert context.reduced_5d is not None
+    assert context.topic_model is None
+    assert context.topic_df is None
+
+
+def test_llama_server_model_change_invalidates_topic_fit_stage(tmp_path):
     session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
     session.set_section(
         "topic_model",
         {
-            "embedding_provider": "gguf",
-            "embedding_model": "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
-            "gguf_embedding_pooling": "cls",
-            "llm_provider": "local",
-            "llm_model": "tiny",
+            "embedding_provider": "local",
+            "embedding_model": "google/embeddinggemma-300m",
+            "llm_provider": "llama_server",
+            "llm_model_path": "data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
         },
     )
 
@@ -97,16 +146,15 @@ def test_gguf_pooling_change_invalidates_embeddings_stage(tmp_path):
     session.set_section(
         "topic_model",
         {
-            "embedding_provider": "gguf",
-            "embedding_model": "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
-            "gguf_embedding_pooling": "last",
-            "llm_provider": "local",
-            "llm_model": "tiny",
+            "embedding_provider": "local",
+            "embedding_model": "google/embeddinggemma-300m",
+            "llm_provider": "llama_server",
+            "llm_model_path": "data/models/gemma3_gguf/gemma-3-4b-it-Q4_K_M.gguf",
         },
     )
 
-    assert context.embeddings is None
-    assert context.reduced_5d is None
+    assert context.embeddings is not None
+    assert context.reduced_5d is not None
     assert context.topic_model is None
     assert context.topic_df is None
 

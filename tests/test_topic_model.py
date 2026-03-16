@@ -14,7 +14,9 @@ import pandas as pd
 import pytest
 
 import ads_bib.topic_model as tm
+from ads_bib._utils.llama_server import LlamaServerConfig
 from ads_bib._utils import logging as logging_utils
+from ads_bib._utils.model_specs import ModelSpec
 from ads_bib.topic_model import backends as tm_backends
 from ads_bib.topic_model import embeddings as tm_embeddings
 from ads_bib.topic_model import reduction as tm_reduction
@@ -203,12 +205,15 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
     llm = tm_backends._create_llm(
         provider="local",
         model="Qwen/Qwen3-0.6B",
+        model_spec=None,
         prompt="topic: <label>",
         nr_docs=8,
         diversity=0.2,
         delay=0.3,
         llm_max_new_tokens=64,
         api_key=None,
+        llama_server_config=None,
+        runtime_log_path=None,
     )
 
     assert isinstance(llm, _FakeTextGeneration)
@@ -252,12 +257,15 @@ def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
         tm_backends._create_llm(
             provider="local",
             model="Qwen/Qwen3-0.6B",
+            model_spec=None,
             prompt="topic: <label>",
             nr_docs=8,
             diversity=0.2,
             delay=0.3,
             llm_max_new_tokens=64,
             api_key=None,
+            llama_server_config=None,
+            runtime_log_path=None,
         )
 
 
@@ -275,12 +283,15 @@ def test_create_llm_huggingface_api_normalizes_model_and_passes_api_key(monkeypa
     llm = tm_backends._create_llm(
         provider="huggingface_api",
         model="unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+        model_spec=None,
         prompt="topic: <label>",
         nr_docs=8,
         diversity=0.2,
         delay=0.3,
         llm_max_new_tokens=64,
         api_key="hf-token",
+        llama_server_config=None,
+        runtime_log_path=None,
     )
 
     assert isinstance(llm, _FakeLiteLLM)
@@ -720,51 +731,6 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
     assert calls["kwargs"]["llm_provider"] == "local"
 
 
-def test_fit_toponymy_supports_gguf_embedding_provider_independent_of_local_llm(monkeypatch):
-    _install_fake_toponymy_modules(monkeypatch)
-    calls: dict = {}
-
-    class _FakeGGUFEmbedder:
-        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096, pooling="cls"):
-            del batch_size, dtype, n_ctx, pooling
-            self.model = model
-            self.max_workers = max_workers
-            calls["embedding_model"] = model
-            calls["embedding_workers"] = max_workers
-
-        def encode(self, texts, verbose=None, show_progress_bar=None, **kwargs):
-            del texts, verbose, show_progress_bar, kwargs
-            return np.ones((0, 0), dtype=np.float32)
-
-    def _fake_record_llm_usage(usage, **kwargs):
-        calls["usage"] = usage
-        calls["kwargs"] = kwargs
-
-    monkeypatch.setattr(tm_backends, "GGUFEmbedder", _FakeGGUFEmbedder)
-    monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
-
-    model, topics, _ = tm.fit_toponymy(
-        documents=["d1", "d2", "d3"],
-        embeddings=np.ones((3, 3), dtype=np.float32),
-        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
-        backend="toponymy",
-        layer_index=0,
-        llm_provider="local",
-        llm_model="local-llm",
-        embedding_provider="gguf",
-        embedding_model="Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
-        max_workers=7,
-    )
-
-    assert isinstance(model.llm_wrapper, _FakeHuggingFaceNamer)
-    assert isinstance(model.text_embedding_model, _FakeGGUFEmbedder)
-    assert model.text_embedding_model.model == "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf"
-    assert calls["embedding_workers"] == 7
-    assert topics.tolist() == [-1, 0, 1]
-    assert calls["usage"] is None
-    assert calls["kwargs"]["llm_provider"] == "local"
-
-
 @pytest.mark.slow
 def test_fit_toponymy_local_requires_hf_dependencies(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch, include_hf_namer=False)
@@ -973,155 +939,13 @@ def test_compute_embeddings_passes_progress_callback_to_openrouter(monkeypatch):
     assert progress_updates == [2, 1]
 
 
-def test_compute_embeddings_validates_gguf_provider_import_path(monkeypatch):
-    calls: dict[str, Any] = {}
-
-    def _fake_validate_provider(provider, **kwargs):
-        calls["provider"] = provider
-        calls["valid"] = kwargs["valid"]
-        calls["requires_import"] = kwargs["requires_import"]
-
-    class _FakeGGUFEmbedder:
-        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096, pooling="cls"):
-            del model, batch_size, max_workers, dtype, n_ctx, pooling
-
-        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
-            del verbose, show_progress_bar, progress_callback, kwargs
-            return np.ones((len(texts), 2), dtype=np.float32)
-
-    monkeypatch.setattr(tm_embeddings, "validate_provider", _fake_validate_provider)
-    monkeypatch.setattr(tm_embeddings, "GGUFEmbedder", _FakeGGUFEmbedder)
-
-    emb = tm.compute_embeddings(
-        ["d1", "d2"],
-        provider="gguf",
-        model="Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
-    )
-
-    assert emb.shape == (2, 2)
-    assert calls["provider"] == "gguf"
-    assert "gguf" in calls["valid"]
-    assert calls["requires_import"]["gguf"] == "llama_cpp"
-
-
-def test_gguf_embedder_batches_keep_order_and_progress(monkeypatch):
-    calls: list[dict[str, Any]] = []
-    progress_updates: list[int] = []
-
-    monkeypatch.setattr(tm_embeddings, "resolve_gguf_model", lambda model: f"/fake/{model.split(':')[-1]}")
-    monkeypatch.setattr(tm_embeddings, "recommended_gguf_thread_settings", lambda cpu_total=None: (4, 8))
-
-    def _fake_embed_gguf(
-        texts,
-        *,
-        model_path,
-        n_ctx,
-        n_threads,
-        n_threads_batch,
-        normalize,
-        truncate,
-        pooling="cls",
-    ):
-        calls.append(
-            {
-                "texts": list(texts),
-                "model_path": model_path,
-                "n_ctx": n_ctx,
-                "n_threads": n_threads,
-                "n_threads_batch": n_threads_batch,
-                "normalize": normalize,
-                "truncate": truncate,
-                "pooling": pooling,
-            }
+def test_compute_embeddings_rejects_removed_gguf_provider():
+    with pytest.raises(ValueError, match="Invalid provider 'gguf'"):
+        tm.compute_embeddings(
+            ["d1", "d2"],
+            provider="gguf",
+            model="Qwen/Qwen3-Embedding-0.6B-GGUF",
         )
-        return np.array(
-            [[float(int(text.split("_")[1])), 1.0] for text in texts],
-            dtype=np.float32,
-        )
-
-    monkeypatch.setattr(tm_embeddings, "embed_gguf", _fake_embed_gguf)
-
-    embedder = tm_embeddings.GGUFEmbedder(
-        model="Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf",
-        batch_size=2,
-        max_workers=9,
-        dtype=np.float16,
-    )
-    emb = embedder.encode(
-        [f"doc_{i}" for i in range(5)],
-        show_progress_bar=False,
-        progress_callback=progress_updates.append,
-    )
-
-    assert emb.shape == (5, 2)
-    assert emb.dtype == np.float16
-    assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
-    assert progress_updates == [2, 2, 1]
-    assert calls[0]["model_path"] == "/fake/Qwen3-Embedding-0.6B-Q8_0.gguf"
-    assert calls[0]["n_threads"] == 4
-    assert calls[0]["n_threads_batch"] == 8
-    assert calls[0]["normalize"] is True
-    assert calls[0]["truncate"] is True
-
-
-def test_ensure_embedding_model_loads_llama_with_cls_pooling(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.LLAMA_POOLING_TYPE_CLS = 2
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
-
-    calls: dict[str, Any] = {}
-    fake_model = object()
-
-    def _fake_load_llama(path, **kwargs):
-        calls["path"] = path
-        calls["kwargs"] = kwargs
-        return fake_model
-
-    safe_calls: list[Any] = []
-    monkeypatch.setattr(gguf_mod, "_load_llama", _fake_load_llama)
-    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
-
-    model = gguf_mod._ensure_embedding_model(
-        model_path="/fake/qwen-embed.gguf",
-        n_ctx=4096,
-        n_threads=4,
-        n_threads_batch=8,
-        pooling="cls",
-    )
-
-    assert model is fake_model
-    assert calls["path"] == "/fake/qwen-embed.gguf"
-    assert calls["kwargs"]["embedding"] is True
-    assert calls["kwargs"]["pooling_type"] == 2
-    assert safe_calls == [fake_model]
-
-
-def test_load_llama_omits_optional_none_kwargs(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    calls: dict[str, Any] = {}
-
-    class _FakeLlama:
-        def __init__(self, **kwargs):
-            calls["kwargs"] = kwargs
-
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.Llama = _FakeLlama
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
-
-    model = gguf_mod._load_llama("/fake/model.gguf", n_ctx=512)
-
-    assert isinstance(model, _FakeLlama)
-    assert "n_batch" not in calls["kwargs"]
-    assert "n_threads" not in calls["kwargs"]
-    assert "n_threads_batch" not in calls["kwargs"]
-    assert "pooling_type" not in calls["kwargs"]
 
 
 def test_temporarily_raise_logger_level_restores_previous_level():
@@ -1137,130 +961,6 @@ def test_temporarily_raise_logger_level_restores_previous_level():
         assert logger.level == logging.INFO
     finally:
         logger.setLevel(previous_level)
-
-
-def test_load_llama_wraps_unknown_qwen35_architecture_with_actionable_error(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    class _FakeLlama:
-        def __init__(self, **kwargs):
-            del kwargs
-            raise ValueError("Failed to load model from file: /fake/model.gguf (unknown model architecture: 'qwen35')")
-
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.Llama = _FakeLlama
-    fake_llama_cpp.__version__ = "0.3.16"
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
-
-    with pytest.raises(RuntimeError, match="supports its architecture"):
-        gguf_mod._load_llama("/fake/model.gguf", n_ctx=512)
-
-
-def test_ensure_embedding_model_loads_llama_with_last_pooling(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.LLAMA_POOLING_TYPE_CLS = 2
-    fake_llama_cpp.LLAMA_POOLING_TYPE_LAST = 3
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
-
-    calls: dict[str, Any] = {}
-    fake_model = object()
-
-    def _fake_load_llama(path, **kwargs):
-        calls["path"] = path
-        calls["kwargs"] = kwargs
-        return fake_model
-
-    monkeypatch.setattr(gguf_mod, "_load_llama", _fake_load_llama)
-    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: None)
-
-    model = gguf_mod._ensure_embedding_model(
-        model_path="/fake/qwen-embed.gguf",
-        n_ctx=4096,
-        n_threads=4,
-        n_threads_batch=8,
-        pooling="last",
-    )
-
-    assert model is fake_model
-    assert calls["kwargs"]["pooling_type"] == 3
-
-
-def test_ensure_embedding_model_cache_invalidates_on_pooling_change(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.LLAMA_POOLING_TYPE_CLS = 2
-    fake_llama_cpp.LLAMA_POOLING_TYPE_LAST = 3
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
-
-    load_calls: list[dict] = []
-
-    def _fake_load_llama(path, **kwargs):
-        load_calls.append({"path": path, **kwargs})
-        return object()
-
-    monkeypatch.setattr(gguf_mod, "_load_llama", _fake_load_llama)
-    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: None)
-
-    gguf_mod._ensure_embedding_model(
-        model_path="/fake/model.gguf", n_ctx=4096, n_threads=4, n_threads_batch=8, pooling="cls",
-    )
-    gguf_mod._ensure_embedding_model(
-        model_path="/fake/model.gguf", n_ctx=4096, n_threads=4, n_threads_batch=8, pooling="last",
-    )
-    assert len(load_calls) == 2
-    assert load_calls[0]["pooling_type"] == 2
-    assert load_calls[1]["pooling_type"] == 3
-
-
-def test_ensure_embedding_model_rejects_invalid_pooling(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    monkeypatch.setattr(gguf_mod, "_embedding_model", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_path", None)
-    monkeypatch.setattr(gguf_mod, "_embedding_model_config", None)
-
-    with pytest.raises(ValueError, match="Unknown GGUF pooling type"):
-        gguf_mod._ensure_embedding_model(
-            model_path="/fake/model.gguf", n_ctx=4096, n_threads=4, n_threads_batch=8, pooling="bogus",
-        )
-
-
-def test_embed_gguf_normalizes_before_return(monkeypatch):
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    calls: dict[str, Any] = {}
-
-    _vectors = {"a": [1.0, 2.0], "b": [3.0, 4.0]}
-    embed_calls: list[str] = []
-
-    class _FakeEmbeddingModel:
-        def embed(self, text, normalize=False, truncate=True):
-            embed_calls.append(text)
-            calls["normalize"] = normalize
-            calls["truncate"] = truncate
-            return _vectors[text]
-
-    monkeypatch.setattr(gguf_mod, "_ensure_embedding_model", lambda **kwargs: _FakeEmbeddingModel())
-
-    emb = gguf_mod.embed_gguf(
-        ["a", "b"],
-        model_path="/fake/qwen-embed.gguf",
-    )
-
-    assert emb.shape == (2, 2)
-    assert embed_calls == ["a", "b"]
-    assert calls["normalize"] is True
-    assert calls["truncate"] is True
 
 
 def test_embed_local_raises_actionable_error_for_unknown_arch(monkeypatch):
@@ -1733,108 +1433,6 @@ def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, cap
     assert "Loaded embeddings from cache" in caplog.text
 
 
-def test_compute_embeddings_gguf_uses_cache_then_recomputes_on_mismatch(monkeypatch, tmp_path, caplog):
-    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
-    calls = {"n": 0}
-
-    class _FakeGGUFEmbedder:
-        def __init__(self, *, model, batch_size=64, max_workers=5, dtype=np.float32, n_ctx=4096, pooling="cls"):
-            del model, batch_size, max_workers, dtype, n_ctx, pooling
-
-        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
-            del verbose, show_progress_bar, progress_callback, kwargs
-            calls["n"] += 1
-            base = float(calls["n"])
-            return np.full((len(texts), 2), fill_value=base, dtype=np.float32)
-
-    monkeypatch.setattr(tm_embeddings, "GGUFEmbedder", _FakeGGUFEmbedder)
-    model = "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf"
-    docs = ["doc-a", "doc-b"]
-
-    first = tm.compute_embeddings(
-        docs,
-        provider="gguf",
-        model=model,
-        cache_dir=tmp_path,
-        dtype=np.float32,
-    )
-    second = tm.compute_embeddings(
-        docs,
-        provider="gguf",
-        model=model,
-        cache_dir=tmp_path,
-        dtype=np.float32,
-    )
-    third = tm.compute_embeddings(
-        docs + ["doc-c"],
-        provider="gguf",
-        model=model,
-        cache_dir=tmp_path,
-        dtype=np.float32,
-    )
-
-    assert calls["n"] == 2
-    assert np.array_equal(first, second)
-    assert np.allclose(first, 1.0)
-    assert np.allclose(third, 2.0)
-    assert "Loaded embeddings from cache" in caplog.text
-    assert "Embedding cache mismatch" in caplog.text
-
-
-def test_compute_embeddings_gguf_pooling_change_invalidates_cache(monkeypatch, tmp_path, caplog):
-    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
-    init_poolings: list[str] = []
-
-    class _FakeGGUFEmbedder:
-        def __init__(
-            self,
-            *,
-            model,
-            batch_size=64,
-            max_workers=5,
-            dtype=np.float32,
-            n_ctx=4096,
-            pooling="cls",
-        ):
-            del model, batch_size, max_workers, dtype, n_ctx
-            init_poolings.append(pooling)
-            self.pooling = pooling
-
-        def encode(self, texts, verbose=None, show_progress_bar=None, progress_callback=None, **kwargs):
-            del verbose, show_progress_bar, progress_callback, kwargs
-            fill = 1.0 if self.pooling == "cls" else 2.0
-            return np.full((len(texts), 2), fill_value=fill, dtype=np.float32)
-
-    monkeypatch.setattr(tm_embeddings, "GGUFEmbedder", _FakeGGUFEmbedder)
-    model = "Qwen/Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf"
-    docs = ["doc-a", "doc-b"]
-
-    first = tm.compute_embeddings(
-        docs,
-        provider="gguf",
-        model=model,
-        cache_dir=tmp_path,
-        dtype=np.float32,
-        gguf_pooling="cls",
-    )
-    second = tm.compute_embeddings(
-        docs,
-        provider="gguf",
-        model=model,
-        cache_dir=tmp_path,
-        dtype=np.float32,
-        gguf_pooling="last",
-    )
-    cache_file = tmp_path / "embeddings_gguf_Qwen_Qwen3-Embedding-0.6B-GGUF:Qwen3-Embedding-0.6B-Q8_0.gguf.npz"
-    cache_data = np.load(cache_file, allow_pickle=True)
-
-    assert init_poolings == ["cls", "last"]
-    assert np.allclose(first, 1.0)
-    assert np.allclose(second, 2.0)
-    assert str(cache_data["gguf_pooling"]) == "last"
-    assert "GGUF pooling changed" in caplog.text
-
-
 def test_compute_embeddings_cache_hit_reports_document_progress(monkeypatch, tmp_path):
     calls = {"n": 0}
 
@@ -1928,88 +1526,78 @@ def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# GGUF provider tests
+# llama_server provider tests
 # ---------------------------------------------------------------------------
 
 
-def test_create_llm_gguf_uses_native_bertopic_llamacpp(monkeypatch):
-    """GGUF branch should use BERTopic's native LlamaCPP representation model."""
-    calls: dict = {}
+def test_create_llm_llama_server_uses_openai_representation(tmp_path, monkeypatch):
+    calls: dict[str, Any] = {}
+    model_path = tmp_path / "qwen.gguf"
+    model_path.write_text("fake", encoding="utf-8")
 
-    class _FakeBERTopicLlamaCPP:
-        def __init__(self, model, *, prompt=None, pipeline_kwargs=None, nr_docs=4, diversity=None, **kw):
+    class _FakeBERTopicOpenAI:
+        def __init__(self, *, client, model, prompt=None, generator_kwargs=None, nr_docs=4, diversity=None, **kw):
+            calls["client"] = client
             calls["model"] = model
             calls["prompt"] = prompt
-            calls["pipeline_kwargs"] = pipeline_kwargs
+            calls["generator_kwargs"] = generator_kwargs
             calls["nr_docs"] = nr_docs
             calls["diversity"] = diversity
 
     fake_representation = types.ModuleType("bertopic.representation")
-    fake_representation.LlamaCPP = _FakeBERTopicLlamaCPP
+    fake_representation.OpenAI = _FakeBERTopicOpenAI
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    class _FakeLlama:
-        def __init__(self, **kwargs):
-            if "pooling_type" in kwargs and kwargs["pooling_type"] is None:
-                raise TypeError("pooling_type must be omitted, not None")
-            calls["llama_kwargs"] = kwargs
-
-    monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
-    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
-    fake_llama_cpp = types.ModuleType("llama_cpp")
-    fake_llama_cpp.Llama = _FakeLlama
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake_llama_cpp)
-    safe_calls: list = []
-    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
+    handle = types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1")
+    monkeypatch.setattr(tm_backends, "ensure_llama_server", lambda **kwargs: handle)
+    monkeypatch.setattr(tm_backends, "build_openai_client", lambda **kwargs: "fake-client")
 
     llm = tm_backends._create_llm(
-        provider="gguf",
-        model="mradermacher/Qwen3-0.6B-GGUF",
+        provider="llama_server",
+        model="unused",
+        model_spec=ModelSpec(model_path=str(model_path)),
         prompt="topic: <label>",
         nr_docs=8,
         diversity=0.2,
         delay=0.3,
         llm_max_new_tokens=64,
         api_key=None,
+        llama_server_config=LlamaServerConfig(),
+        runtime_log_path=tmp_path / "runtime.log",
     )
 
-    assert isinstance(llm, _FakeBERTopicLlamaCPP)
-    assert isinstance(calls["model"], _FakeLlama)
-    assert calls["pipeline_kwargs"] == {"max_tokens": 64}
+    assert isinstance(llm, _FakeBERTopicOpenAI)
+    assert calls["client"] == "fake-client"
+    assert calls["model"] == "qwen.gguf"
+    assert calls["prompt"] == "topic: <label>"
+    assert calls["generator_kwargs"] == {"max_tokens": 64, "temperature": 0.0}
     assert calls["nr_docs"] == 8
     assert calls["diversity"] == 0.2
-    assert calls["llama_kwargs"]["model_path"] == "/fake/gguf.gguf"
-    assert calls["llama_kwargs"]["n_ctx"] == 4096
-    assert "pooling_type" not in calls["llama_kwargs"]
-    assert safe_calls == [calls["model"]]
 
 
-def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
-    """GGUF branch should use Toponymy's native LlamaCppNamer."""
+def test_fit_toponymy_supports_llama_server_llm_provider(tmp_path, monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
     fake_sentence_transformers = types.ModuleType("sentence_transformers")
     fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
 
-    import ads_bib._utils.gguf_backend as gguf_mod
-
-    monkeypatch.setattr(gguf_mod, "resolve_gguf_model", lambda model: "/fake/gguf.gguf")
-    monkeypatch.setattr(gguf_mod, "safe_stdio", contextlib.nullcontext)
-    safe_calls: list = []
-    monkeypatch.setattr(gguf_mod, "_make_llama_jupyter_safe", lambda llm: safe_calls.append(llm))
+    model_path = tmp_path / "qwen.gguf"
+    model_path.write_text("fake", encoding="utf-8")
+    monkeypatch.setattr(
+        tm_backends,
+        "ensure_llama_server",
+        lambda **kwargs: types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1"),
+    )
 
     class _FakeNamer:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
-            self.llm = object()  # stand-in for the internal Llama instance
 
     fake_llm_wrappers = sys.modules["toponymy.llm_wrappers"]
-    fake_llm_wrappers.LlamaCppNamer = _FakeNamer
+    fake_llm_wrappers.OpenAINamer = _FakeNamer
 
-    calls: dict = {}
+    calls: dict[str, Any] = {}
 
     def _fake_record_llm_usage(usage, **kwargs):
         calls["usage"] = usage
@@ -2023,20 +1611,20 @@ def test_fit_toponymy_supports_gguf_llm_provider(monkeypatch):
         clusterable_vectors=np.ones((3, 2), dtype=np.float32),
         backend="toponymy",
         layer_index=0,
-        llm_provider="gguf",
-        llm_model="mradermacher/Qwen3-0.6B-GGUF",
+        llm_provider="llama_server",
+        llm_model=None,
+        llm_model_path=str(model_path),
         embedding_provider="local",
         embedding_model="local-embedder",
         local_llm_max_new_tokens=77,
+        runtime_log_path=tmp_path / "runtime.log",
     )
 
     assert isinstance(model.llm_wrapper, _FakeNamer)
-    assert model.llm_wrapper.kwargs["model_path"] == "/fake/gguf.gguf"
-    assert model.llm_wrapper.kwargs["n_ctx"] == 4096
-    assert model.llm_wrapper.kwargs["n_gpu_layers"] == -1
-    assert len(safe_calls) == 1  # _make_llama_jupyter_safe was called
-    assert safe_calls[0] is model.llm_wrapper.llm
+    assert model.llm_wrapper.kwargs["api_key"] == "local"
+    assert model.llm_wrapper.kwargs["model"] == "qwen.gguf"
+    assert model.llm_wrapper.kwargs["base_url"] == "http://127.0.0.1:8080/v1"
     assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
     assert topics.tolist() == [-1, 0, 1]
     assert calls["usage"] is None
-    assert calls["kwargs"]["llm_provider"] == "gguf"
+    assert calls["kwargs"]["llm_provider"] == "llama_server"

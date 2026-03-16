@@ -15,8 +15,9 @@ import pandas as pd
 import yaml
 
 from . import prompts
-from ads_bib._utils.gguf_backend import normalize_gguf_pooling
 from ads_bib._utils.huggingface_api import resolve_huggingface_api_key
+from ads_bib._utils.llama_server import LlamaServerConfig
+from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.checkpoints import (
     load_disambiguated_snapshot,
     load_tokenized_snapshot,
@@ -142,7 +143,10 @@ class SearchConfig:
 class TranslateConfig:
     enabled: bool = True
     provider: str = "openrouter"
-    model: str = "google/gemini-3-flash-preview"
+    model: str | None = "google/gemini-3-flash-preview"
+    model_repo: str | None = None
+    model_file: str | None = None
+    model_path: str | None = None
     api_key: str | None = None
     max_workers: int = 10
     max_tokens: int = 2048
@@ -177,7 +181,6 @@ class TopicModelConfig:
     embedding_api_key: str | None = None
     embedding_batch_size: int = 64
     embedding_max_workers: int = 20
-    gguf_embedding_pooling: str = "cls"
     reduction_method: str = "pacmap"
     params_5d: dict[str, Any] = field(default_factory=dict)
     params_2d: dict[str, Any] = field(default_factory=dict)
@@ -190,7 +193,10 @@ class TopicModelConfig:
     llm_prompt_name: str = "physics"
     llm_prompt: str | None = None
     llm_provider: str = "openrouter"
-    llm_model: str = "google/gemini-3-flash-preview"
+    llm_model: str | None = "google/gemini-3-flash-preview"
+    llm_model_repo: str | None = None
+    llm_model_file: str | None = None
+    llm_model_path: str | None = None
     llm_api_key: str | None = None
     bertopic_label_max_tokens: int = 128
     toponymy_local_label_max_tokens: int = 256
@@ -242,6 +248,7 @@ class PipelineConfig:
     run: RunConfig = field(default_factory=RunConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     translate: TranslateConfig = field(default_factory=TranslateConfig)
+    llama_server: LlamaServerConfig = field(default_factory=LlamaServerConfig)
     tokenize: TokenizeConfig = field(default_factory=TokenizeConfig)
     author_disambiguation: AuthorDisambiguationConfig = field(default_factory=AuthorDisambiguationConfig)
     topic_model: TopicModelConfig = field(default_factory=TopicModelConfig)
@@ -253,8 +260,10 @@ class PipelineConfig:
         self.run.start_stage = validate_stage_name(self.run.start_stage)
         if self.run.stop_stage is not None:
             self.run.stop_stage = validate_stage_name(self.run.stop_stage)
-        self.topic_model.gguf_embedding_pooling = normalize_gguf_pooling(
-            self.topic_model.gguf_embedding_pooling
+        self.llama_server = self.llama_server.normalized()
+        validate_provider(
+            self.translate.provider,
+            valid={"openrouter", "huggingface_api", "llama_server", "nllb"},
         )
 
         backend = self.topic_model.backend.strip().lower()
@@ -293,6 +302,22 @@ class PipelineConfig:
                 f"Invalid topic_model.llm_prompt_name '{self.topic_model.llm_prompt_name}'. "
                 f"Expected one of: {allowed}."
             )
+        if self.translate.provider == "llama_server":
+            ModelSpec.from_fields(
+                model_repo=self.translate.model_repo,
+                model_file=self.translate.model_file,
+                model_path=self.translate.model_path,
+                legacy_value=self.translate.model,
+                field_label="translate.model",
+            )
+        if self.topic_model.llm_provider == "llama_server":
+            ModelSpec.from_fields(
+                model_repo=self.topic_model.llm_model_repo,
+                model_file=self.topic_model.llm_model_file,
+                model_path=self.topic_model.llm_model_path,
+                legacy_value=self.topic_model.llm_model,
+                field_label="topic_model.llm_model",
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -303,6 +328,7 @@ class PipelineConfig:
             run=RunConfig(**data.get("run", {})),
             search=SearchConfig(**data.get("search", {})),
             translate=TranslateConfig(**data.get("translate", {})),
+            llama_server=LlamaServerConfig(**data.get("llama_server", {})),
             tokenize=TokenizeConfig(
                 **{
                     **data.get("tokenize", {}),
@@ -530,9 +556,18 @@ def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
 
 
 def _topic_subtitle(config: PipelineConfig) -> str:
+    model_label = config.topic_model.llm_model
+    if config.topic_model.llm_provider == "llama_server":
+        model_label = ModelSpec.from_fields(
+            model_repo=config.topic_model.llm_model_repo,
+            model_file=config.topic_model.llm_model_file,
+            model_path=config.topic_model.llm_model_path,
+            legacy_value=config.topic_model.llm_model,
+            field_label="topic_model.llm_model",
+        ).display_name()
     return config.visualization.subtitle_template.format(
         provider=config.topic_model.llm_provider,
-        model=config.topic_model.llm_model,
+        model=model_label,
     )
 
 
@@ -902,9 +937,14 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             ["Title", "Abstract"],
             provider=cfg.provider,
             model=cfg.model,
+            model_repo=cfg.model_repo,
+            model_file=cfg.model_file,
+            model_path=cfg.model_path,
             api_key=cfg.api_key,
             max_workers=cfg.max_workers,
             max_translation_tokens=cfg.max_tokens,
+            llama_server_config=ctx.config.llama_server,
+            runtime_log_path=ctx.runtime_log_path,
             openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
             cost_tracker=ctx.tracker,
         )
@@ -913,9 +953,14 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             ["Title", "Abstract"],
             provider=cfg.provider,
             model=cfg.model,
+            model_repo=cfg.model_repo,
+            model_file=cfg.model_file,
+            model_path=cfg.model_path,
             api_key=cfg.api_key,
             max_workers=cfg.max_workers,
             max_translation_tokens=cfg.max_tokens,
+            llama_server_config=ctx.config.llama_server,
+            runtime_log_path=ctx.runtime_log_path,
             openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
             cost_tracker=ctx.tracker,
         )
@@ -945,9 +990,14 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
                 ["Title", "Abstract"],
                 provider=cfg.provider,
                 model=cfg.model,
+                model_repo=cfg.model_repo,
+                model_file=cfg.model_file,
+                model_path=cfg.model_path,
                 api_key=cfg.api_key,
                 max_workers=cfg.max_workers,
                 max_translation_tokens=cfg.max_tokens,
+                llama_server_config=ctx.config.llama_server,
+                runtime_log_path=ctx.runtime_log_path,
                 openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                 cost_tracker=ctx.tracker,
                 show_progress=False,
@@ -959,9 +1009,14 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
                 ["Title", "Abstract"],
                 provider=cfg.provider,
                 model=cfg.model,
+                model_repo=cfg.model_repo,
+                model_file=cfg.model_file,
+                model_path=cfg.model_path,
                 api_key=cfg.api_key,
                 max_workers=cfg.max_workers,
                 max_translation_tokens=cfg.max_tokens,
+                llama_server_config=ctx.config.llama_server,
+                runtime_log_path=ctx.runtime_log_path,
                 openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                 cost_tracker=ctx.tracker,
                 show_progress=False,
@@ -1148,7 +1203,6 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
             api_key=cfg.embedding_api_key,
             openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
             cost_tracker=ctx.tracker,
-            gguf_pooling=cfg.gguf_embedding_pooling,
         )
         return ctx
 
@@ -1166,7 +1220,6 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
             cost_tracker=ctx.tracker,
             show_progress=False,
             progress_callback=progress_callback,
-            gguf_pooling=cfg.gguf_embedding_pooling,
         )
     return ctx
 
@@ -1225,6 +1278,9 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                 ctx.reduced_5d,
                 llm_provider=cfg.llm_provider,
                 llm_model=cfg.llm_model,
+                llm_model_repo=cfg.llm_model_repo,
+                llm_model_file=cfg.llm_model_file,
+                llm_model_path=cfg.llm_model_path,
                 llm_prompt=_resolve_topic_prompt(cfg),
                 llm_max_new_tokens=cfg.bertopic_label_max_tokens,
                 pipeline_models=cfg.pipeline_models,
@@ -1235,6 +1291,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                 api_key=cfg.llm_api_key,
                 openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                 cost_tracker=ctx.tracker,
+                llama_server_config=ctx.config.llama_server,
+                runtime_log_path=ctx.runtime_log_path,
             )
             topics = np.array(topic_model.topics_)
             topics = reduce_outliers(
@@ -1258,6 +1316,9 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         ctx.reduced_5d,
                         llm_provider=cfg.llm_provider,
                         llm_model=cfg.llm_model,
+                        llm_model_repo=cfg.llm_model_repo,
+                        llm_model_file=cfg.llm_model_file,
+                        llm_model_path=cfg.llm_model_path,
                         llm_prompt=_resolve_topic_prompt(cfg),
                         llm_max_new_tokens=cfg.bertopic_label_max_tokens,
                         pipeline_models=cfg.pipeline_models,
@@ -1268,6 +1329,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         api_key=cfg.llm_api_key,
                         openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
                         cost_tracker=ctx.tracker,
+                        llama_server_config=ctx.config.llama_server,
+                        runtime_log_path=ctx.runtime_log_path,
                         show_progress=False,
                     )
             topics = np.array(topic_model.topics_)
@@ -1308,6 +1371,9 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                     layer_index=cfg.toponymy_layer_index,
                     llm_provider=cfg.llm_provider,
                     llm_model=cfg.llm_model,
+                    llm_model_repo=cfg.llm_model_repo,
+                    llm_model_file=cfg.llm_model_file,
+                    llm_model_path=cfg.llm_model_path,
                     embedding_provider=cfg.embedding_provider,
                     embedding_model=resolved["toponymy_embedding_model"],
                     local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
@@ -1316,7 +1382,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                     max_workers=cfg.toponymy_max_workers,
                     clusterer_params=clusterer_params,
                     cost_tracker=ctx.tracker,
-                    gguf_pooling=cfg.gguf_embedding_pooling,
+                    llama_server_config=ctx.config.llama_server,
+                    runtime_log_path=ctx.runtime_log_path,
                 )
         else:
             with reporter.progress(total=1, desc="fit") as fit_pbar:
@@ -1329,6 +1396,9 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         layer_index=cfg.toponymy_layer_index,
                         llm_provider=cfg.llm_provider,
                         llm_model=cfg.llm_model,
+                        llm_model_repo=cfg.llm_model_repo,
+                        llm_model_file=cfg.llm_model_file,
+                        llm_model_path=cfg.llm_model_path,
                         embedding_provider=cfg.embedding_provider,
                         embedding_model=resolved["toponymy_embedding_model"],
                         local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
@@ -1337,7 +1407,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         max_workers=cfg.toponymy_max_workers,
                         clusterer_params=clusterer_params,
                         cost_tracker=ctx.tracker,
-                        gguf_pooling=cfg.gguf_embedding_pooling,
+                        llama_server_config=ctx.config.llama_server,
+                        runtime_log_path=ctx.runtime_log_path,
                     )
                 if fit_pbar is not None:
                     fit_pbar.update(1)

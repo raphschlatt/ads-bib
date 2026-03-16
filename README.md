@@ -39,7 +39,10 @@ uv pip install jupyterlab ipykernel
 python -m ipykernel install --user --name ADS_env --display-name "ADS_env"
 ```
 
-3. Create `.env` in project root (minimum):
+3. If you use local GGUF translation or labeling, install a current external `llama-server`.
+   On Windows, the tested reference is the Winget `ggml.llamacpp` package; `ADS_env` should not shadow it with an older env-local binary.
+
+4. Create `.env` in project root (minimum):
 
 ```env
 ADS_TOKEN=...
@@ -47,7 +50,7 @@ OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
 HF_TOKEN=...            # optional unless huggingface_api backends are used
 ```
 
-4. Choose one entrypoint:
+5. Choose one entrypoint:
    - Notebook: edit the inline section dicts in `pipeline.ipynb`
    - CLI (OpenRouter road): `ads-bib run --config configs/pipeline/openrouter.yaml`
    - CLI (HF API road): `ads-bib run --config configs/pipeline/hf_api.yaml`
@@ -120,16 +123,17 @@ fields as `None` and provide them via `.env`.
 Topic-model runtimes are intentionally split by interface and runtime style:
 
 - `local`: Hugging Face / sentence-transformers / transformers on CPU or GPU
-- `gguf`: optional local `llama-cpp-python` runtime for small portable models
+- `llama_server`: local `llama.cpp` server runtime for GGUF generation
+- `nllb`: local CTranslate2 translation runtime
 - `openrouter` / `huggingface_api`: explicit remote API providers
 
 | Interface | Supported providers | Notes |
 | --- | --- | --- |
-| Translation | `nllb`, `gguf`, `huggingface_api`, `openrouter` | `huggingface_api` uses the native Hugging Face Inference API client. |
-| Embeddings | `local`, `gguf`, `huggingface_api`, `openrouter` | `local` is the default local CPU/GPU path; `gguf` is optional. |
-| BERTopic labeling | `local`, `gguf`, `huggingface_api`, `openrouter` | `huggingface_api` is normalized to BERTopic's LiteLLM adapter internally. |
-| Toponymy naming | `local`, `gguf`, `openrouter` | `huggingface_api` is not a Toponymy naming provider. |
-| Toponymy text embeddings | `local`, `gguf`, `openrouter` | `toponymy_embedding_model` only overrides the model id. |
+| Translation | `nllb`, `llama_server`, `huggingface_api`, `openrouter` | `huggingface_api` uses the native Hugging Face Inference API client. |
+| Embeddings | `local`, `huggingface_api`, `openrouter` | `local` is the default local CPU/GPU path. |
+| BERTopic labeling | `local`, `llama_server`, `huggingface_api`, `openrouter` | `huggingface_api` is normalized to BERTopic's LiteLLM adapter internally. |
+| Toponymy naming | `local`, `llama_server`, `openrouter` | `huggingface_api` is not a Toponymy naming provider. |
+| Toponymy text embeddings | `local`, `openrouter` | `toponymy_embedding_model` only overrides the model id. |
 
 For `huggingface_api`, use HF-native model ids:
 
@@ -157,24 +161,23 @@ local speed, remote convenience, or label quality.
 
 | Step | Best current CPU choice | Best current local GPU choice | Best remote choice | Why |
 | --- | --- | --- | --- | --- |
-| Translation | `nllb` via CTranslate2 | GGUF TranslateGemma in the current package | `openrouter` or `huggingface_api` chat translation | CPU translation is a seq2seq workload where CTranslate2 is the strongest current local path here. The package does not yet ship a local Transformers translation road, so the GPU-local preset stays on the supported GGUF path. |
-| Embeddings | `local` HF encoder | `local` HF encoder | remote embedding API | Embeddings are encoder-style, batched, and compute-bound. In this codebase the local HF path is the default local encoder road; GGUF embeddings remain optional for portability, not the throughput default. |
-| Topic labeling | small GGUF | stronger local GGUF | remote chat LLM | BERTopic labels topics from keywords plus a few representative docs, so the local labeling step can stay small. Remote models buy convenience and often quality, but at token cost. |
+| Translation | `nllb` via CTranslate2 | `llama_server` with a GGUF chat model | `openrouter` or `huggingface_api` chat translation | CPU translation is a seq2seq workload where CTranslate2 is the strongest current local path here. GPU-local generative translation now runs through the shared `llama_server` road. |
+| Embeddings | `local` HF encoder | `local` HF encoder | remote embedding API | Embeddings are encoder-style, batched, and compute-bound. The local HF path is the active local encoder road. |
+| Topic labeling | small local HF model or `llama_server` | stronger `llama_server` GGUF | remote chat LLM | BERTopic labels topics from keywords plus a few representative docs, so local generation can stay compact. Remote models buy convenience and often quality, but at token cost. |
 
 ### Quality, Price, Speed
 
-- Best price discipline: `local_cpu.yaml`. Translation is local `nllb`, embeddings are local HF, and only a small local GGUF model is used for labeling.
-- Best local speed on the current implementation: `local_gpu.yaml`. The main gain comes from keeping embeddings on the local HF path instead of GGUF; that matters more than squeezing every stage into one runtime family.
+- Best price discipline: `local_cpu.yaml`. Translation is local `nllb`, embeddings are local HF, and only a small `llama_server` GGUF model is used for labeling.
+- Best local speed on the current implementation: `local_gpu.yaml`. Translation and topic labeling share the local `llama_server` runtime; embeddings stay on the faster local HF encoder path.
 - Best convenience: `openrouter.yaml`. One remote road, minimal local model management, compact config surface.
 - Best HF-native hosted route: `hf_api.yaml`. Useful when you want Hugging Face-managed inference and HF model IDs, but it is still a paid remote path and not the cheapest way to iterate.
 - Best label quality usually comes from larger remote models or a stronger local GPU label model, not from changing the embedding runtime alone.
 
-### Why GGUF Is Optional, Not The Default Encoder Path
+### Why `llama_server` Is Generation-Only
 
-- GGUF is valuable here for small local generative models, portability, and lower local footprint.
-- GGUF is not assumed to be the fastest path for embeddings.
-- In this repository, the current `llama-cpp-python` embedding path is intentionally sequential per text. That is a limitation of the current local binding/runtime path here, not a claim about GGUF or `llama.cpp` in general.
-- Because of that, official presets use GGUF for local generation workloads first, and the `local` HF path for embeddings.
+- GGUF is valuable here for local generative models, portability, and lower local footprint.
+- The active local GGUF road is now `llama_server`, not an in-process Python binding.
+- Embeddings stay on the local HF encoder path because that is the cleaner and faster fit for batched encoder workloads in this repository.
 
 ### Current Scope vs Future Upgrades
 
@@ -202,29 +205,28 @@ defaults:
 | --- | --- | --- | --- | --- |
 | `configs/pipeline/openrouter.yaml` | OpenRouter | `google/gemini-3.1-flash-lite-preview` | `qwen/qwen3-embedding-8b` | `google/gemini-3.1-flash-lite-preview` |
 | `configs/pipeline/hf_api.yaml` | Hugging Face API | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` | `Qwen/Qwen3-Embedding-8B` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` |
-| `configs/pipeline/local_cpu.yaml` | Local CPU | `data/models/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `google/embeddinggemma-300m` (`local`) | `Qwen/Qwen2.5-0.5B-Instruct-GGUF:qwen2.5-0.5b-instruct-q4_k_m.gguf` (`gguf`) |
-| `configs/pipeline/local_gpu.yaml` | Local GPU | `mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf` (`gguf`) | `google/embeddinggemma-300m` (`local`) | `unsloth/gemma-3-4b-it-GGUF:gemma-3-4b-it-Q4_K_M.gguf` (`gguf`) |
+| `configs/pipeline/local_cpu.yaml` | Local CPU | `data/models/nllb-200-distilled-600M-ct2-int8` (`nllb`) | `google/embeddinggemma-300m` (`local`) | `data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf` (`llama_server`) |
+| `configs/pipeline/local_gpu.yaml` | Local GPU | `mradermacher/translategemma-4b-it-GGUF [translategemma-4b-it.Q4_K_M.gguf]` (`llama_server`) | `google/embeddinggemma-300m` (`local`) | `unsloth/gemma-3-4b-it-GGUF [gemma-3-4b-it-Q4_K_M.gguf]` (`llama_server`) |
 
 Notes:
 
 - `local_cpu` keeps the settled CPU translation path: `nllb` via CTranslate2.
-- `local_cpu` uses a small instruct-tuned GGUF that is already validated against the baseline `ADS_env` runtime instead of pinning a `qwen35` model family that current `llama-cpp-python` cannot load.
-- `local_gpu` stays inside the package's current local GPU surface: GGUF for translation and labeling, local HF embeddings for the encoder path.
+- `local_cpu` uses `Qwen3.5-0.8B` through the shared external `llama_server` runtime.
+- `local_gpu` uses `llama_server` for translation and labeling, plus local HF embeddings for the encoder path.
 - Toponymy still has no `huggingface_api` provider path.
 - BERTopic still uses the small local `sentence-transformers/all-MiniLM-L6-v2` helper model for `KeyBERT` representations. That helper stays implicit and is not a separate official config surface.
 - API presets still use that small local KeyBERT helper model for BERTopic representations even when translation, embeddings, and labeling run remotely.
-- Stable official GGUF presets should only point at architectures that are known to load in the baseline `ADS_env` stack. Experimental families such as `qwen35` belong on an explicit upgrade track, not in the default presets.
+- Official GGUF presets assume a current external `llama-server` build that supports the selected architecture. On Windows, verify the active binary with `where llama-server` and `llama-server --version`.
 
 Runtime notes:
 
-- GGUF is valuable for local small-model portability, lower footprint, and simpler local setup. It is not assumed to be the fastest CPU path for embeddings.
-- The current GGUF embedding path is sequential per text because of the current `llama-cpp-python` integration here. That is a property of this binding/runtime path, not a general claim about GGUF or `llama.cpp`.
-- Translation prompts are centralized for the chat-based remote providers (`openrouter`, `huggingface_api`); `gguf` and `nllb` keep their provider-native translation paths.
+- GGUF is valuable for local small-model portability, lower footprint, and simpler local setup.
+- The active local GGUF runtime is `llama_server`, shared across translation and topic labeling.
+- Translation prompts are centralized for the chat-based providers (`openrouter`, `huggingface_api`, `llama_server`); `nllb` keeps its provider-native translation path.
 - Local BERTopic/KeyBERT runs in `ADS_env` should follow the tested HF constraints:
   `python -m pip install -U -c constraints/local-hf.txt "transformers>=4.56,<5" "sentence-transformers>=5.1,<5.2" "accelerate>=0.31,<1.13"`
 - The package dependencies stay intentionally broader in `pyproject.toml`; the constraints file is the local runtime guardrail for notebook/CLI topic modeling.
-- Windows-friendly GGUF install:
-  `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
+- Local GGUF usage requires a reachable current `llama-server` executable; set `llama_server.command` explicitly if it is not on `PATH`.
 
 ## Configuration Placement
 
@@ -361,18 +363,16 @@ Fix:
 - Install required extras (`uv pip install -e ".[all,test]"`).
 - For minimal setups, install only needed extras and select matching providers.
 
-### GGUF Gemma-3 load failure (`unknown model architecture: 'gemma3'`)
-Symptom: BERTopic/Toponymy GGUF labeling fails while loading `unsloth/gemma-3-4b-it-GGUF`.
-
-Cause:
-- `llama-cpp-python` runtime is too old for Gemma-3 (common with `0.2.x` or some early `0.3.x` wheels).
+### Missing `llama-server`
+Symptom: local GGUF translation or labeling fails before generation starts.
 
 Fix:
-- In `ADS_env`, prefer conda prebuilt package:
-  `conda install -n ADS_env -c conda-forge llama-cpp-python=0.3.16`
-- Restart kernel/session and verify from the notebook kernel:
-  `import llama_cpp; print(llama_cpp.__version__)`
-- If you must stay on older runtime, switch `LLM_MODEL` to a compatible GGUF family (e.g. Qwen2/Mistral GGUF).
+- Ensure a current external `llama-server` executable is installed and reachable on `PATH`.
+- On Windows, check `where llama-server` and `llama-server --version`.
+- If `Qwen3.5` fails with `unknown model architecture: 'qwen35'`, your active binary is too old.
+- If `ADS_env` resolves `llama-server` to `ADS_env\\Library\\bin\\llama-server.exe`, remove the old env-local `llama.cpp` / `llama-cpp-python` packages or set `llama_server.command` explicitly.
+- Or set `llama_server.command` to the absolute executable path in the notebook/config.
+- Restart the notebook session or CLI run after changing the executable path.
 
 ### Unsupported local HF architecture (`gemma3`, `qwen3`, `gemma3_text`)
 Symptom: errors such as `Transformers does not recognize this architecture`.
