@@ -25,6 +25,7 @@ runs/**
 # Environment
 .env
 *.env
+.venv/
 .claude/
 
 # Python
@@ -47,6 +48,7 @@ build/
 .DS_Store
 Thumbs.db
 desktop.ini
+NUL
 
 # IDE
 .vscode/
