@@ -5,6 +5,10 @@ on:
     branches: ["main", "master"]
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PIP_NO_CACHE_DIR: "1"
+
 permissions:
   contents: read
   pages: write
@@ -22,16 +26,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
 
       - name: Install Zensical
         run: |
@@ -41,13 +41,24 @@ jobs:
       - name: Build docs
         run: zensical build --clean
 
+      - name: Skip Pages publish while repository is private
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "Repository is private, so this workflow only validates the docs build."
+          echo "Pages upload/deploy will stay skipped until the repository is public and GitHub Pages is enabled."
+
+      - name: Configure Pages
+        if: ${{ !github.event.repository.private }}
+        uses: actions/configure-pages@v5
+
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        if: ${{ !github.event.repository.private }}
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push'
+    if: ${{ github.event_name == 'push' && !github.event.repository.private }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
