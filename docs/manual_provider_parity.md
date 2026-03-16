@@ -1,14 +1,11 @@
 # Manual Provider Parity Runbook
 
-Use this runbook to verify that the notebook pipeline works in both required modes:
-
-1. `openrouter` mode
-2. `local` mode
+Use this runbook to verify that the notebook pipeline works across all four official config roads.
 
 Scope:
 
-1. Start from `START_AT_PHASE = 0` (full run).
-2. Use the current Treder query (`QUERY = 'author:"Treder, H*"'`).
+1. Full run (all stages).
+2. Use the Hawking query (`'author:"Hawking, S*"'`).
 3. Validate both topic backends: `bertopic` and `toponymy`.
 
 ## Shared Baseline
@@ -20,9 +17,8 @@ conda activate ADS_env
 ```
 
 2. Open `pipeline.ipynb`.
-3. Keep `OPENROUTER_COST_MODE = "hybrid"`.
-4. Keep `SAMPLE_SIZE = None` (target is the full Treder set, around 380 publications).
-5. Preflight for local HF models:
+3. Set `RESET_SESSION = True` for a clean run directory.
+4. Preflight for local HF models:
 
 ```bash
 python -c "import transformers, sentence_transformers; print('transformers', transformers.__version__); print('sentence-transformers', sentence_transformers.__version__)"
@@ -31,70 +27,118 @@ python -c "import transformers, sentence_transformers; print('transformers', tra
 If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local runs:
 
 ```bash
-uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"
+uv pip install -U -c constraints/local-hf.txt "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"
 ```
 
 ## Profile A: OpenRouter + BERTopic
 
-Set in notebook config:
+Set in notebook section dicts:
 
-1. `START_AT_PHASE = 0`
-2. `TOPIC_BACKEND = "bertopic"`
-3. `TRANSLATION_PROVIDER = "openrouter"`
-4. `TRANSLATION_MODEL = "google/gemini-3-flash-preview"`
-5. `EMBEDDING_PROVIDER = "openrouter"`
-6. `EMBEDDING_MODEL = "google/gemini-embedding-001"`
-7. `LLM_PROVIDER = "openrouter"`
-8. `LLM_MODEL = "google/gemini-3-flash-preview"`
+```python
+TRANSLATE = {
+    ...
+    "provider": "openrouter",
+    "model": "google/gemini-3.1-flash-lite-preview",
+}
+TOPIC_MODEL = {
+    ...
+    "embedding_provider": "openrouter",
+    "embedding_model": "qwen/qwen3-embedding-8b",
+    "backend": "bertopic",
+    "llm_provider": "openrouter",
+    "llm_model": "google/gemini-3.1-flash-lite-preview",
+}
+```
 
 Run notebook top-to-bottom and record:
 
 1. No uncaught exceptions.
 2. Topic dataframe columns include `topic_id`, `embedding_2d_x`, `embedding_2d_y`.
 3. Topic map HTML exists.
-4. Citation CSV exports exist.
+4. Citation exports exist.
 
 ## Profile B: OpenRouter + Toponymy
 
 Same as Profile A, except:
 
-1. `TOPIC_BACKEND = "toponymy"`
-
-Run notebook top-to-bottom and record the same checks.
-
-## Profile C: Local + BERTopic
-
-Set in notebook config:
-
-1. `START_AT_PHASE = 0`
-2. `TOPIC_BACKEND = "bertopic"`
-3. `TRANSLATION_PROVIDER = "gguf"`
-4. `TRANSLATION_MODEL = "mradermacher/translategemma-4b-it-GGUF"`
-5. `EMBEDDING_PROVIDER = "local"`
-6. `EMBEDDING_MODEL = "google/embeddinggemma-300m"`
-7. `LLM_PROVIDER = "local"`
-8. `LLM_MODEL = "Qwen/Qwen3-0.6B"`
-9. Optional quality alternative for labeling: `LLM_MODEL = "google/gemma-3-4b-it"`
-
-Preflight for GGUF translation:
-
-```bash
-python -c "import llama_cpp; print('llama-cpp-python', llama_cpp.__version__)"
-```
-
-If not installed:
-
-```bash
-uv pip install -U llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+```python
+TOPIC_MODEL = { ..., "backend": "toponymy" }
 ```
 
 Run notebook top-to-bottom and record the same checks.
 
-## Profile D: Local + Toponymy
+## Profile C: Local CPU + BERTopic
+
+Set in notebook section dicts:
+
+```python
+TRANSLATE = {
+    ...
+    "provider": "nllb",
+    "model": "data/models/nllb-200-distilled-600M-ct2-int8",
+}
+LLAMA_SERVER = {
+    "command": "llama-server",
+    "host": "127.0.0.1",
+    "port": None,
+    "threads": None,
+    "ctx_size": 4096,
+    "gpu_layers": -1,
+    "startup_timeout_s": 120.0,
+    "reasoning": "off",
+}
+TOPIC_MODEL = {
+    ...
+    "embedding_provider": "local",
+    "embedding_model": "google/embeddinggemma-300m",
+    "backend": "bertopic",
+    "llm_provider": "llama_server",
+    "llm_model_path": "data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
+}
+```
+
+Preflight for llama-server:
+
+```bash
+where llama-server
+llama-server --version
+```
+
+If not installed, install a current external `llama-server` build (e.g. via Winget `ggml.llamacpp` on Windows).
+
+Run notebook top-to-bottom and record the same checks.
+
+## Profile D: Local CPU + Toponymy
 
 Same as Profile C, except:
 
-1. `TOPIC_BACKEND = "toponymy"`
+```python
+TOPIC_MODEL = { ..., "backend": "toponymy" }
+```
+
+Run notebook top-to-bottom and record the same checks.
+
+## Profile E: Local GPU + BERTopic
+
+Set in notebook section dicts:
+
+```python
+TRANSLATE = {
+    ...
+    "provider": "llama_server",
+    "model_repo": "mradermacher/translategemma-4b-it-GGUF",
+    "model_file": "translategemma-4b-it.Q4_K_M.gguf",
+}
+TOPIC_MODEL = {
+    ...
+    "embedding_provider": "local",
+    "embedding_model": "google/embeddinggemma-300m",
+    "backend": "bertopic",
+    "llm_provider": "llama_server",
+    "llm_model_repo": "unsloth/gemma-3-4b-it-GGUF",
+    "llm_model_file": "gemma-3-4b-it-Q4_K_M.gguf",
+}
+```
 
 Run notebook top-to-bottom and record the same checks.
 

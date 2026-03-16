@@ -22,12 +22,12 @@ All commands and expected behavior in this repository assume the `ADS_env` conda
 
 Repository-wide implementation and review rules are defined in `AGENTS.md`.
 Review consolidation backlog was completed on `2026-02-25`; ongoing obligations are maintained as operating rules.
-Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Review_ToDo_2026-02-25_closed.md`.
+Active release backlog: `Package_ToDo.md`.
 
 ## Pipeline Phases
 
 1. **Search & Export** — ADS API queries + resolve bibcodes to metadata
-2. **Translation** — fasttext language detection + 3 backends (OpenRouter API, GGUF/GPU, NLLB/CPU)
+2. **Translation** — fasttext language detection + 4 backends (OpenRouter, llama_server, NLLB, HuggingFace API)
 3. **Tokenization** — spaCy lemmatization of Title + Abstract
 4. **AND** — Author Name Disambiguation (placeholder for external package)
 5. **Topic Modeling & Curation** — BERTopic + datamapplot visualization + cluster removal
@@ -39,7 +39,7 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 - Notebook is the primary entrypoint; optional `ads-bib check` exists only for local quality gates
 - AND is an external package, just imported when ready
 - AND integration is deferred for the internal RC until the external package API is stable
-- Translation backends: OpenRouter (API, any LLM), GGUF (local GPU via llama-cpp-python), NLLB (local CPU via CTranslate2, 200+ languages)
+- Translation backends: OpenRouter (API, any LLM), llama_server (local GGUF via external llama-server), NLLB (local CPU via CTranslate2, 200+ languages), HuggingFace API
 - No BERTopic+EVoC path for now; EVoC support remains `toponymy_evoc` only
 - All paths relative to notebook location via `config.init_paths()`
 - Static config in `.env` (API keys), dynamic config in notebook cells
@@ -50,7 +50,7 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 |--------|---------|
 | `search.py` | ADS API cursor-based deep paging |
 | `export.py` | Concurrent chunked bibcode export + parsing |
-| `translate.py` | Language detection + 3 translation backends (OpenRouter, GGUF, NLLB) |
+| `translate.py` | Language detection + 4 translation backends (OpenRouter, llama_server, NLLB, HuggingFace API) |
 | `tokenize.py` | spaCy tokenization (replaced semanticlayertools) |
 | `topic_model/` | BERTopic + Toponymy backends: embeddings, dim reduction, clustering, LLM labeling |
 | `visualize.py` | datamapplot with custom legend, tooltips, word cloud |
@@ -58,7 +58,8 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 | `citations.py` | 4 citation network types + SQLite/CSV/WOS export |
 | `_utils/ads_api.py` | Shared ADS session, retry logic, rate limiting |
 | `_utils/cleaning.py` | HTML cleanup, range normalization |
-| `_utils/gguf_backend.py` | GGUF model loading, translation, BERTopic/Toponymy labeling wrappers |
+| `_utils/llama_server.py` | Managed local llama-server runtime for GGUF chat generation |
+| `_utils/model_specs.py` | Flexible model resolution (local path or HuggingFace Hub download) |
 | `_utils/io.py` | JSON lines, Parquet, Pickle wrappers |
 
 ## Setup
@@ -67,7 +68,7 @@ Active release backlog: `Package_ToDo.md`. Closed review backlog: `archive/Revie
 conda activate ADS_env
 pip install -e ".[topic]"
 pip install -e ".[all]"
-python -m spacy download en_core_web_lg
+python -m spacy download en_core_web_md
 ```
 
 Create `.env` in the project root and fill in API keys. Place `lid.176.bin` in `data/models/`.
@@ -76,7 +77,7 @@ Create `.env` in the project root and fill in API keys. Place `lid.176.bin` in `
 
 Required: pandas, numpy, requests, python-dotenv, fasttext-wheel, spacy, tqdm, scipy, PyYAML
 
-Optional groups: `[topic]`, `[translate-local]` (llama-cpp-python), `[translate-api]`, `[translate-nllb]` (ctranslate2+transformers+sentencepiece), `[gguf]`, `[all]`
+Optional groups: `[topic]`, `[translate-local]` (openai+huggingface-hub), `[translate-api]`, `[translate-nllb]` (ctranslate2+transformers+sentencepiece), `[all]`
 
 ## Conventions
 
