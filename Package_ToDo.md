@@ -1,6 +1,6 @@
 # ADS Pipeline (`ads-bib`) - Package ToDo
 
-Stand: 2026-03-13
+Stand: 2026-03-16
 Ziel: erster externer Release eines notebook-first Research-Packages mit externem AND-Adapter.
 
 ## Festgelegte Entscheidungen
@@ -26,7 +26,7 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
 
 - [x] Source-Input-Vertrag fuer den externen Runner festziehen.
   - Pflichtspalten: `Bibcode`, `Author`, `Year`, `Title_en`/`Title`, `Abstract_en`/`Abstract`; optional `Affiliation`.
-  - Evidenz (2026-03-12): `src/ads_bib/author_disambiguation.py` validiert genau diesen source-basierten Vertrag; `README.md` dokumentiert denselben Input-Scope.
+  - Evidenz (2026-03-12/2026-03-16): `src/ads_bib/author_disambiguation.py` validiert genau diesen source-basierten Vertrag; `docs/reference.md` dokumentiert denselben Input-Scope.
 - [x] `apply_author_disambiguation()` als oeffentliche API einfuehren.
   - Evidenz (2026-03-09): Implementiert in `src/ads_bib/author_disambiguation.py`, re-exportiert via `src/ads_bib/__init__.py`; `tests/test_package_exports.py` deckt den Public Export ab.
 - [x] Source-basierte Runner-Schnittstelle im Repo festziehen.
@@ -46,13 +46,13 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
 ## 3) Anforderungen an das externe AND-Package
 
 - [ ] Generische source-basierte API dokumentieren; keine ADS-DataFrames als externe Package-API.
-  - Status (2026-03-12): Erwartung ist auf `ads-bib`-Seite in `README.md` dokumentiert; die verbindliche Festschreibung im externen AND-Package bleibt offen.
+  - Status (2026-03-16): Erwartung ist auf `ads-bib`-Seite in `docs/reference.md` dokumentiert; die verbindliche Festschreibung im externen AND-Package bleibt offen.
 - [ ] Source-mirrored Output-Vertrag des externen Packages formal beschreiben.
   - Pflichtzusatzspalten auf Repo-Seite: `AuthorUID`, `AuthorDisplayName`.
   - Status (2026-03-12): Repo-seitige Validierung ist implementiert; der formale Vertrag des externen Packages ist noch nicht festgezogen.
 - [ ] `author_display_name` als generische Entity-Metadatenlogik im externen Package festhalten.
   - Heuristik gehoert dort hin, nicht in `ads-bib`.
-  - Status (2026-03-12): `README.md` verortet die menschenlesbare Repraesentationslogik bewusst im externen AND-Package; die tatsaechliche Umsetzung dort bleibt offen.
+  - Status (2026-03-16): `docs/reference.md` verortet die menschenlesbare Repraesentationslogik bewusst im externen AND-Package; die tatsaechliche Umsetzung dort bleibt offen.
 
 ## 4) Citation-Aufraeumen
 
@@ -87,10 +87,10 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-09): `CITATION.cff` liegt im Repo und wird im README als Zitierpfad referenziert.
 - [x] `pyproject.toml` Authors/Maintainers explizit machen.
   - Evidenz (2026-03-09): `pyproject.toml` enthaelt explizite `authors`- und `maintainers`-Eintraege fuer Raphael Schlattmann.
-- [x] `README.md` um Citation-, AND-, Scope- und Package-vs-Notebook-Abschnitte ergaenzen.
-  - Evidenz (2026-03-09): `README.md` enthaelt Abschnitte zu `Audience and Scope`, `AND Integration Contract`, `Package vs Notebook Usage` und `How To Cite`.
-- [x] Kein `.readthedocs.yaml` fuer `0.1.x`; `README.md` bleibt der zentrale Einstieg.
-  - Evidenz (2026-03-09): `.readthedocs.yaml` ist nicht vorhanden; `README.md` ist der zentrale Doku-Einstiegspunkt im Repo.
+- [x] `README.md` auf die GitHub-Landingpage reduzieren und Langform-Doku in die Zensical-Site ziehen.
+  - Evidenz (2026-03-16): `README.md` deckt jetzt nur noch Kurzbeschreibung, Quickstart, Docs-Link, Quality Checks und Citation ab; die strukturierten Langform-Seiten liegen unter `docs/` und bauen erfolgreich mit Zensical.
+- [x] Kein `.readthedocs.yaml` fuer `0.1.x`; Dokumentation laeuft ueber Zensical + GitHub Pages im Hauptrepo, waehrend `README.md` die kurze Landingpage bleibt.
+  - Evidenz (2026-03-16): `zensical.toml`, die neue `docs/`-Struktur und `.github/workflows/docs.yml` sind im Repo; `C:\Users\rapha\anaconda3\envs\ADS_env\Scripts\zensical.exe build --clean` erzeugt die statische Site erfolgreich.
 - [x] HF-API-Auth-/Env-Doku ergaenzen.
   - Evidenz (2026-03-12): `README.md` dokumentiert jetzt `HF_TOKEN` als einzigen Env-Namen plus HF-native Modell-IDs; `src/ads_bib/pipeline.py` injiziert HF-Tokens fuer Translation/Embeddings/BERTopic; `tests/test_notebook_session.py` und `tests/test_pipeline_runner.py` decken die `HF_TOKEN`-Injektion ab.
 - [x] Vier offizielle Package-Config-Templates festziehen.

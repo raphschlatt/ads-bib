@@ -1,0 +1,54 @@
+[project]
+site_name = "ADS Pipeline"
+site_description = "Notebook-first documentation for the ads-bib NASA ADS bibliometric analysis pipeline."
+site_author = "Raphael Schlattmann"
+site_url = "https://raphschlatt.github.io/ADS_Pipeline/"
+repo_url = "https://github.com/raphschlatt/ADS_Pipeline"
+edit_uri = "edit/main/docs"
+copyright = """
+Copyright &copy; 2026 Raphael Schlattmann
+"""
+
+nav = [
+  { Home = "index.md" },
+  { "Get Started" = "get-started.md" },
+  { "Choose Your Path" = "choose-your-path.md" },
+  { "Runtime Guide" = "runtime-guide.md" },
+  { "Pipeline Guide" = "pipeline-guide.md" },
+  { Configuration = "configuration.md" },
+  { Troubleshooting = "troubleshooting.md" },
+  { Reference = "reference.md" },
+  { "Developer Notes" = [{ Overview = "developer-notes/index.md" }, { "Manual Provider Parity" = "developer-notes/manual_provider_parity.md" }] },
+]
+
+[project.theme]
+language = "en"
+features = [
+    "announce.dismiss",
+    "content.action.edit",
+    "content.action.view",
+    "content.code.copy",
+    "navigation.footer",
+    "navigation.indexes",
+    "navigation.instant",
+    "navigation.instant.prefetch",
+    "navigation.path",
+    "navigation.sections",
+    "navigation.top",
+    "navigation.tracking",
+    "search.highlight",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/raphschlatt/ADS_Pipeline"

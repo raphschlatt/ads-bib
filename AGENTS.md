@@ -11,6 +11,7 @@ Engineering rules and operating conventions for this repository.
 ## 1) Architecture Map
 
 - Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
+- Docs site: `docs/` + `zensical.toml` + `.github/workflows/docs.yml`
 - Official batch defaults: `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, `configs/pipeline/local_gpu.yaml`
 - Shared runner: `src/ads_bib/pipeline.py`
 - Notebook adapter: `src/ads_bib/notebook.py`
@@ -64,7 +65,7 @@ Engineering rules and operating conventions for this repository.
 - Add one line only for decisions that influence multiple modules or future refactors.
 
 Seed entries:
-- `2026-02-25 | README as single user entrypoint | avoid split docs/README drift in notebook-first workflow | one source for happy path + troubleshooting + stability scope | no parallel docs tree to maintain`
+- `2026-02-25 | README as initial single user entrypoint | pre-site phase to avoid split docs/README drift in notebook-first workflow | one source for happy path + troubleshooting + stability scope during packaging cleanup | superseded once a docs site exists`
 - `2026-02-25 | Conservative quality gate (ruff + pytest) | enforce baseline quality without large cleanup churn | deterministic local/CI check command with low friction | tighten rules later only with explicit payoff`
 - `2026-02-25 | Consolidated topic_model subpackage path | removed legacy aliases/wrappers after migration | one active implementation path under src/ads_bib/topic_model/ | fewer compatibility leftovers to carry`
 - `2026-03-09 | AND as optional external source step | external package is now integrated through one source-based adapter path | no mention-based placeholder path remains in notebook/runtime modules | keep only source-level contract in ads_bib`
@@ -79,6 +80,7 @@ Seed entries:
 - `2026-03-12 | Shared chat translation prompt contract | OpenRouter and HF translation prompts had drifted after native HF client work | chat-based translation providers now use one centralized scientific prompt contract while nllb stays provider-native | remove provider-specific prompt duplication`
 - `2026-03-12 | No archive tree on default branch | closed notebooks/backlogs added repository noise without runtime value | the default branch stays lean and historical material remains recoverable via git history | remove archive files and stale archive references`
 - `2026-03-16 | Server-only GGUF generation via external llama_server | local GGUF compatibility now depends on the llama.cpp runtime version more than on the Python env; Qwen3.5 is the reference local CPU label model proven in the dedicated MWE notebook | ADS_env is the Python env only, while translation and local topic labeling use one shared external llama.cpp server path with explicit model_repo/model_file/model_path config | remove env-local llama.cpp shadowing and stale llama-cpp-python install signals`
+- `2026-03-16 | Hybrid README landing page + Zensical docs site | README scope had grown beyond a clean GitHub landing page and long-form guidance needed stable URLs plus GitHub-native hosting | README.md stays short for repo orientation while docs/ ships the structured documentation site through GitHub Pages | avoid duplicating long-form guidance across README and docs`
 
 ## 3) DataFrame Schema Conventions
 

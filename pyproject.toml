@@ -40,6 +40,7 @@ keywords = ["ads", "bibliometrics", "research", "topic-modeling", "citation-netw
 
 [project.urls]
 Homepage = "https://github.com/raphschlatt/ADS_Pipeline"
+Documentation = "https://raphschlatt.github.io/ADS_Pipeline/"
 Repository = "https://github.com/raphschlatt/ADS_Pipeline"
 Issues = "https://github.com/raphschlatt/ADS_Pipeline/issues"
 
