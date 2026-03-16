@@ -223,9 +223,7 @@ Runtime notes:
 - GGUF is valuable for local small-model portability, lower footprint, and simpler local setup.
 - The active local GGUF runtime is `llama_server`, shared across translation and topic labeling.
 - Translation prompts are centralized for the chat-based providers (`openrouter`, `huggingface_api`, `llama_server`); `nllb` keeps its provider-native translation path.
-- Local BERTopic/KeyBERT runs in `ADS_env` should follow the tested HF constraints:
-  `python -m pip install -U -c constraints/local-hf.txt "transformers>=4.56,<5" "sentence-transformers>=5.1,<5.2" "accelerate>=0.31,<1.13"`
-- The package dependencies stay intentionally broader in `pyproject.toml`; the constraints file is the local runtime guardrail for notebook/CLI topic modeling.
+- Local BERTopic/KeyBERT runs require `transformers>=4.56` and `sentence-transformers>=5.1`; both are declared in `pyproject.toml`.
 - Local GGUF usage requires a reachable current `llama-server` executable; set `llama_server.command` explicitly if it is not on `PATH`.
 
 ## Configuration Placement
@@ -378,8 +376,7 @@ Fix:
 Symptom: errors such as `Transformers does not recognize this architecture`.
 
 Fix:
-- Re-align the local HF stack in `ADS_env` to the tested constraints:
-  `python -m pip install -U -c constraints/local-hf.txt "transformers>=4.56,<5" "sentence-transformers>=5.1,<5.2" "accelerate>=0.31,<1.13"`
+- Upgrade the HF stack: `pip install -U "transformers>=4.56" "sentence-transformers>=5.1"`
 - Restart kernel/session after upgrade.
 
 ### Windows OpenMP runtime conflict (`OMP: Error #15`)

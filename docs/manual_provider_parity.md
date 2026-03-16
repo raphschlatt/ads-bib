@@ -27,7 +27,7 @@ python -c "import transformers, sentence_transformers; print('transformers', tra
 If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local runs:
 
 ```bash
-uv pip install -U -c constraints/local-hf.txt "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"
+pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
 ```
 
 ## Profile A: OpenRouter + BERTopic

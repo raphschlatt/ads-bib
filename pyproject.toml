@@ -66,7 +66,7 @@ umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
 translate-local = ["openai", "huggingface-hub"]
 translate-api = ["openai", "huggingface-hub"]
-translate-nllb = ["ctranslate2", "transformers", "sentencepiece", "huggingface-hub"]
+translate-nllb = ["ctranslate2", "transformers>=4.56", "sentencepiece", "huggingface-hub"]
 test = ["pytest>=7", "ruff>=0.6"]
 all = ["ads-bib[topic,translate-local,translate-api,translate-nllb,umap,hdbscan]"]
 
