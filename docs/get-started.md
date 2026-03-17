@@ -86,12 +86,27 @@ ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=
 
 ## See Your Outputs
 
-After a successful run, your outputs are under `runs/<run_id>/`. The directory
-contains `config_used.yaml` (the exact configuration that produced this run),
-`run_summary.yaml` (stage metadata and final status), and `logs/runtime.log`
-(raw model output). Stage-specific outputs like the topic map HTML, citation
-network files, and curated datasets are also saved here. A completed
-`config_used.yaml` can be reused directly as a CLI config for future runs.
+After a successful run, your outputs are under `runs/<run_id>/`:
+
+```
+runs/run_20260305_123644_ADS_Curation_Run/
+├── config_used.yaml              # rerun this exact config anytime
+├── logs/
+│   └── runtime.log               # full model output and cost tracking
+├── data/
+│   ├── curated_dataset.parquet   # publications with topics + embeddings
+│   ├── direct.gexf               # direct citation network
+│   ├── co_citation.gexf          # co-citation network
+│   ├── bibliographic_coupling.gexf
+│   ├── author_co_citation.gexf   # author co-citation network
+│   └── download_wos_export.txt   # WOS format for CiteSpace / VOSviewer
+└── plots/
+    └── topic_map.html            # interactive visualization
+```
+
+Open `topic_map.html` in a browser, load the `.gexf` files in Gephi, or import
+`download_wos_export.txt` into CiteSpace. The `config_used.yaml` can be reused
+directly as a CLI config for future runs.
 
 To customize the pipeline beyond the defaults, read the
 [Pipeline Guide](pipeline-guide.md).
