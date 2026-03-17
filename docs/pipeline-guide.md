@@ -121,9 +121,10 @@ Document embeddings capture semantic similarity and are the foundation for
 clustering. Computing them is expensive, but happens once -- results are cached
 in `data/cache/embeddings/` with SHA-256 validation.
 
-`local` runs a HuggingFace encoder (e.g. `BAAI/bge-large-en-v1.5`) on your
-machine. `openrouter` provides access to models like
-`qwen/qwen3-embedding-8b`. `huggingface_api` calls the HF Inference API.
+`local` runs a local encoder on your machine; the official local presets use
+`google/embeddinggemma-300m`. The official OpenRouter preset uses
+`qwen/qwen3-embedding-8b`, and the official `huggingface_api` preset uses
+`Qwen/Qwen3-Embedding-8B` via the HF Inference API.
 
 During early exploration on large corpora, set `sample_size` to 5000 to work
 with a random subset. Set it back to `None` for the final run.
