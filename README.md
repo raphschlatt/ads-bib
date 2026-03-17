@@ -14,9 +14,9 @@ reproducible batch runs.
 - Docs sources: `docs/`
 - Site config: `zensical.toml`
 
-Use the docs site for runtime selection, notebook-vs-CLI guidance,
-configuration, troubleshooting, reference material, and developer runbooks.
-This README is now the short GitHub landing page.
+Use the docs site for setup, the pipeline guide, configuration reference,
+troubleshooting, and developer runbooks. This README is the short GitHub
+landing page.
 
 ## Quickstart
 
@@ -87,8 +87,8 @@ The CLI is dependency-aware and batch-oriented. Both frontends persist
 - `configs/pipeline/local_cpu.yaml`: lowest recurring-cost local CPU road
 - `configs/pipeline/local_gpu.yaml`: current local NVIDIA GPU road
 
-See the docs site for the runtime support matrix, provider tradeoffs, and the
-full configuration guide.
+See the [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/)
+for provider choices, parameter tuning, and the full configuration reference.
 
 ## Build the Docs Locally
 

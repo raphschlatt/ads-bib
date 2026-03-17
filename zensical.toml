@@ -12,8 +12,6 @@ Copyright &copy; 2026 Raphael Schlattmann
 nav = [
   { Home = "index.md" },
   { "Get Started" = "get-started.md" },
-  { "Choose Your Path" = "choose-your-path.md" },
-  { "Runtime Guide" = "runtime-guide.md" },
   { "Pipeline Guide" = "pipeline-guide.md" },
   { Configuration = "configuration.md" },
   { Troubleshooting = "troubleshooting.md" },
