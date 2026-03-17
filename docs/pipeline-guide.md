@@ -215,6 +215,13 @@ outlier reduction strictness.
 | `toponymy` | 5D reduced vectors | `local`, `llama_server`, `openrouter` |
 | `toponymy_evoc` | Raw embeddings | `local`, `llama_server`, `openrouter` |
 
+For small corpora, Toponymy cluster defaults can still be too strict. If `topic_fit`
+fails with a first-layer cluster error, set explicit smaller values in
+`toponymy_cluster_params` or `toponymy_evoc_cluster_params` (start with
+`min_clusters=3`, then lower `base_min_cluster_size` if needed).
+For `toponymy_layer_index`, start with `0` on small corpora and only increase
+it when multiple layers are actually available.
+
 ### Tuning Order
 
 1. Choose an embedding model (rarely changes after the first run)

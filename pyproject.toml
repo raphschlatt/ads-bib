@@ -59,6 +59,7 @@ topic = [
     "litellm",
     "openai",
     "toponymy",
+    "dask",
     "evoc",
     "seaborn",
     "matplotlib",

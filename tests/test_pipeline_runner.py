@@ -317,6 +317,57 @@ def test_run_topic_fit_stage_uses_bertopic_progress_bridge(tmp_path, monkeypatch
     ]
 
 
+def test_resolve_topic_defaults_scales_toponymy_min_clusters_for_small_corpus(tmp_path):
+    config = pipeline.PipelineConfig.from_dict({"run": {"project_root": str(tmp_path)}})
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.documents = [f"doc-{idx}" for idx in range(360)]
+
+    resolved = pipeline._resolve_topic_defaults(ctx)
+
+    assert resolved["toponymy_cluster_params"]["min_clusters"] == 3
+    assert resolved["toponymy_evoc_cluster_params"]["min_clusters"] == 3
+    assert resolved["toponymy_cluster_params"]["base_min_cluster_size"] == 55
+    assert resolved["toponymy_evoc_cluster_params"]["base_min_cluster_size"] == 55
+
+
+def test_resolve_topic_defaults_keeps_toponymy_overrides_authoritative(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "topic_model": {
+                "toponymy_cluster_params": {"min_clusters": 7, "base_min_cluster_size": 12},
+                "toponymy_evoc_cluster_params": {"min_clusters": 6, "base_min_cluster_size": 11},
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.documents = [f"doc-{idx}" for idx in range(360)]
+
+    resolved = pipeline._resolve_topic_defaults(ctx)
+
+    assert resolved["toponymy_cluster_params"]["min_clusters"] == 7
+    assert resolved["toponymy_cluster_params"]["base_min_cluster_size"] == 12
+    assert resolved["toponymy_evoc_cluster_params"]["min_clusters"] == 6
+    assert resolved["toponymy_evoc_cluster_params"]["base_min_cluster_size"] == 11
+
+
+def test_warn_if_aggressive_toponymy_config_logs_warning(monkeypatch):
+    calls: dict[str, str] = {}
+
+    def _fake_warning(message, *args):
+        calls["message"] = message % args
+
+    monkeypatch.setattr(pipeline.logger, "warning", _fake_warning)
+
+    pipeline._warn_if_aggressive_toponymy_config(
+        backend="toponymy",
+        n_docs=120,
+        clusterer_params={"min_clusters": 10, "base_min_cluster_size": 200},
+    )
+
+    assert "Toponymy config may be too aggressive" in calls["message"]
+
+
 def test_pipeline_config_allows_huggingface_api_for_bertopic():
     config = pipeline.PipelineConfig.from_dict(
         {
@@ -377,6 +428,11 @@ def test_pipeline_config_rejects_legacy_llama_server_model_string():
                 }
             }
         )
+
+
+def test_pipeline_config_defaults_toponymy_layer_index_to_zero():
+    config = pipeline.PipelineConfig.from_dict({})
+    assert config.topic_model.toponymy_layer_index == 0
 
 
 def test_run_pipeline_respects_stage_slice(monkeypatch):

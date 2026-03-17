@@ -437,6 +437,74 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
     assert calls["namer"]["max_workers"] == 5
 
 
+@pytest.mark.parametrize(
+    ("backend", "expected_cluster_shape"),
+    [
+        ("toponymy", (3, 2)),
+        ("toponymy_evoc", (3, 3)),
+    ],
+)
+def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch, backend, expected_cluster_shape):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    model, _, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float16),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float16),
+        backend=backend,
+        layer_index=0,
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        embedding_provider="openrouter",
+        embedding_model="google/gemini-embedding-001",
+        api_key="key",
+        clusterer_params={"min_clusters": 4},
+    )
+
+    assert model.embedding_vectors.dtype == np.float32
+    assert model.clusterable_vectors.dtype == np.float32
+    assert model.clusterable_vectors.shape == expected_cluster_shape
+
+
+def test_fit_toponymy_logs_dtype_bridge_for_float16_inputs(monkeypatch, caplog):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float16),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float16),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        embedding_provider="openrouter",
+        embedding_model="google/gemini-embedding-001",
+        api_key="key",
+        clusterer_params={"min_clusters": 4},
+    )
+
+    assert any(
+        "Toponymy dtype bridge" in record.getMessage()
+        and "cast=embedding_vectors,clusterable_vectors" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
     calls: dict = {}
@@ -752,6 +820,85 @@ def test_fit_toponymy_local_requires_hf_dependencies(monkeypatch):
         assert "llm_provider='local' requires optional dependencies" in str(exc)
 
 
+def test_fit_toponymy_raises_actionable_error_for_missing_transitive_dependency(monkeypatch):
+    monkeypatch.delitem(sys.modules, "toponymy", raising=False)
+
+    real_import = __import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "toponymy":
+            raise ModuleNotFoundError("No module named 'dask'", name="dask")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", _fake_import)
+
+    try:
+        tm.fit_toponymy(
+            documents=["d1"],
+            embeddings=np.ones((1, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((1, 2), dtype=np.float32),
+            backend="toponymy",
+            llm_provider="openrouter",
+            llm_model="google/gemini-3-flash-preview",
+            embedding_provider="openrouter",
+            api_key="key",
+        )
+        assert False, "Expected ImportError for missing Toponymy dependency stack"
+    except ImportError as exc:
+        assert "Missing module: 'dask'" in str(exc)
+        assert "vectorizers" in str(exc)
+        assert "uv pip install -e \".[all,test]\"" in str(exc)
+
+
+@pytest.mark.parametrize(
+    ("backend", "clusterer_params"),
+    [
+        ("toponymy", {"min_clusters": 7, "base_min_cluster_size": 11}),
+        ("toponymy_evoc", {"min_clusters": 6, "base_min_cluster_size": 9}),
+    ],
+)
+def test_fit_toponymy_rewrites_first_layer_cluster_error(monkeypatch, backend, clusterer_params):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    class _FailingToponymyModel(_FakeToponymyModel):
+        def fit(self, objects, embedding_vectors, clusterable_vectors, **kwargs):
+            del objects, embedding_vectors, clusterable_vectors, kwargs
+            raise ValueError(
+                "Not enough clusters found in the first layer: "
+                "n_clusters_in_layer: 3 < min_clusters: 10. Try reducing base_min_cluster_size."
+            )
+
+    sys.modules["toponymy"].Toponymy = _FailingToponymyModel
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    with pytest.raises(ValueError, match="Toponymy first-layer clustering failed") as exc_info:
+        tm.fit_toponymy(
+            documents=["d1", "d2", "d3"],
+            embeddings=np.ones((3, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+            backend=backend,
+            layer_index=0,
+            llm_provider="openrouter",
+            llm_model="google/gemini-3-flash-preview",
+            embedding_provider="openrouter",
+            embedding_model="google/gemini-embedding-001",
+            api_key="key",
+            clusterer_params=clusterer_params,
+        )
+
+    message = str(exc_info.value)
+    assert f"backend='{backend}'" in message
+    assert f"min_clusters={clusterer_params['min_clusters']}" in message
+    assert f"base_min_cluster_size={clusterer_params['base_min_cluster_size']}" in message
+    assert "lowering min_clusters" in message
+
+
 def test_fit_toponymy_validates_layer_index(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
@@ -775,7 +922,10 @@ def test_fit_toponymy_validates_layer_index(monkeypatch):
         )
         assert False, "Expected ValueError for invalid layer_index"
     except ValueError as exc:
-        assert "layer_index" in str(exc)
+        message = str(exc)
+        assert "layer_index" in message
+        assert "valid range: 0..1" in message
+        assert "toponymy_layer_index=0" in message
 
 
 def test_fit_toponymy_rejects_invalid_backend():

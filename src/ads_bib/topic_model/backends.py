@@ -70,6 +70,23 @@ ToponymyEmbeddingProvider: TypeAlias = Literal["local", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
 
 
+def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
+    """Raise an actionable import error for Toponymy's transitive dependency stack."""
+    missing_module = exc.name if isinstance(exc, ModuleNotFoundError) else None
+    message = (
+        f"backend='{backend}' requires optional dependency 'toponymy' and its runtime dependencies."
+    )
+    if missing_module:
+        message += f" Missing module: '{missing_module}'."
+    if missing_module == "dask":
+        message += " Toponymy imports 'vectorizers', which requires 'dask'."
+    message += (
+        " Install the missing package in ADS_env, or reinstall the topic extras "
+        "with `uv pip install -e \".[all,test]\"`."
+    )
+    raise ImportError(message) from exc
+
+
 # ---------------------------------------------------------------------------
 # Clustering
 # ---------------------------------------------------------------------------
@@ -833,6 +850,63 @@ def _build_toponymy_clusterer(
     return clusterer, embeddings
 
 
+_TOPONYMY_FIRST_LAYER_ERROR = "Not enough clusters found in the first layer"
+
+
+def _resolve_toponymy_cluster_param(
+    *,
+    clusterer: Any,
+    clusterer_params: dict[str, Any],
+    key: str,
+) -> Any:
+    """Resolve active Toponymy cluster parameter from explicit or instantiated config."""
+    value = clusterer_params.get(key)
+    if value is not None:
+        return value
+
+    clusterer_value = getattr(clusterer, key, None)
+    if clusterer_value is not None:
+        return clusterer_value
+
+    kwargs = getattr(clusterer, "kwargs", None)
+    if isinstance(kwargs, dict):
+        return kwargs.get(key)
+    return None
+
+
+def _bridge_toponymy_fit_dtypes(
+    *,
+    embeddings: np.ndarray,
+    clusterable_vectors: np.ndarray,
+    backend_norm: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cast Toponymy fit vectors to float32 when float16 would break Numba."""
+    fit_embeddings = embeddings
+    fit_clusterable_vectors = clusterable_vectors
+    cast_targets: list[str] = []
+
+    if embeddings.dtype == np.float16:
+        fit_embeddings = embeddings.astype(np.float32, copy=False)
+        cast_targets.append("embedding_vectors")
+
+    if clusterable_vectors is embeddings:
+        fit_clusterable_vectors = fit_embeddings
+        if fit_clusterable_vectors is not clusterable_vectors:
+            cast_targets.append("clusterable_vectors")
+    elif clusterable_vectors.dtype == np.float16:
+        fit_clusterable_vectors = clusterable_vectors.astype(np.float32, copy=False)
+        cast_targets.append("clusterable_vectors")
+
+    if cast_targets:
+        logger.info(
+            "  Toponymy dtype bridge | backend=%s | cast=%s -> float32",
+            backend_norm,
+            ",".join(cast_targets),
+        )
+
+    return fit_embeddings, fit_clusterable_vectors
+
+
 def _build_toponymy_models(
     *,
     llm_provider_norm: str,
@@ -1002,6 +1076,7 @@ def _fit_and_extract_toponymy_outputs(
     embedding_provider_norm: str,
     embedding_model: str,
     layer_index: int,
+    clusterer_params: dict[str, Any],
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
     """Fit Toponymy model and extract one configured topic layer."""
     logger.info(
@@ -1020,15 +1095,49 @@ def _fit_and_extract_toponymy_outputs(
         corpus_description=corpus_description,
         verbose=verbose,
     )
-    topic_model.fit(
-        documents,
-        embedding_vectors=embeddings,
+    fit_embeddings, fit_clusterable_vectors = _bridge_toponymy_fit_dtypes(
+        embeddings=embeddings,
         clusterable_vectors=clusterable_vectors,
+        backend_norm=backend_norm,
     )
+    try:
+        topic_model.fit(
+            documents,
+            embedding_vectors=fit_embeddings,
+            clusterable_vectors=fit_clusterable_vectors,
+        )
+    except ValueError as exc:
+        if _TOPONYMY_FIRST_LAYER_ERROR in str(exc):
+            min_clusters = _resolve_toponymy_cluster_param(
+                clusterer=clusterer,
+                clusterer_params=clusterer_params,
+                key="min_clusters",
+            )
+            base_min_cluster_size = _resolve_toponymy_cluster_param(
+                clusterer=clusterer,
+                clusterer_params=clusterer_params,
+                key="base_min_cluster_size",
+            )
+            raise ValueError(
+                "Toponymy first-layer clustering failed "
+                f"(backend='{backend_norm}', min_clusters={min_clusters}, "
+                f"base_min_cluster_size={base_min_cluster_size}). "
+                "Try lowering min_clusters and, if needed, lowering base_min_cluster_size."
+            ) from exc
+        raise
 
     n_layers = len(topic_model.cluster_layers_)
     if layer_index < 0 or layer_index >= n_layers:
-        raise ValueError(f"layer_index {layer_index} is out of range for {n_layers} available layers.")
+        if n_layers <= 0:
+            raise ValueError(
+                f"layer_index {layer_index} is out of range because Toponymy returned no layers. "
+                "For small corpora start with toponymy_layer_index=0 and lower Toponymy cluster thresholds."
+            )
+        raise ValueError(
+            f"layer_index {layer_index} is out of range for {n_layers} available layers "
+            f"(valid range: 0..{n_layers - 1}). "
+            "For small corpora start with toponymy_layer_index=0."
+        )
 
     topics = np.asarray(topic_model.cluster_layers_[layer_index].cluster_labels, dtype=int)
     n_topics = len(set(topics)) - (1 if -1 in topics else 0)
@@ -1314,7 +1423,10 @@ def fit_toponymy(
             field_label="llm_model",
         )
         llm_model = llm_model_spec.display_name()
-    from toponymy import Toponymy, ToponymyClusterer
+    try:
+        from toponymy import Toponymy, ToponymyClusterer
+    except ImportError as exc:
+        _raise_with_toponymy_import_hint(exc, backend=backend_norm)
 
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     openrouter_api_base = normalize_openrouter_api_base(openrouter_api_base)
@@ -1359,6 +1471,7 @@ def fit_toponymy(
         embedding_provider_norm=embedding_provider_norm,
         embedding_model=embedding_model,
         layer_index=layer_index,
+        clusterer_params=clusterer_params,
     )
 
     _record_llm_usage(

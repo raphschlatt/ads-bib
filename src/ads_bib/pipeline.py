@@ -189,7 +189,7 @@ class TopicModelConfig:
     cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_evoc_cluster_params: dict[str, Any] = field(default_factory=dict)
-    toponymy_layer_index: int = 1
+    toponymy_layer_index: int = 0
     llm_prompt_name: str = "physics"
     llm_prompt: str | None = None
     llm_provider: str = "openrouter"
@@ -750,6 +750,43 @@ def _finalize_run_summary(
     return summary_path
 
 
+def _default_toponymy_min_clusters(n_docs: int) -> int:
+    """Scale Toponymy ``min_clusters`` with corpus size for small datasets."""
+    return max(3, min(10, int(n_docs * 0.006)))
+
+
+def _warn_if_aggressive_toponymy_config(
+    *,
+    backend: str,
+    n_docs: int,
+    clusterer_params: dict[str, Any],
+) -> None:
+    """Warn when Toponymy cluster defaults are likely too strict for corpus size."""
+    try:
+        min_clusters = int(clusterer_params.get("min_clusters"))
+        base_min_cluster_size = int(clusterer_params.get("base_min_cluster_size"))
+    except (TypeError, ValueError):
+        return
+
+    if min_clusters <= 0 or base_min_cluster_size <= 0:
+        return
+
+    estimated_max_clusters = n_docs // base_min_cluster_size
+    if estimated_max_clusters >= min_clusters:
+        return
+
+    logger.warning(
+        "Toponymy config may be too aggressive | backend=%s | docs=%s | "
+        "min_clusters=%s | base_min_cluster_size=%s | estimated_max_clusters~%s. "
+        "Consider lowering min_clusters and/or base_min_cluster_size.",
+        backend,
+        f"{n_docs:,}",
+        min_clusters,
+        base_min_cluster_size,
+        estimated_max_clusters,
+    )
+
+
 def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
     if ctx.documents is None:
         raise ValueError("documents are not available.")
@@ -757,6 +794,7 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
     n_docs = len(ctx.documents)
     min_cluster_size = max(15, int(n_docs * 0.001))
     base_min_cluster_size = max(55, int(n_docs * 0.0007))
+    toponymy_min_clusters = _default_toponymy_min_clusters(n_docs)
     min_df = cfg.min_df if cfg.min_df is not None else max(1, min(5, n_docs // 100))
 
     cluster_params = {
@@ -767,13 +805,13 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
         **cfg.cluster_params,
     }
     toponymy_cluster_params = {
-        "min_clusters": 10,
+        "min_clusters": toponymy_min_clusters,
         "min_samples": 3,
         "base_min_cluster_size": base_min_cluster_size,
         **cfg.toponymy_cluster_params,
     }
     toponymy_evoc_cluster_params = {
-        "min_clusters": 10,
+        "min_clusters": toponymy_min_clusters,
         "min_samples": 3,
         "base_min_cluster_size": base_min_cluster_size,
         "noise_level": 0.35,
@@ -1359,6 +1397,11 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
             resolved["toponymy_evoc_cluster_params"]
             if cfg.backend == "toponymy_evoc"
             else resolved["toponymy_cluster_params"]
+        )
+        _warn_if_aggressive_toponymy_config(
+            backend=cfg.backend,
+            n_docs=len(ctx.documents),
+            clusterer_params=clusterer_params,
         )
         toponymy_api_key = cfg.llm_api_key or cfg.embedding_api_key
         if reporter is None:
