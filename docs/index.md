@@ -1,68 +1,57 @@
 # ADS Pipeline
 
-`ads-bib` is a Python package that turns a NASA ADS search query into a
-complete, analysis-ready research dataset: translated and homogenized metadata,
-a topic model with an interactive visualization, and four citation networks
-exported in formats you can open directly in Gephi, CiteSpace, or VOSviewer.
+`ads-bib` takes a NASA ADS search query through a sequence of processing steps
+-- retrieving records, translating non-English metadata, fitting a topic model,
+and constructing citation networks -- and writes the results to a single run
+directory.
 
-## What You Get
+A raw ADS export gives you metadata in mixed languages, without thematic
+structure and without network files. Before you can do bibliometric analysis in
+Gephi or CiteSpace, you need to homogenize languages, discover topical
+structure, and build the actual networks. That is what this pipeline automates.
 
-An ADS export gives you raw metadata, often in mixed languages, with no
-thematic structure and no network files. `ads-bib` closes that gap. Starting
-from a single query, you get:
-
-- A **curated Parquet dataset** with 30+ columns: original and translated
-  titles/abstracts, language tags, lemmatized tokens, topic assignments,
-  2D embeddings, and full ADS metadata.
-- An **interactive topic map** (HTML) where each document is a point colored by
-  topic. Hover for metadata, click topics in the legend to filter, lasso-select
-  a region to see its word cloud, and brush the year histogram to slice by
-  publication period.
-- **Four citation networks** as GEXF files ready for Gephi: direct citation,
-  co-citation, bibliographic coupling, and author co-citation. Each node
-  carries the full publication record including topic assignments.
-- A **WOS-format export** for CiteSpace and VOSviewer.
-
-One CLI command produces all of this:
-
-```bash
-ads-bib run --config configs/pipeline/openrouter.yaml
+``` mermaid
+graph LR
+    A[ADS Query] --> B[Search & Export]
+    B --> C[Translation]
+    C --> D[Tokenization]
+    D --> E[Embeddings]
+    E --> F[Clustering & Labeling]
+    F --> G[Visualization]
+    F --> H[Citation Networks]
 ```
+
+## Pipeline Phases
+
+1. **Search & Export** -- query NASA ADS, resolve bibcodes to full metadata and reference lists
+2. **Translation** -- detect languages with fasttext, translate to English
+3. **Tokenization** -- lemmatize with spaCy for topic modeling
+4. **Author Disambiguation** -- optional external step for author-level analysis
+5. **Topic Modeling & Curation** -- embed, cluster, label, visualize, curate
+6. **Citation Networks** -- direct, co-citation, bibliographic coupling, author co-citation
+
+## Run Output
+
+A completed run directory:
 
 ```
 runs/run_20260305_123644/
-├── config_used.yaml                 # exact config, reusable as CLI input
+├── config_used.yaml
 ├── data/
-│   ├── curated_dataset.parquet      # 1,662 docs, 31 columns, topics assigned
-│   ├── direct.gexf                  # → open in Gephi
+│   ├── curated_dataset.parquet
+│   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
 │   ├── author_co_citation.gexf
-│   └── download_wos_export.txt      # → import into CiteSpace
+│   └── download_wos_export.txt
 └── plots/
-    └── topic_map.html               # → open in browser
+    └── topic_map.html
 ```
 
-## How It Works
+The `.gexf` files open in Gephi, the WOS export loads into CiteSpace and
+VOSviewer, and the topic map is a self-contained interactive HTML page.
 
-```
-ADS Query → Search → Export → Translate → Tokenize → Embed → Cluster → Label → Visualize → Networks
-                                                                                    ↓            ↓
-                                                                              topic_map.html   4× .gexf
-```
+## Next
 
-1. **Search & Export** -- query NASA ADS, resolve bibcodes to full metadata and reference lists
-2. **Translation** -- detect languages with fasttext, translate non-English text to English
-3. **Tokenization** -- lemmatize with spaCy for topic modeling input
-4. **Author Disambiguation** -- optional step for author-level analysis
-5. **Topic Modeling & Curation** -- embed documents, cluster with HDBSCAN, label topics with an LLM, render an interactive map, curate clusters
-6. **Citation Networks** -- build and export four network types with full node metadata
-
-Each phase builds on the previous one. The
-[Pipeline Guide](pipeline-guide.md) walks through configuration and parameter
-tuning for each phase.
-
-## Get Started
-
-[Get Started](get-started.md) takes you from installation to a completed run.
-The [Pipeline Guide](pipeline-guide.md) explains every parameter decision.
+[Get Started](get-started.md) covers installation and your first run.
+The [Pipeline Guide](pipeline-guide.md) explains each phase and its parameters.

@@ -5,6 +5,9 @@ site_author = "Raphael Schlattmann"
 site_url = "https://raphschlatt.github.io/ADS_Pipeline/"
 repo_url = "https://github.com/raphschlatt/ADS_Pipeline"
 edit_uri = "edit/main/docs"
+extra_javascript = [
+    "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js",
+]
 copyright = """
 Copyright &copy; 2026 Raphael Schlattmann
 """
@@ -50,3 +53,4 @@ toggle.name = "Switch to light mode"
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
 link = "https://github.com/raphschlatt/ADS_Pipeline"
+

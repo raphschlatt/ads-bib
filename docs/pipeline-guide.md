@@ -1,7 +1,6 @@
 # Pipeline Guide
 
-This guide covers every pipeline phase: what it does, how to configure it, and
-what output to expect.
+Each pipeline phase, its configuration, and its output.
 
 ## How Iteration Works
 
@@ -113,7 +112,7 @@ analysis.
 
 ## Phase 5: Topic Modeling
 
-The analytical core. Four sub-stages: embeddings, dimensionality reduction,
+Topic modeling has four sub-stages: embeddings, dimensionality reduction,
 clustering, and topic labeling.
 
 ### Embeddings
