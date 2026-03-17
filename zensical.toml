@@ -8,6 +8,7 @@ edit_uri = "edit/main/docs"
 extra_javascript = [
     "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js",
 ]
+extra_css = ["stylesheets/github-theme.css"]
 copyright = """
 Copyright &copy; 2026 Raphael Schlattmann
 """
@@ -42,11 +43,15 @@ features = [
 
 [[project.theme.palette]]
 scheme = "default"
+primary = "blue"
+accent = "blue"
 toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
 scheme = "slate"
+primary = "teal"
+accent = "teal"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to light mode"
 

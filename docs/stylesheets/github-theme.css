@@ -1,0 +1,22 @@
+/* GitHub Light Default */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #0969da;
+  --md-primary-fg-color--light: #218bff;
+  --md-primary-fg-color--dark: #0550ae;
+  --md-accent-fg-color: #0969da;
+}
+
+/* GitHub Soft Dark */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #22272e;
+  --md-default-bg-color--light: #2d333b;
+  --md-default-fg-color: #adbac7;
+  --md-default-fg-color--light: #768390;
+  --md-default-fg-color--lighter: #636e7b;
+  --md-primary-fg-color: #539bf5;
+  --md-primary-fg-color--light: #6cb6ff;
+  --md-primary-fg-color--dark: #4184e4;
+  --md-accent-fg-color: #57ab5a;
+  --md-code-bg-color: #2d333b;
+  --md-typeset-a-color: #539bf5;
+}
