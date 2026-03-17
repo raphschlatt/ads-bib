@@ -11,13 +11,17 @@ Gephi or CiteSpace, you need to homogenize languages, discover topical
 structure, and build the actual networks. That is what this pipeline automates.
 
 ``` mermaid
-graph TD
-    A[Search & Export] --> B[Translate]
-    B --> C[Tokenize]
+graph LR
+    A[Search & Export] --> B[Translate & Tokenize]
+    B --> C[Author Name Disambiguation]
     C --> D[Topic Modeling]
-    D --> E[Topic Map]
-    D --> F[Curated Dataset]
+    
+    D <--> E[Topic Map]
+    D <--> F[Curated Dataset]
+    
+    E <--> F
     F --> G[Citation Networks]
+
 ```
 
 ## Pipeline Phases
