@@ -52,10 +52,10 @@ saved config, explicit stage bounds, and clean run artifacts.
 - [Choose Your Path](choose-your-path.md): notebook-vs-CLI guidance.
 - [Runtime Guide](runtime-guide.md): provider matrix and the four official
   config roads.
-- [Pipeline Guide](pipeline-guide.md): stage order, artifacts, and resume
-  behavior.
+- [Pipeline Guide](pipeline-guide.md): stage order, parameter tuning,
+  iterative workflow, artifacts, and resume behavior.
 - [Configuration](configuration.md): notebook section dicts, YAML configs,
-  secrets, and overrides.
+  dataset-size scaling, secrets, and overrides.
 - [Troubleshooting](troubleshooting.md): common setup and runtime problems.
 - [Reference](reference.md): stable imports, schema conventions, AND contract,
   and local quality checks.

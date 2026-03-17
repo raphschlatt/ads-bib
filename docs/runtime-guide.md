@@ -30,6 +30,8 @@ For `huggingface_api`, use HF-native model ids such as
   `configs/pipeline/hf_api.yaml`
 - In all cases: precompute embeddings once and reuse them. That is the most
   important speed lever for BERTopic iteration.
+- For parameter tuning within each provider and stage, see the
+  [Pipeline Guide](pipeline-guide.md#phase-5-topic-modeling).
 
 ## What tends to win where
 
