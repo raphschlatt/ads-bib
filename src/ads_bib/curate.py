@@ -10,13 +10,18 @@ from pandas.api.types import is_string_dtype
 logger = logging.getLogger(__name__)
 
 
-def get_cluster_summary(df: pd.DataFrame, label_column: str = "Name") -> pd.DataFrame:
+def get_cluster_summary(
+    df: pd.DataFrame,
+    label_column: str = "Name",
+    *,
+    topic_id_column: str = "topic_id",
+) -> pd.DataFrame:
     """Return a summary table of all clusters for review.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain ``topic_id`` and *label_column*.
+        Must contain *topic_id_column* and *label_column*.
 
     Returns
     -------
@@ -26,28 +31,31 @@ def get_cluster_summary(df: pd.DataFrame, label_column: str = "Name") -> pd.Data
     """
     total = len(df)
     summary = (
-        df.groupby("topic_id")
+        df.groupby(topic_id_column)
         .agg(
-            Count=("topic_id", "size"),
+            Count=(topic_id_column, "size"),
             Label=(label_column, "first"),
         )
         .reset_index()
         .sort_values("Count", ascending=False)
     )
     summary["Percentage"] = (summary["Count"] / total * 100).round(1)
+    summary = summary.rename(columns={topic_id_column: "topic_id"})
     return summary[["topic_id", "Count", "Percentage", "Label"]]
 
 
 def remove_clusters(
     df: pd.DataFrame,
     cluster_ids: list[int],
+    *,
+    topic_id_column: str = "topic_id",
 ) -> pd.DataFrame:
     """Remove rows belonging to the specified cluster IDs.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain a ``topic_id`` column.
+        Must contain *topic_id_column*.
     cluster_ids : list[int]
         Cluster IDs to remove (e.g. ``[3, 7, -1]``).
 
@@ -57,9 +65,14 @@ def remove_clusters(
         Filtered copy of *df*.
     """
     before = len(df)
-    df_out = df[~df["topic_id"].isin(cluster_ids)].copy()
+    df_out = df[~df[topic_id_column].isin(cluster_ids)].copy()
     removed = before - len(df_out)
-    logger.info("Removed %s documents from clusters %s", f"{removed:,}", cluster_ids)
+    logger.info(
+        "Removed %s documents from clusters %s (column=%s)",
+        f"{removed:,}",
+        cluster_ids,
+        topic_id_column,
+    )
     logger.info("Remaining: %s documents", f"{len(df_out):,}")
     return df_out
 

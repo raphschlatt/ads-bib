@@ -106,6 +106,46 @@ def test_build_topic_dataframe_accepts_external_topic_info():
     assert out["Main"].tolist() == ["alpha", "beta", "noise"]
 
 
+def test_build_topic_dataframe_persists_toponymy_hierarchy_columns():
+    model = _FakeToponymyModel(
+        llm_wrapper=object(),
+        text_embedding_model=object(),
+        clusterer=object(),
+        object_description="docs",
+        corpus_description="corpus",
+        verbose=False,
+    )
+    model.topic_primary_layer_index_ = 1
+    model.topic_layer_count_ = 2
+    model.topic_clusters_per_layer_ = [2, 2]
+    df = pd.DataFrame({"Bibcode": ["a", "b", "c"]})
+    reduced_2d = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32)
+    topics = np.array([0, 0, 1])
+    topic_info = pd.DataFrame(
+        {
+            "Topic": [0, 1],
+            "Name": ["Macro Alpha", "Macro Beta"],
+            "Main": ["macro alpha", "macro beta"],
+        }
+    )
+
+    out = tm.build_topic_dataframe(
+        df,
+        topic_model=model,
+        topics=topics,
+        reduced_2d=reduced_2d,
+        topic_info=topic_info,
+    )
+
+    assert out["topic_primary_layer_index"].tolist() == [1, 1, 1]
+    assert out["topic_layer_count"].tolist() == [2, 2, 2]
+    assert out["topic_layer_0_id"].tolist() == [-1, 0, 1]
+    assert out["topic_layer_0_label"].tolist() == ["Outlier Topic", "Alpha", "Beta"]
+    assert out["topic_layer_1_id"].tolist() == [0, 0, 1]
+    assert out["topic_layer_1_label"].tolist() == ["Macro Alpha", "Macro Alpha", "Macro Beta"]
+    assert out["Topic_Layer_1"].tolist() == ["Macro Alpha", "Macro Alpha", "Macro Beta"]
+
+
 def test_reduce_outliers_refreshes_representations_and_logs(caplog):
     caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
     model = _FakeTopicModel()
@@ -301,8 +341,10 @@ def test_create_llm_huggingface_api_normalizes_model_and_passes_api_key(monkeypa
 
 
 class _FakeLayer:
-    def __init__(self, labels):
+    def __init__(self, labels, topic_name_vector=None):
         self.cluster_labels = np.asarray(labels, dtype=int)
+        if topic_name_vector is not None:
+            self.topic_name_vector = np.asarray(topic_name_vector, dtype=object)
 
 
 class _FakeToponymyClusterer:
@@ -357,7 +399,16 @@ class _FakeToponymyModel:
         self.object_description = object_description
         self.corpus_description = corpus_description
         self.verbose = verbose
-        self.cluster_layers_ = [_FakeLayer([-1, 0, 1]), _FakeLayer([0, 0, 1])]
+        self.cluster_layers_ = [
+            _FakeLayer(
+                [-1, 0, 1],
+                topic_name_vector=["Outlier Topic", "Alpha", "Beta"],
+            ),
+            _FakeLayer(
+                [0, 0, 1],
+                topic_name_vector=["Macro Alpha", "Macro Alpha", "Macro Beta"],
+            ),
+        ]
         self.topic_names_ = [["Alpha", "Beta"], ["Macro Alpha", "Macro Beta"]]
         self.fitted = False
 
@@ -435,6 +486,37 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
     assert calls["record"]["llm_provider"] == "openrouter"
     assert calls["record"]["usage"]["prompt_tokens"] == 22
     assert calls["namer"]["max_workers"] == 5
+
+
+def test_fit_toponymy_auto_selects_coarsest_layer(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+        del model, api_key, base_url, max_workers
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    model, topics, topic_info = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index="auto",
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        embedding_provider="openrouter",
+        embedding_model="google/gemini-embedding-001",
+        api_key="key",
+    )
+
+    assert topics.tolist() == [0, 0, 1]
+    assert topic_info["Name"].tolist() == ["Macro Alpha", "Macro Beta"]
+    assert model.topic_primary_layer_index_ == 1
+    assert model.topic_layer_count_ == 2
+    assert model.topic_clusters_per_layer_ == [2, 2]
+    assert model.topic_primary_layer_selection_ == "auto"
 
 
 @pytest.mark.parametrize(
@@ -925,7 +1007,7 @@ def test_fit_toponymy_validates_layer_index(monkeypatch):
         message = str(exc)
         assert "layer_index" in message
         assert "valid range: 0..1" in message
-        assert "toponymy_layer_index=0" in message
+        assert "toponymy_layer_index='auto'" in message
 
 
 def test_fit_toponymy_rejects_invalid_backend():

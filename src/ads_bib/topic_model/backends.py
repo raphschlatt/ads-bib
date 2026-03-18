@@ -68,6 +68,7 @@ BERTopicLLMProvider: TypeAlias = Literal["local", "llama_server", "huggingface_a
 ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "openrouter"]
 ToponymyEmbeddingProvider: TypeAlias = Literal["local", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
+ToponymyLayerIndex: TypeAlias = int | Literal["auto"] | None
 
 
 def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
@@ -853,6 +854,85 @@ def _build_toponymy_clusterer(
 _TOPONYMY_FIRST_LAYER_ERROR = "Not enough clusters found in the first layer"
 
 
+def normalize_toponymy_layer_index(layer_index: ToponymyLayerIndex | str) -> int | Literal["auto"]:
+    """Normalize user-provided Toponymy layer selection to ``int`` or ``"auto"``."""
+    if layer_index is None:
+        return "auto"
+
+    if isinstance(layer_index, str):
+        value = layer_index.strip().lower()
+        if value in {"", "auto", "none", "null"}:
+            return "auto"
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid toponymy_layer_index '{layer_index}'. Expected an integer or 'auto'."
+            ) from exc
+
+    if isinstance(layer_index, np.integer):
+        return int(layer_index)
+    if isinstance(layer_index, int):
+        return layer_index
+
+    raise TypeError(
+        f"Invalid toponymy_layer_index type {type(layer_index).__name__}. "
+        "Expected int, 'auto', or null."
+    )
+
+
+def _topic_count_from_labels(labels: np.ndarray) -> int:
+    """Count non-outlier topics in one Toponymy layer."""
+    unique = set(int(label) for label in np.asarray(labels, dtype=int))
+    return len(unique) - (1 if -1 in unique else 0)
+
+
+def _clusters_per_toponymy_layer(topic_model: Any) -> list[int]:
+    """Return the number of non-outlier topics per Toponymy layer."""
+    cluster_layers = getattr(topic_model, "cluster_layers_", None) or []
+    return [
+        _topic_count_from_labels(getattr(layer, "cluster_labels", np.array([], dtype=int)))
+        for layer in cluster_layers
+    ]
+
+
+def _select_toponymy_layer_index(
+    *,
+    requested_layer_index: ToponymyLayerIndex | str,
+    n_layers: int,
+) -> tuple[int, Literal["auto", "manual"]]:
+    """Resolve the active Toponymy layer index from explicit or automatic selection."""
+    normalized = normalize_toponymy_layer_index(requested_layer_index)
+    if normalized == "auto":
+        return n_layers - 1, "auto"
+    return normalized, "manual"
+
+
+def get_toponymy_hierarchy_metadata(topic_model: Any) -> dict[str, Any] | None:
+    """Return persisted Toponymy hierarchy metadata when available."""
+    cluster_layers = getattr(topic_model, "cluster_layers_", None)
+    if cluster_layers is None:
+        return None
+
+    layer_count = int(getattr(topic_model, "topic_layer_count_", len(cluster_layers)))
+    primary_layer_index = getattr(topic_model, "topic_primary_layer_index_", None)
+    selection = getattr(topic_model, "topic_primary_layer_selection_", None)
+    clusters_per_layer = getattr(
+        topic_model,
+        "topic_clusters_per_layer_",
+        _clusters_per_toponymy_layer(topic_model),
+    )
+    if primary_layer_index is None:
+        return None
+
+    return {
+        "topic_layer_count": layer_count,
+        "topic_primary_layer_index": int(primary_layer_index),
+        "topic_clusters_per_layer": [int(value) for value in clusters_per_layer],
+        "topic_primary_layer_selection": str(selection or "manual"),
+    }
+
+
 def _resolve_toponymy_cluster_param(
     *,
     clusterer: Any,
@@ -1075,7 +1155,7 @@ def _fit_and_extract_toponymy_outputs(
     llm_model: str,
     embedding_provider_norm: str,
     embedding_model: str,
-    layer_index: int,
+    layer_index: ToponymyLayerIndex | str,
     clusterer_params: dict[str, Any],
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
     """Fit Toponymy model and extract one configured topic layer."""
@@ -1127,30 +1207,47 @@ def _fit_and_extract_toponymy_outputs(
         raise
 
     n_layers = len(topic_model.cluster_layers_)
-    if layer_index < 0 or layer_index >= n_layers:
-        if n_layers <= 0:
-            raise ValueError(
-                f"layer_index {layer_index} is out of range because Toponymy returned no layers. "
-                "For small corpora start with toponymy_layer_index=0 and lower Toponymy cluster thresholds."
-            )
+    if n_layers <= 0:
         raise ValueError(
-            f"layer_index {layer_index} is out of range for {n_layers} available layers "
-            f"(valid range: 0..{n_layers - 1}). "
-            "For small corpora start with toponymy_layer_index=0."
+            "Toponymy returned no layers. "
+            "Lower Toponymy cluster thresholds or use toponymy_layer_index='auto'."
         )
 
-    topics = np.asarray(topic_model.cluster_layers_[layer_index].cluster_labels, dtype=int)
+    selected_layer_index, selection_mode = _select_toponymy_layer_index(
+        requested_layer_index=layer_index,
+        n_layers=n_layers,
+    )
+    if selected_layer_index < 0 or selected_layer_index >= n_layers:
+        raise ValueError(
+            f"layer_index {selected_layer_index} is out of range for {n_layers} available layers "
+            f"(valid range: 0..{n_layers - 1}). "
+            "Use toponymy_layer_index='auto' for the coarsest available overview layer."
+        )
+
+    topic_model.topic_layer_count_ = n_layers
+    topic_model.topic_primary_layer_index_ = selected_layer_index
+    topic_model.topic_primary_layer_selection_ = selection_mode
+    topic_model.topic_clusters_per_layer_ = _clusters_per_toponymy_layer(topic_model)
+
+    topics = np.asarray(topic_model.cluster_layers_[selected_layer_index].cluster_labels, dtype=int)
     n_topics = len(set(topics)) - (1 if -1 in topics else 0)
     n_outliers = int((topics == -1).sum())
     logger.info(
+        "  Toponymy layers=%s | primary_layer=%s (%s) | clusters_per_layer=%s",
+        n_layers,
+        selected_layer_index,
+        selection_mode,
+        topic_model.topic_clusters_per_layer_,
+    )
+    logger.info(
         "  Selected Toponymy layer %s/%s: %s topics, %s outliers.",
-        layer_index,
+        selected_layer_index,
         n_layers - 1,
         n_topics,
         f"{n_outliers:,}",
     )
 
-    topic_names = topic_model.topic_names_[layer_index]
+    topic_names = topic_model.topic_names_[selected_layer_index]
     topic_info = _build_toponymy_topic_info(topics, topic_names)
     return topic_model, topics, topic_info
 
@@ -1347,7 +1444,7 @@ def fit_toponymy(
     clusterable_vectors: np.ndarray,
     *,
     backend: ToponymyBackend = "toponymy",
-    layer_index: int = 0,
+    layer_index: ToponymyLayerIndex = "auto",
     llm_provider: ToponymyLLMProvider = "openrouter",
     llm_model: str = "google/gemini-3-flash-preview",
     llm_model_repo: str | None = None,
@@ -1381,8 +1478,9 @@ def fit_toponymy(
         raw high-dimensional vectors for ``backend="toponymy_evoc"``).
     backend : str
         ``"toponymy"`` or ``"toponymy_evoc"``.
-    layer_index : int
+    layer_index : int | "auto" | None
         Hierarchical layer index selected as primary output topic_id.
+        ``"auto"`` selects the coarsest available overview layer.
     llm_provider : str
         Currently supported Toponymy naming provider.
     llm_model : str

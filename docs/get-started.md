@@ -73,7 +73,7 @@ ads-bib run --config configs/pipeline/openrouter.yaml
 ```
 
 - `openrouter.yaml` -- remote API via OpenRouter, lowest setup friction
-- `hf_api.yaml` -- Hugging Face hosted inference
+- `hf_api.yaml` -- Hugging Face hosted inference, BERTopic-oriented as shipped
 - `local_cpu.yaml` -- fully offline, CPU-only (NLLB + llama-server)
 - `local_gpu.yaml` -- local NVIDIA GPU (llama-server + local embeddings)
 
@@ -82,7 +82,16 @@ Constrain stages or override settings:
 ```bash
 ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
 ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
+ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy_evoc
+ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy --set topic_model.toponymy_layer_index=auto
 ```
+
+For Toponymy, also override the provider fields so they match the selected
+road. `toponymy` uses 5D reduced vectors; `toponymy_evoc` clusters raw
+embeddings and keeps the same downstream topic outputs. `topic_id` and `Name`
+always reflect the selected primary layer, while `topic_layer_<n>_id` and
+`topic_layer_<n>_label` keep the full hierarchy for the map and downstream
+inspection.
 
 ## See Your Outputs
 

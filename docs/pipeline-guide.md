@@ -189,11 +189,20 @@ The default backend is `fast_hdbscan`. Switch to `hdbscan` if you need
 
 ### Backends and Labeling
 
-Three topic modeling backends:
+Topic modeling has three backends:
 
-- `bertopic` -- standard BERTopic on 5D vectors. Reduces outliers, labels via a representation pipeline.
-- `toponymy` -- Toponymy + ToponymyClusterer on 5D vectors. Produces hierarchical layers stored as `Topic_Layer_X` columns.
-- `toponymy_evoc` -- Toponymy + EVoC clusterer on raw embeddings, skipping dimensionality reduction.
+| Backend | Clustering input | When to use | LLM providers |
+| --- | --- | --- | --- |
+| `bertopic` | 5D reduced vectors | Best when you want the standard BERTopic path with outlier reduction and representation models | `local`, `llama_server`, `huggingface_api`, `openrouter` |
+| `toponymy` | 5D reduced vectors | Best when you want a layered hierarchy that stays aligned with the 5D map | `local`, `llama_server`, `openrouter` |
+| `toponymy_evoc` | Raw embeddings | Best when you want Toponymy-style hierarchy without 5D clustering, or when you want to cluster directly in embedding space | `local`, `llama_server`, `openrouter` |
+
+Toponymy keeps one primary layer for `topic_id`/`Name` and stores the full
+hierarchy as `topic_layer_<n>_id`, `topic_layer_<n>_label`,
+`topic_primary_layer_index`, and `topic_layer_count`. Legacy `Topic_Layer_X`
+columns remain as compatibility aliases for the map and older downstream code.
+The default `toponymy_layer_index=auto` chooses the coarsest available overview
+layer; an explicit integer keeps the selected layer fixed.
 
 Topic labeling uses an LLM to name each cluster. Provider choices mirror
 translation: `openrouter`, `llama_server`, `huggingface_api` (BERTopic only),
@@ -209,25 +218,22 @@ POS filtering → KeyBERT → MMR → LLM. Run additional models in parallel via
 override with `llm_prompt`. The `outlier_threshold` (default 0.5) controls
 outlier reduction strictness.
 
-| Backend | Clustering input | LLM providers |
-| --- | --- | --- |
-| `bertopic` | 5D reduced vectors | `local`, `llama_server`, `huggingface_api`, `openrouter` |
-| `toponymy` | 5D reduced vectors | `local`, `llama_server`, `openrouter` |
-| `toponymy_evoc` | Raw embeddings | `local`, `llama_server`, `openrouter` |
-
-For small corpora, Toponymy cluster defaults can still be too strict. If `topic_fit`
-fails with a first-layer cluster error, set explicit smaller values in
-`toponymy_cluster_params` or `toponymy_evoc_cluster_params` (start with
-`min_clusters=3`, then lower `base_min_cluster_size` if needed).
-For `toponymy_layer_index`, start with `0` on small corpora and only increase
-it when multiple layers are actually available.
+For small corpora, Toponymy cluster defaults can still be too strict. If
+`topic_fit` fails with a first-layer cluster error, set explicit smaller values
+in `toponymy_cluster_params` or `toponymy_evoc_cluster_params` (start with
+`min_clusters=3`, then lower `base_min_cluster_size` if needed). Keep
+`toponymy_layer_index="auto"` unless you intentionally want one specific layer.
 
 ### Tuning Order
 
 1. Choose an embedding model (rarely changes after the first run)
-2. Adjust `n_neighbors` if clusters are too merged or fragmented
-3. Tune `min_cluster_size` and `min_samples` for the right granularity
-4. Experiment with labeling models if topic names are unclear
+2. Choose the backend: `bertopic`, `toponymy`, or `toponymy_evoc`
+3. Adjust `n_neighbors` if clusters are too merged or fragmented
+4. Tune `min_cluster_size` and `min_samples` for the right granularity
+5. For Toponymy, tune in this order: `min_clusters`, `base_min_cluster_size`,
+   `base_n_clusters`, `next_cluster_size_quantile`, `max_layers`
+6. Keep `toponymy_layer_index="auto"` unless you need a fixed working layer
+7. Experiment with labeling models if topic names are unclear
 
 The most common loop: change `cluster_params` or `backend`, rerun from
 `topic_fit`.

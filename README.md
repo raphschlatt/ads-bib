@@ -74,6 +74,8 @@ Useful CLI variants:
 ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
 ads-bib run --config configs/pipeline/openrouter.yaml --run-name my_run
 ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
+ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy_evoc
+ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy --set topic_model.toponymy_layer_index=auto
 ```
 
 The CLI is dependency-aware and batch-oriented. Both frontends persist
@@ -86,6 +88,12 @@ The CLI is dependency-aware and batch-oriented. Both frontends persist
 - `configs/pipeline/hf_api.yaml`: managed remote Hugging Face API road
 - `configs/pipeline/local_cpu.yaml`: lowest recurring-cost local CPU road
 - `configs/pipeline/local_gpu.yaml`: current local NVIDIA GPU road
+
+For topic modeling, use the Pipeline Guide to choose between `bertopic`,
+`toponymy`, and `toponymy_evoc`. `hf_api.yaml` is BERTopic-oriented as shipped;
+switch the backend and provider settings explicitly before using Toponymy.
+Toponymy keeps `topic_id` and `Name` on one primary layer and persists the full
+hierarchy in `topic_layer_<n>_*` columns for the map and downstream analysis.
 
 See the [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/)
 for provider choices, parameter tuning, and the full configuration reference.

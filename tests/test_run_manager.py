@@ -126,6 +126,12 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
         publications=pubs,
         refs=refs,
         curated=curated,
+        topic_hierarchy={
+            "topic_layer_count": 2,
+            "topic_primary_layer_index": 1,
+            "topic_clusters_per_layer": [3, 2],
+            "topic_primary_layer_selection": "auto",
+        },
         start_time=time.time() - 10,
         status="completed",
         requested_start_stage="search",
@@ -149,4 +155,10 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
     assert parsed["counts"]["total_processing"]["publications"] == 2
     assert parsed["counts"]["total_processing"]["references"] == 1
     assert parsed["counts"]["topic_model"]["outliers_count"] == 1
+    assert parsed["topic_hierarchy"] == {
+        "topic_layer_count": 2,
+        "topic_primary_layer_index": 1,
+        "topic_clusters_per_layer": [3, 2],
+        "topic_primary_layer_selection": "auto",
+    }
     assert parsed["reproducibility"]["config_sha256"]

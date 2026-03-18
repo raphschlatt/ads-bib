@@ -6,7 +6,7 @@ Scope:
 
 1. Full run (all stages).
 2. Use the Hawking query (`'author:"Hawking, S*"'`).
-3. Validate both topic backends: `bertopic` and `toponymy`.
+3. Validate all topic backends: `bertopic`, `toponymy`, and `toponymy_evoc`.
 
 ## Shared Baseline
 
@@ -67,6 +67,14 @@ TOPIC_MODEL = { ..., "backend": "toponymy" }
 
 Run notebook top-to-bottom and record the same checks.
 
+If you are validating the raw-embedding path, repeat the same run with
+`"backend": "toponymy_evoc"` and the same artifact checks.
+
+For Toponymy backends, also verify that the topic dataframe keeps the primary
+working layer in `topic_id`/`Name` and persists hierarchy columns such as
+`topic_layer_0_id`, `topic_layer_0_label`, `topic_primary_layer_index`, and
+`topic_layer_count`.
+
 ## Profile C: Local CPU + BERTopic
 
 Set in notebook section dicts:
@@ -117,6 +125,9 @@ TOPIC_MODEL = { ..., "backend": "toponymy" }
 ```
 
 Run notebook top-to-bottom and record the same checks.
+
+Repeat once with `"backend": "toponymy_evoc"` when you want to validate the
+embedding-space clustering path under the same local provider road.
 
 ## Profile E: Local GPU + BERTopic
 

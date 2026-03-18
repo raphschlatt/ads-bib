@@ -69,6 +69,27 @@ Fix:
 - Ensure `OPENROUTER_API_KEY` is set.
 - Use supported provider names and model identifiers.
 
+## Toponymy first-layer error
+
+Symptom: `Not enough clusters found in the first layer`.
+
+Fix:
+
+- Lower `base_min_cluster_size` first.
+- If needed, lower `min_clusters` as well.
+- Leave `toponymy_layer_index="auto"` unless you need a fixed layer.
+
+## Toponymy layer index out of range
+
+Symptom: `layer_index ... is out of range`.
+
+Fix:
+
+- Use a smaller explicit layer index, or switch back to
+  `toponymy_layer_index="auto"` for the coarsest available overview layer.
+- Recheck that the fit actually produced more than one layer.
+- If the fit returned no layers, lower the Toponymy clustering thresholds.
+
 ## Hugging Face API provider errors
 
 Symptom: `huggingface_api` validation, authentication, or runtime failures.

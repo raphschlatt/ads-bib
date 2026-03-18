@@ -81,6 +81,7 @@ def test_openrouter_pipeline_config_template_loads():
     assert data["topic_model"]["llm_model_repo"] is None
     assert data["topic_model"]["llm_model_file"] is None
     assert data["topic_model"]["llm_model_path"] is None
+    assert data["topic_model"]["toponymy_layer_index"] == "auto"
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
 
@@ -180,6 +181,7 @@ def test_official_pipeline_config_templates_load(
     assert config.topic_model.llm_model_repo == llm_model_repo
     assert config.topic_model.llm_model_file == llm_model_file
     assert config.topic_model.llm_model_path == llm_model_path
+    assert config.topic_model.toponymy_layer_index == "auto"
     assert config.topic_model.params_5d == {
         "n_neighbors": 30,
         "metric": "angular",
@@ -326,8 +328,8 @@ def test_resolve_topic_defaults_scales_toponymy_min_clusters_for_small_corpus(tm
 
     assert resolved["toponymy_cluster_params"]["min_clusters"] == 3
     assert resolved["toponymy_evoc_cluster_params"]["min_clusters"] == 3
-    assert resolved["toponymy_cluster_params"]["base_min_cluster_size"] == 55
-    assert resolved["toponymy_evoc_cluster_params"]["base_min_cluster_size"] == 55
+    assert resolved["toponymy_cluster_params"]["base_min_cluster_size"] == 10
+    assert resolved["toponymy_evoc_cluster_params"]["base_min_cluster_size"] == 10
 
 
 def test_resolve_topic_defaults_keeps_toponymy_overrides_authoritative(tmp_path):
@@ -430,9 +432,50 @@ def test_pipeline_config_rejects_legacy_llama_server_model_string():
         )
 
 
-def test_pipeline_config_defaults_toponymy_layer_index_to_zero():
+def test_pipeline_config_defaults_toponymy_layer_index_to_auto():
     config = pipeline.PipelineConfig.from_dict({})
-    assert config.topic_model.toponymy_layer_index == 0
+    assert config.topic_model.toponymy_layer_index == "auto"
+
+
+def test_pipeline_config_normalizes_null_toponymy_layer_index_to_auto():
+    config = pipeline.PipelineConfig.from_dict({"topic_model": {"toponymy_layer_index": None}})
+    assert config.topic_model.toponymy_layer_index == "auto"
+
+
+def test_pipeline_config_accepts_string_toponymy_layer_index_auto():
+    config = pipeline.PipelineConfig.from_dict({"topic_model": {"toponymy_layer_index": "auto"}})
+    assert config.topic_model.toponymy_layer_index == "auto"
+
+
+def test_pipeline_config_accepts_string_toponymy_layer_index_int():
+    config = pipeline.PipelineConfig.from_dict({"topic_model": {"toponymy_layer_index": "2"}})
+    assert config.topic_model.toponymy_layer_index == 2
+
+
+def test_summary_lines_for_topic_fit_include_toponymy_hierarchy():
+    ctx = SimpleNamespace(
+        topics=np.asarray([0, 0, 1, -1]),
+        topic_info=pd.DataFrame(
+            {
+                "Topic": [-1, 0, 1],
+                "Name": ["Outlier Topic", "Macro Alpha", "Macro Beta"],
+            }
+        ),
+        topic_hierarchy={
+            "topic_layer_count": 2,
+            "topic_primary_layer_index": 1,
+            "topic_clusters_per_layer": [2, 2],
+            "topic_primary_layer_selection": "auto",
+        },
+        config=SimpleNamespace(topic_model=SimpleNamespace(backend="toponymy")),
+    )
+
+    lines = pipeline._summary_lines_for_stage(ctx, "topic_fit")
+
+    assert lines == [
+        "backend: toponymy | layers: 2 | primary_layer: 1 (auto) | "
+        "clusters/layer: [2, 2] | topics: 2 | outliers: 1"
+    ]
 
 
 def test_run_pipeline_respects_stage_slice(monkeypatch):

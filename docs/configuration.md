@@ -27,6 +27,33 @@ included:
 Completed runs save their resolved configuration to
 `runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
 
+### Topic Model Keys
+
+The topic-model section is shared by the notebook and CLI. Toponymy-specific
+keys are passed through unchanged when you switch the backend away from BERTopic.
+
+| Key | Meaning | Notes |
+| --- | --- | --- |
+| `backend` | Topic backend | `bertopic`, `toponymy`, or `toponymy_evoc` |
+| `toponymy_cluster_params` | Toponymy cluster overrides | Used only for `toponymy` |
+| `toponymy_evoc_cluster_params` | EVoC cluster overrides | Used only for `toponymy_evoc` |
+| `toponymy_layer_index` | Primary layer selector | `auto` selects the coarsest available layer; explicit integers override it |
+| `toponymy_embedding_model` | Toponymy internal embedding model | Falls back to the main embedding model if unset |
+| `toponymy_max_workers` | Toponymy worker concurrency | Applies to Toponymy labeling and embedding calls |
+
+The shipped presets are intentionally asymmetric:
+
+- `openrouter.yaml`, `local_cpu.yaml`, and `local_gpu.yaml` are Toponymy-ready
+  starting points when you also pick compatible providers.
+- `hf_api.yaml` stays BERTopic-oriented as shipped; switch providers before
+  using `toponymy` or `toponymy_evoc`.
+
+Toponymy backends keep `topic_id` and `Name` as the selected primary-layer
+view and also persist the full hierarchy as `topic_layer_<n>_id`,
+`topic_layer_<n>_label`, `topic_primary_layer_index`, and `topic_layer_count`.
+Legacy `Topic_Layer_<n>` label columns remain available as compatibility
+aliases.
+
 ## CLI Overrides
 
 ```bash

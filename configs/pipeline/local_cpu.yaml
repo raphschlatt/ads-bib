@@ -78,7 +78,7 @@ topic_model:
     cluster_selection_epsilon: 0.05
   toponymy_cluster_params: {}
   toponymy_evoc_cluster_params: {}
-  toponymy_layer_index: 1
+  toponymy_layer_index: auto
   llm_prompt_name: physics
   llm_prompt: null
   llm_provider: llama_server

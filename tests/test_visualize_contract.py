@@ -119,6 +119,20 @@ def test_create_topic_map_auto_detects_topic_layer_columns(monkeypatch):
     assert plot is not None
 
 
+def test_create_topic_map_auto_detects_canonical_topic_layer_columns_and_primary_first(monkeypatch):
+    viz, calls = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    df["topic_layer_0_label"] = ["Layer0_A", "Layer0_B"]
+    df["topic_layer_1_label"] = ["Layer1_A", "Layer1_B"]
+    df["topic_primary_layer_index"] = [1, 1]
+
+    plot = viz.create_topic_map(df, word_cloud=False)
+
+    assert len(calls["label_layers"]) == 2
+    assert list(calls["label_layers"][0]) == ["Layer1_A", "Layer1_B"]
+    assert plot is not None
+
+
 def test_create_topic_map_auto_detects_name_when_no_layers(monkeypatch):
     viz, calls = _load_visualize_module(monkeypatch)
     df = _build_df()

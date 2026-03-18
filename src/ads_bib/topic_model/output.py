@@ -15,6 +15,28 @@ class TopicModelInfoProvider(Protocol):
         """Return BERTopic-like topic info containing at least Topic/Name columns."""
 
 
+def _persist_topic_hierarchy_metadata(df: pd.DataFrame, topic_model: TopicModelInfoProvider) -> None:
+    """Persist Toponymy hierarchy metadata and per-layer assignments when available."""
+    cluster_layers = getattr(topic_model, "cluster_layers_", None)
+    if cluster_layers is None:
+        return
+
+    primary_layer_index = getattr(topic_model, "topic_primary_layer_index_", None)
+    if primary_layer_index is not None:
+        df["topic_primary_layer_index"] = int(primary_layer_index)
+        df["topic_layer_count"] = len(cluster_layers)
+
+    for i, layer in enumerate(cluster_layers):
+        cluster_labels = getattr(layer, "cluster_labels", None)
+        if cluster_labels is not None:
+            df[f"topic_layer_{i}_id"] = np.asarray(cluster_labels, dtype=int)
+
+        topic_name_vector = getattr(layer, "topic_name_vector", None)
+        if topic_name_vector is not None:
+            df[f"topic_layer_{i}_label"] = topic_name_vector
+            df[f"Topic_Layer_{i}"] = df[f"topic_layer_{i}_label"]
+
+
 def build_topic_dataframe(
     df: pd.DataFrame,
     topic_model: TopicModelInfoProvider,
@@ -48,8 +70,10 @@ def build_topic_dataframe(
         Copy of *df* with added columns:
         ``embedding_2d_x``, ``embedding_2d_y``, ``topic_id``,
         topic label columns (for example ``Name``/``Main``/``MMR``/``POS``/``KeyBERT``),
-        optional ``full_embeddings``, and optional ``Topic_Layer_X`` columns
-        for hierarchical Toponymy outputs.
+        optional ``full_embeddings``, and optional Toponymy hierarchy columns
+        such as ``topic_layer_0_id``, ``topic_layer_0_label``,
+        ``topic_primary_layer_index``, ``topic_layer_count``, and
+        compatibility aliases ``Topic_Layer_X``.
     """
     df = df.copy()
     df["embedding_2d_x"] = reduced_2d[:, 0]
@@ -81,11 +105,7 @@ def build_topic_dataframe(
         labels[-1] = "Outlier Topic"
         set_topic_labels(labels)
 
-    cluster_layers = getattr(topic_model, "cluster_layers_", None)
-    if cluster_layers is not None:
-        for i, layer in enumerate(cluster_layers):
-            if hasattr(layer, "topic_name_vector"):
-                df[f"Topic_Layer_{i}"] = layer.topic_name_vector
+    _persist_topic_hierarchy_metadata(df, topic_model)
 
     return df
 

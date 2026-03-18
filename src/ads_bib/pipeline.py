@@ -189,7 +189,7 @@ class TopicModelConfig:
     cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_evoc_cluster_params: dict[str, Any] = field(default_factory=dict)
-    toponymy_layer_index: int = 0
+    toponymy_layer_index: int | Literal["auto"] | None = "auto"
     llm_prompt_name: str = "physics"
     llm_prompt: str | None = None
     llm_provider: str = "openrouter"
@@ -261,6 +261,9 @@ class PipelineConfig:
         if self.run.stop_stage is not None:
             self.run.stop_stage = validate_stage_name(self.run.stop_stage)
         self.llama_server = self.llama_server.normalized()
+        self.topic_model.toponymy_layer_index = topic_model_backends.normalize_toponymy_layer_index(
+            self.topic_model.toponymy_layer_index
+        )
         validate_provider(
             self.translate.provider,
             valid={"openrouter", "huggingface_api", "llama_server", "nllb"},
@@ -376,6 +379,7 @@ class PipelineContext:
     topic_model: Any | None = None
     topics: np.ndarray | None = None
     topic_info: pd.DataFrame | None = None
+    topic_hierarchy: dict[str, Any] | None = None
     topic_df: pd.DataFrame | None = None
     curated_df: pd.DataFrame | None = None
     citation_results: dict[str, pd.DataFrame] | None = None
@@ -620,6 +624,21 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         topic_count = 0
         if ctx.topic_info is not None:
             topic_count = int((ctx.topic_info["Topic"] != -1).sum()) if "Topic" in ctx.topic_info.columns else len(ctx.topic_info)
+        if ctx.topic_hierarchy is not None:
+            layer_count = int(ctx.topic_hierarchy.get("topic_layer_count", 0))
+            primary_layer = int(ctx.topic_hierarchy.get("topic_primary_layer_index", 0))
+            selection = str(ctx.topic_hierarchy.get("topic_primary_layer_selection", "manual"))
+            clusters_per_layer = ", ".join(
+                str(int(value))
+                for value in ctx.topic_hierarchy.get("topic_clusters_per_layer", [])
+            )
+            return [
+                f"backend: {ctx.config.topic_model.backend} | "
+                f"layers: {layer_count:,} | "
+                f"primary_layer: {primary_layer} ({selection}) | "
+                f"clusters/layer: [{clusters_per_layer}] | "
+                f"topics: {topic_count:,} | outliers: {outliers:,}"
+            ]
         return [
             f"backend: {ctx.config.topic_model.backend} | topics: {topic_count:,} | outliers: {outliers:,}"
         ]
@@ -726,6 +745,7 @@ def _finalize_run_summary(
         publications=ctx.publications,
         refs=ctx.refs,
         curated=ctx.curated_df,
+        topic_hierarchy=ctx.topic_hierarchy,
         start_time=ctx.start_time,
         status=status,
         requested_start_stage=requested_start_stage,
@@ -793,7 +813,7 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
     cfg = ctx.config.topic_model
     n_docs = len(ctx.documents)
     min_cluster_size = max(15, int(n_docs * 0.001))
-    base_min_cluster_size = max(55, int(n_docs * 0.0007))
+    base_min_cluster_size = max(10, min(55, int(n_docs * 0.001)))
     toponymy_min_clusters = _default_toponymy_min_clusters(n_docs)
     min_df = cfg.min_df if cfg.min_df is not None else max(1, min(5, n_docs // 100))
 
@@ -1461,6 +1481,11 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
     ctx.topic_model = topic_model
     ctx.topics = np.asarray(topics)
     ctx.topic_info = topic_info
+    ctx.topic_hierarchy = (
+        topic_model_backends.get_toponymy_hierarchy_metadata(topic_model)
+        if cfg.backend in {"toponymy", "toponymy_evoc"}
+        else None
+    )
     ctx.tracker.log_steps_summary(
         [
             "llm_labeling",

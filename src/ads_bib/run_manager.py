@@ -190,6 +190,7 @@ class RunManager:
         publications: pd.DataFrame | None = None,
         refs: pd.DataFrame | None = None,
         curated: pd.DataFrame | None = None,
+        topic_hierarchy: dict[str, Any] | None = None,
         start_time: float | None = None,
         config_path: Path | None = None,
         status: str = "completed",
@@ -293,7 +294,19 @@ class RunManager:
                 }
             }
         }
-        
+
+        if topic_hierarchy:
+            summary["topic_hierarchy"] = {
+                "topic_layer_count": int(topic_hierarchy.get("topic_layer_count", 0)),
+                "topic_primary_layer_index": int(topic_hierarchy.get("topic_primary_layer_index", 0)),
+                "topic_clusters_per_layer": [
+                    int(value) for value in topic_hierarchy.get("topic_clusters_per_layer", [])
+                ],
+                "topic_primary_layer_selection": str(
+                    topic_hierarchy.get("topic_primary_layer_selection", "manual")
+                ),
+            }
+
         # Add cost tracker details if available
         if cost_tracker is not None:
             import pandas as pd

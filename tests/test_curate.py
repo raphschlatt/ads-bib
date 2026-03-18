@@ -29,6 +29,22 @@ def test_get_cluster_summary_returns_expected_columns_and_order():
     assert summary["Count"].sum() == len(df)
 
 
+def test_get_cluster_summary_supports_custom_topic_and_label_columns():
+    df = _sample_df().assign(
+        topic_layer_1_id=[10, 10, 20, -1, 20, 20],
+        topic_layer_1_label=["Macro A", "Macro A", "Macro B", "Outlier Topic", "Macro B", "Macro B"],
+    )
+
+    summary = curate.get_cluster_summary(
+        df,
+        label_column="topic_layer_1_label",
+        topic_id_column="topic_layer_1_id",
+    )
+
+    assert list(summary["topic_id"]) == [20, 10, -1]
+    assert list(summary["Label"]) == ["Macro B", "Macro A", "Outlier Topic"]
+
+
 def test_remove_clusters_filters_and_logs(caplog):
     caplog.set_level(logging.INFO, logger="ads_bib.curate")
     df = _sample_df()
@@ -37,6 +53,15 @@ def test_remove_clusters_filters_and_logs(caplog):
     assert "Removed 3 documents from clusters [-1, 1]" in caplog.text
     assert "Remaining: 3 documents" in caplog.text
     assert set(out["topic_id"].unique()) == {2}
+
+
+def test_remove_clusters_supports_custom_topic_column():
+    df = _sample_df().assign(topic_layer_1_id=[10, 10, 20, -1, 20, 20])
+
+    out = curate.remove_clusters(df, cluster_ids=[10], topic_id_column="topic_layer_1_id")
+
+    assert set(out["topic_layer_1_id"].unique()) == {-1, 20}
+    assert len(out) == 4
 
 
 def test_filter_by_field_string_case_insensitive_keep_and_drop(caplog):

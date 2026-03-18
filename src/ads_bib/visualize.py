@@ -312,6 +312,60 @@ def _normalize_label_columns(label_column: str | list[str]) -> list[str]:
     return list(label_column)
 
 
+def _topic_layer_sort_key(column: str) -> tuple[int, str]:
+    """Sort canonical and legacy topic-layer label columns by layer index."""
+    if column.startswith("topic_layer_") and column.endswith("_label"):
+        suffix = column[len("topic_layer_") : -len("_label")]
+    elif column.startswith("Topic_Layer_"):
+        suffix = column[len("Topic_Layer_") :]
+    else:
+        return (10**6, column)
+
+    try:
+        return (int(suffix), column)
+    except ValueError:
+        return (10**6, column)
+
+
+def _reorder_label_columns_for_primary_layer(df: pd.DataFrame, label_columns: list[str]) -> list[str]:
+    """Move the configured primary topic layer to the front when metadata is present."""
+    if "topic_primary_layer_index" not in df.columns or not label_columns:
+        return label_columns
+
+    primary_value = df["topic_primary_layer_index"].iloc[0]
+    if pd.isna(primary_value):
+        return label_columns
+
+    primary_index = int(primary_value)
+    preferred = (
+        f"topic_layer_{primary_index}_label",
+        f"Topic_Layer_{primary_index}",
+    )
+    for candidate in preferred:
+        if candidate in label_columns:
+            return [candidate] + [col for col in label_columns if col != candidate]
+    return label_columns
+
+
+def _auto_detect_label_columns(df: pd.DataFrame) -> list[str]:
+    """Auto-detect hierarchical topic label columns with primary-layer preference."""
+    canonical = sorted(
+        [c for c in df.columns if c.startswith("topic_layer_") and c.endswith("_label")],
+        key=_topic_layer_sort_key,
+    )
+    if canonical:
+        return _reorder_label_columns_for_primary_layer(df, canonical)
+
+    legacy = sorted(
+        [c for c in df.columns if c.startswith("Topic_Layer_")],
+        key=_topic_layer_sort_key,
+    )
+    if legacy:
+        return _reorder_label_columns_for_primary_layer(df, legacy)
+
+    return ["Name"]
+
+
 def _tokens_to_text(value: object) -> str:
     """Convert token-like values to one flat string."""
     if isinstance(value, (list, tuple, np.ndarray, pd.Series)):
@@ -551,9 +605,11 @@ def create_topic_map(
         ``Bibcode``, ``Title_en``, ``Author``, ``Year``, ``Journal``,
         ``Abstract_en``, ``Citation Count``, ``DOI``, ``tokens``.
     label_column : str, list[str], or None
-        Column(s) with topic labels (e.g. ``"Name"`` or ``["Topic_Layer_0", "Topic_Layer_1"]``).
+        Column(s) with topic labels (e.g. ``"Name"`` or
+        ``["topic_layer_2_label", "topic_layer_0_label", "topic_layer_1_label"]``).
         If a list is provided, multiple layers are added to the map.
-        If ``None``, auto-detects ``Topic_Layer_*`` columns or falls back to ``"Name"``.
+        If ``None``, auto-detects canonical ``topic_layer_<n>_label`` columns,
+        falls back to legacy ``Topic_Layer_*`` columns, and otherwise uses ``"Name"``.
     year_range : tuple[str, str] or None, optional
         Histogram range as ``(start, end)`` timestamps. If ``None``, the range
         is derived from the data (``min_year-01-01`` to ``(max_year+1)-01-01``).
@@ -565,8 +621,7 @@ def create_topic_map(
     datamapplot.InteractivePlot
     """
     if label_column is None:
-        topic_layers = [c for c in df.columns if c.startswith("Topic_Layer_")]
-        label_column = topic_layers if topic_layers else "Name"
+        label_column = _auto_detect_label_columns(df)
 
     label_columns = _normalize_label_columns(label_column)
     _require_columns(

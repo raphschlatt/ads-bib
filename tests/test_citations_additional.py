@@ -215,6 +215,31 @@ def test_build_citation_inputs_from_publications_requires_columns():
         assert "References" in str(exc)
 
 
+def test_build_all_nodes_preserves_toponymy_hierarchy_columns():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1"],
+            "topic_id": [1],
+            "topic_primary_layer_index": [1],
+            "topic_layer_count": [2],
+            "topic_layer_0_id": [4],
+            "topic_layer_0_label": ["Alpha"],
+            "topic_layer_1_id": [1],
+            "topic_layer_1_label": ["Macro Alpha"],
+        }
+    )
+    references = pd.DataFrame({"Bibcode": ["r1"], "Year": [1999]})
+
+    nodes = cit.build_all_nodes(publications, references)
+
+    pub_node = nodes.loc[nodes["id"] == "p1"].iloc[0]
+    assert "topic_layer_0_label" in nodes.columns
+    assert "topic_layer_1_label" in nodes.columns
+    assert pub_node["topic_primary_layer_index"] == 1
+    assert pub_node["topic_layer_count"] == 2
+    assert pub_node["topic_layer_1_label"] == "Macro Alpha"
+
+
 def test_co_citation_single_ref_paper_no_pairs():
     """A paper with only 1 reference cannot produce co-citation pairs."""
     bibcodes = ["p1"]
