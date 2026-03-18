@@ -18,12 +18,15 @@ from ads_bib import (
     fit_bertopic,
     fit_toponymy,
     get_cluster_summary,
+    get_hierarchy_cluster_summary,
     get_notebook_session,
     init_paths,
     load_env,
+    normalize_cluster_targets,
     process_all_citations,
     reduce_dimensions,
     reduce_outliers,
+    remove_cluster_targets,
     remove_clusters,
     resolve_dataset,
     run_pipeline,
@@ -51,6 +54,10 @@ from ads_bib.topic_model import (
 
 - Use `snake_case` for pipeline-produced columns.
 - Use `topic_id` for document-topic membership.
+- For Toponymy backends, `topic_id` is a working-layer compatibility alias; the
+  canonical hierarchy contract is `topic_layer_<n>_id`,
+  `topic_layer_<n>_label`, `topic_primary_layer_index`, and
+  `topic_layer_count`.
 - Use `embedding_2d_x` and `embedding_2d_y` instead of algorithm-specific 2-D
   column names.
 - Public function docstrings should list required columns explicitly.

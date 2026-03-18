@@ -92,8 +92,10 @@ The CLI is dependency-aware and batch-oriented. Both frontends persist
 For topic modeling, use the Pipeline Guide to choose between `bertopic`,
 `toponymy`, and `toponymy_evoc`. `hf_api.yaml` is BERTopic-oriented as shipped;
 switch the backend and provider settings explicitly before using Toponymy.
-Toponymy keeps `topic_id` and `Name` on one primary layer and persists the full
-hierarchy in `topic_layer_<n>_*` columns for the map and downstream analysis.
+Toponymy and Toponymy+EVoC are hierarchy-first backends: the canonical output is
+the full `topic_layer_<n>_*` hierarchy, while `topic_id` and `Name` remain
+working-layer compatibility aliases. The interactive map auto-enables the
+topic tree when more than one Toponymy layer is available.
 
 See the [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/)
 for provider choices, parameter tuning, and the full configuration reference.

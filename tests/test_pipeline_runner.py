@@ -82,6 +82,8 @@ def test_openrouter_pipeline_config_template_loads():
     assert data["topic_model"]["llm_model_file"] is None
     assert data["topic_model"]["llm_model_path"] is None
     assert data["topic_model"]["toponymy_layer_index"] == "auto"
+    assert data["visualization"]["topic_tree"] == "auto"
+    assert data["curation"]["cluster_targets"] == []
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
 
@@ -200,6 +202,8 @@ def test_official_pipeline_config_templates_load(
     }
     assert config.topic_model.min_df == 3
     assert config.topic_model.bertopic_label_max_tokens == 64
+    assert config.visualization.topic_tree == "auto"
+    assert config.curation.cluster_targets == []
     assert config.citations.min_counts == {
         "direct": 3,
         "co_citation": 6,
@@ -452,6 +456,29 @@ def test_pipeline_config_accepts_string_toponymy_layer_index_int():
     assert config.topic_model.toponymy_layer_index == 2
 
 
+def test_pipeline_config_defaults_visualization_topic_tree_to_auto():
+    config = pipeline.PipelineConfig.from_dict({})
+    assert config.visualization.topic_tree == "auto"
+
+
+def test_pipeline_config_normalizes_curation_cluster_targets():
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "curation": {
+                "cluster_targets": [
+                    {"layer": "1", "cluster_id": "3"},
+                    {"layer": 0, "cluster_id": -1},
+                ]
+            }
+        }
+    )
+
+    assert config.curation.cluster_targets == [
+        {"layer": 1, "cluster_id": 3},
+        {"layer": 0, "cluster_id": -1},
+    ]
+
+
 def test_summary_lines_for_topic_fit_include_toponymy_hierarchy():
     ctx = SimpleNamespace(
         topics=np.asarray([0, 0, 1, -1]),
@@ -476,6 +503,62 @@ def test_summary_lines_for_topic_fit_include_toponymy_hierarchy():
         "backend: toponymy | layers: 2 | primary_layer: 1 (auto) | "
         "clusters/layer: [2, 2] | topics: 2 | outliers: 1"
     ]
+
+
+def test_run_curate_stage_uses_layer_aware_cluster_targets_for_toponymy(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "topic_model": {"backend": "toponymy"},
+            "curation": {"cluster_targets": [{"layer": 1, "cluster_id": 20}]},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.topic_hierarchy = {"topic_primary_layer_index": 1}
+    ctx.topic_df = pd.DataFrame(
+        {
+            "topic_id": [20, 20, 30, -1],
+            "Name": ["Macro A", "Macro A", "Macro B", "Outlier Topic"],
+            "topic_primary_layer_index": [1, 1, 1, 1],
+            "topic_layer_0_id": [100, 101, 200, -1],
+            "topic_layer_0_label": ["Alpha", "Beta", "Gamma", "Unlabelled"],
+            "topic_layer_1_id": [20, 20, 30, -1],
+            "topic_layer_1_label": ["Macro A", "Macro A", "Macro B", "Unlabelled"],
+        }
+    )
+
+    pipeline.run_curate_stage(ctx)
+
+    assert ctx.curated_df is not None
+    assert ctx.curated_df["topic_layer_1_id"].tolist() == [30, -1]
+
+
+def test_run_curate_stage_maps_legacy_clusters_to_remove_to_working_layer_for_toponymy(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "topic_model": {"backend": "toponymy"},
+            "curation": {"clusters_to_remove": [20]},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.topic_hierarchy = {"topic_primary_layer_index": 1}
+    ctx.topic_df = pd.DataFrame(
+        {
+            "topic_id": [20, 20, 30, -1],
+            "Name": ["Macro A", "Macro A", "Macro B", "Outlier Topic"],
+            "topic_primary_layer_index": [1, 1, 1, 1],
+            "topic_layer_0_id": [100, 101, 200, -1],
+            "topic_layer_0_label": ["Alpha", "Beta", "Gamma", "Unlabelled"],
+            "topic_layer_1_id": [20, 20, 30, -1],
+            "topic_layer_1_label": ["Macro A", "Macro A", "Macro B", "Unlabelled"],
+        }
+    )
+
+    pipeline.run_curate_stage(ctx)
+
+    assert ctx.curated_df is not None
+    assert ctx.curated_df["topic_layer_1_id"].tolist() == [30, -1]
 
 
 def test_run_pipeline_respects_stage_slice(monkeypatch):

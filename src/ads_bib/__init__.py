@@ -18,7 +18,13 @@ from ads_bib.pipeline import (
     StagePrerequisiteError,
     run_pipeline,
 )
-from ads_bib.curate import get_cluster_summary, remove_clusters
+from ads_bib.curate import (
+    get_cluster_summary,
+    get_hierarchy_cluster_summary,
+    normalize_cluster_targets,
+    remove_cluster_targets,
+    remove_clusters,
+)
 from ads_bib.export import resolve_dataset
 from ads_bib.run_manager import RunManager
 from ads_bib.search import search_ads
@@ -53,12 +59,15 @@ __all__ = [
     "fit_bertopic",
     "fit_toponymy",
     "get_cluster_summary",
+    "get_hierarchy_cluster_summary",
     "init_paths",
     "load_env",
     "get_notebook_session",
+    "normalize_cluster_targets",
     "process_all_citations",
     "reduce_dimensions",
     "reduce_outliers",
+    "remove_cluster_targets",
     "remove_clusters",
     "resolve_dataset",
     "search_ads",

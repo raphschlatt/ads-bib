@@ -37,7 +37,7 @@ keys are passed through unchanged when you switch the backend away from BERTopic
 | `backend` | Topic backend | `bertopic`, `toponymy`, or `toponymy_evoc` |
 | `toponymy_cluster_params` | Toponymy cluster overrides | Used only for `toponymy` |
 | `toponymy_evoc_cluster_params` | EVoC cluster overrides | Used only for `toponymy_evoc` |
-| `toponymy_layer_index` | Primary layer selector | `auto` selects the coarsest available layer; explicit integers override it |
+| `toponymy_layer_index` | Working-layer selector for compatibility aliases | `auto` selects the coarsest available layer; explicit integers override it |
 | `toponymy_embedding_model` | Toponymy internal embedding model | Falls back to the main embedding model if unset |
 | `toponymy_max_workers` | Toponymy worker concurrency | Applies to Toponymy labeling and embedding calls |
 
@@ -48,11 +48,38 @@ The shipped presets are intentionally asymmetric:
 - `hf_api.yaml` stays BERTopic-oriented as shipped; switch providers before
   using `toponymy` or `toponymy_evoc`.
 
-Toponymy backends keep `topic_id` and `Name` as the selected primary-layer
-view and also persist the full hierarchy as `topic_layer_<n>_id`,
-`topic_layer_<n>_label`, `topic_primary_layer_index`, and `topic_layer_count`.
-Legacy `Topic_Layer_<n>` label columns remain available as compatibility
-aliases.
+Toponymy backends are hierarchy-first: they persist the full hierarchy as
+`topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`,
+and `topic_layer_count`. `topic_id` and `Name` remain compatibility aliases for
+the selected working layer. Legacy `Topic_Layer_<n>` label columns remain
+available as compatibility aliases for one transition cycle.
+
+### Visualization Keys
+
+| Key | Meaning | Notes |
+| --- | --- | --- |
+| `enabled` | Render the interactive topic map | Set `false` to skip HTML map generation |
+| `title` | Map title | Rendered above the datamapplot canvas |
+| `subtitle_template` | Map subtitle template | Supports `{provider}` and `{model}` placeholders |
+| `dark_mode` | Dark UI theme | `true` or `false` |
+| `topic_tree` | Datamapplot topic-tree toggle | `auto` enables it for multi-layer Toponymy outputs; BERTopic remains flat |
+
+### Curation Keys
+
+| Key | Meaning | Notes |
+| --- | --- | --- |
+| `cluster_targets` | Canonical hierarchy-aware removals | List of `{layer, cluster_id}` mappings; supported for `toponymy` and `toponymy_evoc` |
+| `clusters_to_remove` | Legacy flat removals | BERTopic uses this exactly as before; Toponymy maps it to the selected working layer |
+
+For Toponymy backends, prefer `cluster_targets` because it lets you remove
+clusters explicitly from any hierarchy level:
+
+```yaml
+curation:
+  cluster_targets:
+    - layer: 1
+      cluster_id: -1
+```
 
 ## CLI Overrides
 

@@ -18,6 +18,29 @@ def _sample_df() -> pd.DataFrame:
     )
 
 
+def _hierarchy_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "topic_id": [20, 20, 30, -1],
+            "Name": ["Macro A", "Macro A", "Macro B", "Outlier Topic"],
+            "topic_primary_layer_index": [1, 1, 1, 1],
+            "topic_layer_count": [2, 2, 2, 2],
+            "topic_layer_0_id": [100, 101, 200, -1],
+            "topic_layer_0_label": ["Alpha", "Beta", "Gamma", "Unlabelled"],
+            "topic_layer_1_id": [20, 20, 30, -1],
+            "topic_layer_1_label": ["Macro A", "Macro A", "Macro B", "Unlabelled"],
+        }
+    )
+
+
+def test_normalize_cluster_targets_accepts_integer_like_values():
+    normalized = curate.normalize_cluster_targets(
+        [{"layer": "1", "cluster_id": "20"}, {"layer": 0, "cluster_id": -1}]
+    )
+
+    assert normalized == [{"layer": 1, "cluster_id": 20}, {"layer": 0, "cluster_id": -1}]
+
+
 def test_get_cluster_summary_returns_expected_columns_and_order():
     df = _sample_df()
     summary = curate.get_cluster_summary(df, label_column="Name")
@@ -45,6 +68,23 @@ def test_get_cluster_summary_supports_custom_topic_and_label_columns():
     assert list(summary["Label"]) == ["Macro B", "Macro A", "Outlier Topic"]
 
 
+def test_get_hierarchy_cluster_summary_returns_one_row_per_layer_and_cluster():
+    summary = curate.get_hierarchy_cluster_summary(_hierarchy_df(), working_layer_index=1)
+
+    assert list(summary.columns) == [
+        "layer",
+        "cluster_id",
+        "Count",
+        "Percentage",
+        "Label",
+        "is_working_layer",
+    ]
+    assert summary.loc[(summary["layer"] == 0) & (summary["cluster_id"] == 100), "Label"].iloc[0] == "Alpha"
+    assert summary.loc[(summary["layer"] == 1) & (summary["cluster_id"] == 20), "Count"].iloc[0] == 2
+    assert summary.loc[summary["layer"] == 1, "is_working_layer"].all()
+    assert not summary.loc[summary["layer"] == 0, "is_working_layer"].any()
+
+
 def test_remove_clusters_filters_and_logs(caplog):
     caplog.set_level(logging.INFO, logger="ads_bib.curate")
     df = _sample_df()
@@ -62,6 +102,19 @@ def test_remove_clusters_supports_custom_topic_column():
 
     assert set(out["topic_layer_1_id"].unique()) == {-1, 20}
     assert len(out) == 4
+
+
+def test_remove_cluster_targets_unions_multiple_layer_targets():
+    out = curate.remove_cluster_targets(
+        _hierarchy_df(),
+        [
+            {"layer": 0, "cluster_id": 101},
+            {"layer": 1, "cluster_id": 30},
+        ],
+    )
+
+    assert out["topic_layer_0_id"].tolist() == [100, -1]
+    assert out["topic_layer_1_id"].tolist() == [20, -1]
 
 
 def test_filter_by_field_string_case_insensitive_keep_and_drop(caplog):

@@ -73,7 +73,9 @@ def build_topic_dataframe(
         optional ``full_embeddings``, and optional Toponymy hierarchy columns
         such as ``topic_layer_0_id``, ``topic_layer_0_label``,
         ``topic_primary_layer_index``, ``topic_layer_count``, and
-        compatibility aliases ``Topic_Layer_X``.
+        compatibility aliases ``Topic_Layer_X``. For Toponymy backends,
+        ``topic_id`` and ``Name`` remain compatibility aliases for the selected
+        working layer; the hierarchy columns are the canonical multi-layer output.
     """
     df = df.copy()
     df["embedding_2d_x"] = reduced_2d[:, 0]

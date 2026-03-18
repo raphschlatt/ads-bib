@@ -88,10 +88,20 @@ ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=
 
 For Toponymy, also override the provider fields so they match the selected
 road. `toponymy` uses 5D reduced vectors; `toponymy_evoc` clusters raw
-embeddings and keeps the same downstream topic outputs. `topic_id` and `Name`
-always reflect the selected primary layer, while `topic_layer_<n>_id` and
-`topic_layer_<n>_label` keep the full hierarchy for the map and downstream
-inspection.
+embeddings and keeps the same downstream topic outputs. The canonical Toponymy
+output is the full `topic_layer_<n>_id` / `topic_layer_<n>_label` hierarchy.
+`topic_id` and `Name` are kept as working-layer compatibility aliases.
+
+Leave `visualization.topic_tree: auto` unless you explicitly want to disable
+the datamapplot topic tree. For Toponymy curation, prefer explicit
+hierarchy-aware targets:
+
+```python
+CURATION = {
+    "cluster_targets": [{"layer": 1, "cluster_id": -1}],
+    "clusters_to_remove": [],
+}
+```
 
 ## See Your Outputs
 

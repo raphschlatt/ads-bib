@@ -70,10 +70,12 @@ Run notebook top-to-bottom and record the same checks.
 If you are validating the raw-embedding path, repeat the same run with
 `"backend": "toponymy_evoc"` and the same artifact checks.
 
-For Toponymy backends, also verify that the topic dataframe keeps the primary
-working layer in `topic_id`/`Name` and persists hierarchy columns such as
+For Toponymy backends, also verify that the topic dataframe keeps the
+working-layer compatibility view in `topic_id`/`Name` and persists hierarchy columns such as
 `topic_layer_0_id`, `topic_layer_0_label`, `topic_primary_layer_index`, and
-`topic_layer_count`.
+`topic_layer_count`. Verify that the topic map enables the topic tree when
+more than one layer is available and that hover cards show the full hierarchy
+path.
 
 ## Profile C: Local CPU + BERTopic
 

@@ -1479,7 +1479,8 @@ def fit_toponymy(
     backend : str
         ``"toponymy"`` or ``"toponymy_evoc"``.
     layer_index : int | "auto" | None
-        Hierarchical layer index selected as primary output topic_id.
+        Hierarchical layer index selected as the working-layer compatibility
+        view for ``topic_id``/``Name``.
         ``"auto"`` selects the coarsest available overview layer.
     llm_provider : str
         Currently supported Toponymy naming provider.

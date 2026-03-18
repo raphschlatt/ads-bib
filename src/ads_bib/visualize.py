@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from html import escape
 import logging
 import string
+from typing import Literal
 import warnings
 from pathlib import Path
 
@@ -250,36 +252,39 @@ if (APPLY_DARK_UI) {{ document.body.classList.add('darkmode'); }}
 const legendContent = document.getElementById("legend-content");
 const legendToggle = document.getElementById("legend-toggle");
 const legendHeader = document.getElementById("legend-header");
-const selectedPrimaryFields = new Set();
 
-legendHeader.addEventListener('click', function(event) {{
-    if (event.target.closest('.box')) return;
-    legendContent.classList.toggle('collapsed');
-    legendToggle.textContent = legendContent.classList.contains('collapsed') ? '\\u25B6' : '\\u25BC';
-}});
+if (legendContent && legendToggle && legendHeader) {{
+    const selectedPrimaryFields = new Set();
 
-legendContent.addEventListener('click', function(event) {{
-    const row = event.target.closest('.row');
-    if (!row) return;
-    const box = row.querySelector('.box');
-    const selectedField = box ? box.id : null;
-    if (selectedField) {{
-        if (selectedPrimaryFields.has(selectedField)) {{
-            selectedPrimaryFields.delete(selectedField); box.innerHTML = "";
-        }} else {{
-            selectedPrimaryFields.add(selectedField); box.innerHTML = "\\u2713";
+    legendHeader.addEventListener('click', function(event) {{
+        if (event.target.closest('.box')) return;
+        legendContent.classList.toggle('collapsed');
+        legendToggle.textContent = legendContent.classList.contains('collapsed') ? '\\u25B6' : '\\u25BC';
+    }});
+
+    legendContent.addEventListener('click', function(event) {{
+        const row = event.target.closest('.row');
+        if (!row) return;
+        const box = row.querySelector('.box');
+        const selectedField = box ? box.id : null;
+        if (selectedField) {{
+            if (selectedPrimaryFields.has(selectedField)) {{
+                selectedPrimaryFields.delete(selectedField); box.innerHTML = "";
+            }} else {{
+                selectedPrimaryFields.add(selectedField); box.innerHTML = "\\u2713";
+            }}
         }}
-    }}
-    if (selectedPrimaryFields.size === 0) {{
-        datamap.removeSelection("legend");
-    }} else {{
-        const selectedIndices = [];
-        datamap.metaData.primary_field.forEach((field, i) => {{
-            if (selectedPrimaryFields.has(field)) selectedIndices.push(i);
-        }});
-        datamap.addSelection(selectedIndices, "legend");
-    }}
-}});
+        if (selectedPrimaryFields.size === 0) {{
+            datamap.removeSelection("legend");
+        }} else {{
+            const selectedIndices = [];
+            datamap.metaData.primary_field.forEach((field, i) => {{
+                if (selectedPrimaryFields.has(field)) selectedIndices.push(i);
+            }});
+            datamap.addSelection(selectedIndices, "legend");
+        }}
+    }});
+}}
 
 setTimeout(() => {{
     document.querySelectorAll('svg').forEach(svg => {{
@@ -299,69 +304,82 @@ _HOVER_TEMPLATE = """
     <div style="color:#333;"><b>Year:</b> {year}</div>
     <div style="color:#333;"><b>Journal:</b> {journal}</div>
     <div style="color:#333;"><b>Abstract:</b> {abstract}</div>
-    <div style="background-color:{color}; color:#fff; border-radius:6px; width:fit-content; max-width:75%; margin:2px; padding:2px 10px; font-size:10pt;">{primary_field}</div>
+    <div>{topic_hierarchy_html}</div>
     <div style="background-color:#eeeeee; color:#333; border-radius:6px; width:fit-content; max-width:75%; margin:2px; padding:2px 10px; font-size:10pt;">citation count: {citation_count}</div>
 </div>
 """
 
 
+def _normalize_topic_tree_setting(
+    value: bool | str | None,
+) -> bool | Literal["auto"]:
+    """Normalize public ``topic_tree`` input to ``True``, ``False``, or ``"auto"``."""
+    if value is None:
+        return "auto"
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "auto", "none", "null"}:
+            return "auto"
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        raise ValueError(
+            f"Invalid topic_tree value '{value}'. Expected true, false, or 'auto'."
+        )
+    raise TypeError(
+        f"Invalid topic_tree type {type(value).__name__}. Expected bool, 'auto', or null."
+    )
+
+
 def _normalize_label_columns(label_column: str | list[str]) -> list[str]:
     """Normalize topic label columns to a list."""
-    if isinstance(label_column, str):
-        return [label_column]
-    return list(label_column)
+    columns = [label_column] if isinstance(label_column, str) else list(label_column)
+    if columns and all(_topic_layer_index_from_label_column(column) is not None for column in columns):
+        return sorted(columns, key=_topic_layer_sort_key)
+    return columns
 
 
-def _topic_layer_sort_key(column: str) -> tuple[int, str]:
-    """Sort canonical and legacy topic-layer label columns by layer index."""
+def _topic_layer_index_from_label_column(column: str) -> int | None:
+    """Extract a layer index from a canonical or legacy topic-label column."""
     if column.startswith("topic_layer_") and column.endswith("_label"):
         suffix = column[len("topic_layer_") : -len("_label")]
     elif column.startswith("Topic_Layer_"):
         suffix = column[len("Topic_Layer_") :]
     else:
-        return (10**6, column)
+        return None
 
     try:
-        return (int(suffix), column)
+        return int(suffix)
     except ValueError:
+        return None
+
+
+def _topic_layer_sort_key(column: str) -> tuple[int, str]:
+    """Sort canonical and legacy topic-layer label columns by layer index."""
+    layer_index = _topic_layer_index_from_label_column(column)
+    if layer_index is None:
         return (10**6, column)
-
-
-def _reorder_label_columns_for_primary_layer(df: pd.DataFrame, label_columns: list[str]) -> list[str]:
-    """Move the configured primary topic layer to the front when metadata is present."""
-    if "topic_primary_layer_index" not in df.columns or not label_columns:
-        return label_columns
-
-    primary_value = df["topic_primary_layer_index"].iloc[0]
-    if pd.isna(primary_value):
-        return label_columns
-
-    primary_index = int(primary_value)
-    preferred = (
-        f"topic_layer_{primary_index}_label",
-        f"Topic_Layer_{primary_index}",
-    )
-    for candidate in preferred:
-        if candidate in label_columns:
-            return [candidate] + [col for col in label_columns if col != candidate]
-    return label_columns
+    return (layer_index, column)
 
 
 def _auto_detect_label_columns(df: pd.DataFrame) -> list[str]:
-    """Auto-detect hierarchical topic label columns with primary-layer preference."""
+    """Auto-detect hierarchical topic label columns in natural Toponymy order."""
     canonical = sorted(
         [c for c in df.columns if c.startswith("topic_layer_") and c.endswith("_label")],
         key=_topic_layer_sort_key,
     )
     if canonical:
-        return _reorder_label_columns_for_primary_layer(df, canonical)
+        return canonical
 
     legacy = sorted(
         [c for c in df.columns if c.startswith("Topic_Layer_")],
         key=_topic_layer_sort_key,
     )
     if legacy:
-        return _reorder_label_columns_for_primary_layer(df, legacy)
+        return legacy
 
     return ["Name"]
 
@@ -383,7 +401,9 @@ def _truncate_abstract(value: object, *, max_len: int = 200) -> object:
 def _prepare_point_data(
     df: pd.DataFrame,
     *,
+    label_columns: list[str],
     primary_label_col: str,
+    working_layer_index: int | None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Prepare dataframe copy, publication dates, and point metadata payload."""
     df_work = df.copy()
@@ -427,6 +447,11 @@ def _prepare_point_data(
         extra_data["citation_count"],
         errors="coerce",
     ).fillna(0).astype(int)
+    extra_data["topic_hierarchy_html"] = _build_topic_hierarchy_html(
+        df_work,
+        label_columns=label_columns,
+        working_layer_index=working_layer_index,
+    )
     return df_work, extra_data
 
 
@@ -454,6 +479,111 @@ def _resolve_histogram_range(
     if hist_end <= hist_start:
         raise ValueError("year_range end must be greater than start.")
     return hist_start, hist_end
+
+
+def _is_hierarchical_label_columns(label_columns: list[str]) -> bool:
+    """Return True when *label_columns* represent a multi-layer Toponymy hierarchy."""
+    return (
+        len(label_columns) > 1
+        and any(_topic_layer_index_from_label_column(column) is not None for column in label_columns)
+    )
+
+
+def _resolve_working_layer_index(df: pd.DataFrame) -> int | None:
+    """Resolve the working-layer index from dataframe metadata when available."""
+    if "topic_primary_layer_index" not in df.columns or df["topic_primary_layer_index"].empty:
+        return None
+    value = df["topic_primary_layer_index"].iloc[0]
+    if pd.isna(value):
+        return None
+    return int(value)
+
+
+def _resolve_noise_label(df: pd.DataFrame, label_columns: list[str]) -> str:
+    """Resolve one noise label string suitable for datamapplot."""
+    candidates: list[str] = []
+    for label_column in label_columns:
+        layer_index = _topic_layer_index_from_label_column(label_column)
+        if layer_index is not None:
+            id_column = f"topic_layer_{layer_index}_id"
+            if id_column in df.columns:
+                values = (
+                    df.loc[df[id_column] == -1, label_column]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+                candidates.extend(values)
+                continue
+        if label_column in df.columns and "topic_id" in df.columns:
+            values = (
+                df.loc[df["topic_id"] == -1, label_column]
+                .dropna()
+                .astype(str)
+                .unique()
+                .tolist()
+            )
+            candidates.extend(values)
+
+    unique_candidates = list(dict.fromkeys(candidates))
+    if "Unlabelled" in unique_candidates:
+        return "Unlabelled"
+    if "Outlier Topic" in unique_candidates:
+        return "Outlier Topic"
+    if unique_candidates:
+        return unique_candidates[0]
+    return "Unlabelled"
+
+
+def _format_hierarchy_badge(text: str, *, accent: bool = False) -> str:
+    """Render one compact hover badge for a hierarchy label."""
+    background = "#0b6efd" if accent else "#eeeeee"
+    color = "#ffffff" if accent else "#333333"
+    return (
+        "<div style=\""
+        f"background-color:{background}; color:{color}; border-radius:6px; "
+        "width:fit-content; max-width:90%; margin:2px 0; padding:2px 10px; font-size:10pt;"
+        f"\">{escape(text)}</div>"
+    )
+
+
+def _build_topic_hierarchy_html(
+    df: pd.DataFrame,
+    *,
+    label_columns: list[str],
+    working_layer_index: int | None,
+) -> list[str]:
+    """Build per-row HTML snippets describing the available topic hierarchy."""
+    hierarchical = _is_hierarchical_label_columns(label_columns)
+    rows: list[str] = []
+
+    for row_index in range(len(df)):
+        if not hierarchical:
+            value = df.iloc[row_index][label_columns[0]]
+            rows.append(_format_hierarchy_badge(str(value), accent=True))
+            continue
+
+        badges: list[str] = []
+        for label_column in reversed(label_columns):
+            layer_index = _topic_layer_index_from_label_column(label_column)
+            if layer_index is None:
+                continue
+            value = df.iloc[row_index][label_column]
+            if pd.isna(value):
+                continue
+            layer_label = f"Layer {layer_index}: {value}"
+            if working_layer_index == layer_index:
+                layer_label += " (working)"
+            badges.append(
+                _format_hierarchy_badge(
+                    layer_label,
+                    accent=working_layer_index == layer_index,
+                )
+            )
+        rows.append("".join(badges))
+
+    return rows
 
 
 def _apply_topic_colors(
@@ -489,15 +619,17 @@ def _build_plot_kwargs(
     polygon_alpha: float | None,
     hist_start: pd.Timestamp,
     hist_end: pd.Timestamp,
-    noise_labels: list[str],
-    legend_html: str,
+    noise_label: str,
+    legend_html: str | None,
     legend_js: str,
+    hierarchical: bool,
+    topic_tree_enabled: bool,
 ) -> dict[str, object]:
     """Build keyword arguments for `datamapplot.create_interactive_plot`."""
     bin_c, sel_c, unsel_c, ctx_c = _histogram_theme_colors()
     marker_size = np.log1p(extra_data["citation_count"].values) + 1
 
-    return dict(
+    kwargs: dict[str, object] = dict(
         hover_text=hover_text,
         extra_point_data=extra_data,
         inline_data=True,
@@ -513,10 +645,9 @@ def _build_plot_kwargs(
         cluster_boundary_line_width=8,
         use_medoids=True,
         marker_size_array=marker_size,
-        marker_color_array=extra_data["color"],
         point_radius_max_pixels=20,
         point_radius_min_pixels=2,
-        noise_label=", ".join(noise_labels),
+        noise_label=noise_label,
         color_label_text=False,
         color_cluster_boundaries=False,
         text_outline_width=4,
@@ -540,9 +671,19 @@ def _build_plot_kwargs(
         hover_text_html_template=_HOVER_TEMPLATE,
         on_click="window.open(`https://ui.adsabs.harvard.edu/abs/{bibcode}/abstract`)",
         custom_css=_LEGEND_CSS,
-        custom_html=legend_html,
         custom_js=legend_js,
     )
+
+    if hierarchical:
+        kwargs["cluster_layer_colormaps"] = True
+        kwargs["enable_topic_tree"] = topic_tree_enabled
+    else:
+        kwargs["marker_color_array"] = extra_data["color"]
+
+    if legend_html is not None:
+        kwargs["custom_html"] = legend_html
+
+    return kwargs
 
 
 def _create_plot_with_polygon_fallback(
@@ -593,6 +734,7 @@ def create_topic_map(
     year_range: tuple[str, str] | None = None,
     word_cloud: bool = True,
     polygon_alpha: float | None = None,
+    topic_tree: bool | Literal["auto"] = "auto",
     output_path: Path | str | None = None,
 ) -> object:
     """Create an interactive datamapplot HTML visualisation.
@@ -606,10 +748,14 @@ def create_topic_map(
         ``Abstract_en``, ``Citation Count``, ``DOI``, ``tokens``.
     label_column : str, list[str], or None
         Column(s) with topic labels (e.g. ``"Name"`` or
-        ``["topic_layer_2_label", "topic_layer_0_label", "topic_layer_1_label"]``).
-        If a list is provided, multiple layers are added to the map.
+        ``["topic_layer_0_label", "topic_layer_1_label", "topic_layer_2_label"]``).
+        If a list is provided, multiple layers are added to the map. Recognized
+        Toponymy layer columns are normalized to natural fine-to-coarse order.
         If ``None``, auto-detects canonical ``topic_layer_<n>_label`` columns,
         falls back to legacy ``Topic_Layer_*`` columns, and otherwise uses ``"Name"``.
+    topic_tree : bool, "auto", or None, optional
+        Whether to enable the datamapplot topic tree. In ``"auto"``, it is
+        enabled only for multi-layer Toponymy-style label sets.
     year_range : tuple[str, str] or None, optional
         Histogram range as ``(start, end)`` timestamps. If ``None``, the range
         is derived from the data (``min_year-01-01`` to ``(max_year+1)-01-01``).
@@ -624,6 +770,11 @@ def create_topic_map(
         label_column = _auto_detect_label_columns(df)
 
     label_columns = _normalize_label_columns(label_column)
+    hierarchical = _is_hierarchical_label_columns(label_columns)
+    topic_tree_setting = _normalize_topic_tree_setting(topic_tree)
+    topic_tree_enabled = (
+        hierarchical if topic_tree_setting == "auto" else bool(topic_tree_setting)
+    )
     _require_columns(
         df,
         [
@@ -647,20 +798,28 @@ def create_topic_map(
     data_map = df[["embedding_2d_x", "embedding_2d_y"]].to_numpy(np.float32)
     label_layers = [df[col].to_numpy(object) for col in label_columns]
     primary_label_col = label_columns[0]
+    working_layer_index = _resolve_working_layer_index(df)
     hover_text = df["Year"].astype(str).tolist()
 
-    df_work, extra_data = _prepare_point_data(df, primary_label_col=primary_label_col)
+    df_work, extra_data = _prepare_point_data(
+        df,
+        label_columns=label_columns,
+        primary_label_col=primary_label_col,
+        working_layer_index=working_layer_index,
+    )
     hist_start, hist_end = _resolve_histogram_range(
         df_work["publication_date"],
         year_range=year_range,
     )
-    cmap, noise_labels = _apply_topic_colors(
-        extra_data,
-        topic_ids=df_work["topic_id"],
-    )
-
-    legend_html = _build_legend_html(cmap)
+    legend_html: str | None = None
+    if not hierarchical:
+        cmap, _ = _apply_topic_colors(
+            extra_data,
+            topic_ids=df_work["topic_id"],
+        )
+        legend_html = _build_legend_html(cmap)
     legend_js = _build_legend_js(dark_mode)
+    noise_label = _resolve_noise_label(df_work, label_columns)
 
     kwargs = _build_plot_kwargs(
         df_work=df_work,
@@ -673,9 +832,11 @@ def create_topic_map(
         polygon_alpha=polygon_alpha,
         hist_start=hist_start,
         hist_end=hist_end,
-        noise_labels=noise_labels,
+        noise_label=noise_label,
         legend_html=legend_html,
         legend_js=legend_js,
+        hierarchical=hierarchical,
+        topic_tree_enabled=topic_tree_enabled,
     )
 
     if word_cloud:

@@ -81,6 +81,8 @@ def test_create_topic_map_uses_new_coordinate_and_topic_columns(monkeypatch):
 
     assert calls["data_map"].shape == (2, 2)
     assert list(calls["kwargs"]["extra_point_data"]["cluster"]) == [0, -1]
+    assert "marker_color_array" in calls["kwargs"]
+    assert "enable_topic_tree" not in calls["kwargs"]
     assert plot is not None
 
 
@@ -119,18 +121,58 @@ def test_create_topic_map_auto_detects_topic_layer_columns(monkeypatch):
     assert plot is not None
 
 
-def test_create_topic_map_auto_detects_canonical_topic_layer_columns_and_primary_first(monkeypatch):
+def test_create_topic_map_auto_detects_canonical_topic_layer_columns_in_natural_order(monkeypatch):
     viz, calls = _load_visualize_module(monkeypatch)
     df = _build_df()
     df["topic_layer_0_label"] = ["Layer0_A", "Layer0_B"]
     df["topic_layer_1_label"] = ["Layer1_A", "Layer1_B"]
     df["topic_primary_layer_index"] = [1, 1]
+    df["topic_layer_0_id"] = [10, -1]
+    df["topic_layer_1_id"] = [20, -1]
 
     plot = viz.create_topic_map(df, word_cloud=False)
 
     assert len(calls["label_layers"]) == 2
-    assert list(calls["label_layers"][0]) == ["Layer1_A", "Layer1_B"]
+    assert list(calls["label_layers"][0]) == ["Layer0_A", "Layer0_B"]
+    assert calls["kwargs"]["enable_topic_tree"] is True
+    assert calls["kwargs"]["cluster_layer_colormaps"] is True
+    assert "marker_color_array" not in calls["kwargs"]
+    assert "custom_html" not in calls["kwargs"]
+    hierarchy_html = list(calls["kwargs"]["extra_point_data"]["topic_hierarchy_html"])
+    assert "Layer 1: Layer1_A (working)" in hierarchy_html[0]
+    assert "Layer 0: Layer0_A" in hierarchy_html[0]
     assert plot is not None
+
+
+def test_create_topic_map_respects_explicit_topic_tree_false(monkeypatch):
+    viz, calls = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    df["topic_layer_0_label"] = ["Layer0_A", "Layer0_B"]
+    df["topic_layer_1_label"] = ["Layer1_A", "Layer1_B"]
+    df["topic_layer_0_id"] = [10, -1]
+    df["topic_layer_1_id"] = [20, -1]
+
+    viz.create_topic_map(df, word_cloud=False, topic_tree=False)
+
+    assert calls["kwargs"]["enable_topic_tree"] is False
+
+
+def test_create_topic_map_sorts_explicit_toponymy_layer_lists_to_natural_order(monkeypatch):
+    viz, calls = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    df["topic_layer_0_label"] = ["Layer0_A", "Layer0_B"]
+    df["topic_layer_1_label"] = ["Layer1_A", "Layer1_B"]
+    df["topic_layer_0_id"] = [10, -1]
+    df["topic_layer_1_id"] = [20, -1]
+
+    viz.create_topic_map(
+        df,
+        label_column=["topic_layer_1_label", "topic_layer_0_label"],
+        word_cloud=False,
+    )
+
+    assert list(calls["label_layers"][0]) == ["Layer0_A", "Layer0_B"]
+    assert list(calls["label_layers"][1]) == ["Layer1_A", "Layer1_B"]
 
 
 def test_create_topic_map_auto_detects_name_when_no_layers(monkeypatch):

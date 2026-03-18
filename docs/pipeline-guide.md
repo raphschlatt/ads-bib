@@ -197,12 +197,14 @@ Topic modeling has three backends:
 | `toponymy` | 5D reduced vectors | Best when you want a layered hierarchy that stays aligned with the 5D map | `local`, `llama_server`, `openrouter` |
 | `toponymy_evoc` | Raw embeddings | Best when you want Toponymy-style hierarchy without 5D clustering, or when you want to cluster directly in embedding space | `local`, `llama_server`, `openrouter` |
 
-Toponymy keeps one primary layer for `topic_id`/`Name` and stores the full
+Toponymy keeps one working-layer compatibility view for `topic_id`/`Name` and stores the full
 hierarchy as `topic_layer_<n>_id`, `topic_layer_<n>_label`,
 `topic_primary_layer_index`, and `topic_layer_count`. Legacy `Topic_Layer_X`
-columns remain as compatibility aliases for the map and older downstream code.
-The default `toponymy_layer_index=auto` chooses the coarsest available overview
-layer; an explicit integer keeps the selected layer fixed.
+columns remain as compatibility aliases for older downstream code.
+`topic_id` and `Name` are therefore aliases only; the hierarchy columns are the
+canonical Toponymy output. The default `toponymy_layer_index=auto` chooses the
+coarsest available overview layer for those aliases; an explicit integer keeps
+the selected working layer fixed.
 
 Topic labeling uses an LLM to name each cluster. Provider choices mirror
 translation: `openrouter`, `llama_server`, `huggingface_api` (BERTopic only),
@@ -243,24 +245,43 @@ The most common loop: change `cluster_params` or `backend`, rerun from
 ### Topic Map
 
 The `visualize` stage renders an interactive HTML topic map using datamapplot.
-Each document is a point in 2D space, colored by topic, sized by citation
-count. The map supports:
+Each document is a point in 2D space, sized by citation count. BERTopic maps
+stay flat. Toponymy and Toponymy+EVoC maps pass the full hierarchy to
+datamapplot in natural fine-to-coarse order and auto-enable the topic tree
+when multiple layers are available. The map supports:
 
 - **Hover** -- title, authors, year, journal, abstract, citation count
+- **Hierarchy hover** -- full Toponymy path for each document when applicable
 - **Legend** -- click a topic to filter, checkboxes for multi-select
 - **Word cloud** -- lasso-select a region to see its top terms
 - **Year histogram** -- brush to filter by publication period
 - **Click** -- opens the ADS abstract page in a new tab
 
 Set `title` for the heading, `subtitle_template` with `{provider}` and
-`{model}` placeholders, and `dark_mode` to `True` or `False`.
+`{model}` placeholders, `dark_mode` to `True` or `False`, and `topic_tree` to
+`true`, `false`, or `auto`. Leave `topic_tree="auto"` for Toponymy backends.
 
 ### Curation
 
 Inspect `topic_info` to review cluster labels, sizes, and representative
-documents. Add noise or off-topic cluster IDs to `clusters_to_remove` (e.g.
-`[3, 4]`) and rerun the `curate` stage. The outlier cluster `-1` can also be
-removed.
+documents. For BERTopic, keep using `clusters_to_remove` (e.g. `[3, 4]`).
+
+For Toponymy and Toponymy+EVoC, prefer explicit hierarchy-aware removals via
+`cluster_targets`:
+
+```yaml
+curation:
+  cluster_targets:
+    - layer: 1
+      cluster_id: -1
+    - layer: 0
+      cluster_id: 12
+```
+
+Each target removes documents whose `topic_layer_<layer>_id` matches
+`cluster_id`. Multiple targets are unioned. The legacy `clusters_to_remove`
+alias still works for Toponymy, but it applies only to the selected working
+layer.
 
 ## Phase 6: Citation Networks
 
@@ -279,6 +300,10 @@ Node attributes: Bibcode, Author, Title, Year, Journal, Abstract,
                  Citation Count, DOI, topic_id, Name (topic label),
                  embedding_2d_x, embedding_2d_y, Title_en, Abstract_en, ...
 ```
+
+For Toponymy backends, the hierarchy columns also remain on publication nodes,
+so downstream network tooling can still inspect `topic_layer_<n>_*`,
+`topic_primary_layer_index`, and `topic_layer_count`.
 
 The `min_counts` parameter sets minimum edge weight per metric. For a small
 corpus under 500 documents, start with `direct=3`, `co_citation=10`,

@@ -42,7 +42,13 @@ from ads_bib.citations import (
     process_all_citations,
 )
 from ads_bib.config import init_paths, load_env, validate_provider
-from ads_bib.curate import get_cluster_summary, remove_clusters
+from ads_bib.curate import (
+    get_cluster_summary,
+    get_hierarchy_cluster_summary,
+    normalize_cluster_targets,
+    remove_cluster_targets,
+    remove_clusters,
+)
 from ads_bib.export import resolve_dataset
 from ads_bib.run_manager import RunManager
 from ads_bib.search import search_ads
@@ -208,16 +214,41 @@ class TopicModelConfig:
     outlier_threshold: float = 0.5
 
 
+def _normalize_topic_tree_setting(value: bool | str | None) -> bool | Literal["auto"]:
+    """Normalize visualization.topic_tree to ``True``, ``False``, or ``"auto"``."""
+    if value is None:
+        return "auto"
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "auto", "none", "null"}:
+            return "auto"
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        raise ValueError(
+            f"Invalid visualization.topic_tree value '{value}'. Expected true, false, or 'auto'."
+        )
+    raise TypeError(
+        f"Invalid visualization.topic_tree type {type(value).__name__}. "
+        "Expected bool, 'auto', or null."
+    )
+
+
 @dataclass
 class VisualizationConfig:
     enabled: bool = True
     title: str = "ADS Bibliometric Map"
     subtitle_template: str = "Topics labeled with {provider}/{model}"
     dark_mode: bool = True
+    topic_tree: bool | Literal["auto"] = "auto"
 
 
 @dataclass
 class CurationConfig:
+    cluster_targets: list[dict[str, int]] = field(default_factory=list)
     clusters_to_remove: list[int] = field(default_factory=list)
 
 
@@ -263,6 +294,12 @@ class PipelineConfig:
         self.llama_server = self.llama_server.normalized()
         self.topic_model.toponymy_layer_index = topic_model_backends.normalize_toponymy_layer_index(
             self.topic_model.toponymy_layer_index
+        )
+        self.visualization.topic_tree = _normalize_topic_tree_setting(
+            self.visualization.topic_tree
+        )
+        self.curation.cluster_targets = normalize_cluster_targets(
+            self.curation.cluster_targets
         )
         validate_provider(
             self.translate.provider,
@@ -654,8 +691,12 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         base = f"curated dataset: {len(ctx.curated_df):,} | topics: {topic_count:,}"
         if ctx.topic_df is not None and len(ctx.topic_df) > len(ctx.curated_df):
             removed = len(ctx.topic_df) - len(ctx.curated_df)
-            n_clusters = len(ctx.config.curation.clusters_to_remove)
-            base += f" ({removed:,} rows removed from {n_clusters} clusters)"
+            n_targets = len(ctx.config.curation.cluster_targets)
+            n_legacy = len(ctx.config.curation.clusters_to_remove)
+            total_targets = n_targets + n_legacy
+            if total_targets > 0:
+                target_label = "targets" if n_targets > 0 else "clusters"
+                base += f" ({removed:,} rows removed from {total_targets} {target_label})"
         return [base]
 
     if stage == "citations" and ctx.citation_results is not None:
@@ -1543,9 +1584,23 @@ def run_visualize_stage(ctx: PipelineContext) -> PipelineContext:
         title=ctx.config.visualization.title,
         subtitle=_topic_subtitle(ctx.config),
         dark_mode=ctx.config.visualization.dark_mode,
+        topic_tree=ctx.config.visualization.topic_tree,
         output_path=ctx.run.paths["plots"] / "topic_map.html",
     )
     return ctx
+
+
+def _resolve_working_layer_index(ctx: PipelineContext) -> int | None:
+    """Resolve the configured Toponymy working-layer index from context metadata."""
+    if ctx.topic_hierarchy is not None:
+        value = ctx.topic_hierarchy.get("topic_primary_layer_index")
+        if value is not None:
+            return int(value)
+    if ctx.topic_df is not None and "topic_primary_layer_index" in ctx.topic_df.columns:
+        value = ctx.topic_df["topic_primary_layer_index"].iloc[0]
+        if pd.notna(value):
+            return int(value)
+    return None
 
 
 def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
@@ -1559,9 +1614,51 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
             "Curate stage requires topic_df in memory. Run the topic_dataframe stage first.",
         )
     ctx.curated_df = ctx.topic_df.copy()
-    display_summary = get_cluster_summary(ctx.curated_df)
+    hierarchical_backend = (
+        ctx.config.topic_model.backend in {"toponymy", "toponymy_evoc"}
+        and any(
+            column.startswith("topic_layer_") and column.endswith("_id")
+            for column in ctx.curated_df.columns
+        )
+    )
+    working_layer_index = _resolve_working_layer_index(ctx)
+    display_summary = (
+        get_hierarchy_cluster_summary(
+            ctx.curated_df,
+            working_layer_index=working_layer_index,
+        )
+        if hierarchical_backend
+        else get_cluster_summary(ctx.curated_df)
+    )
     logger.info("Cluster summary rows: %s", f"{len(display_summary):,}")
-    if ctx.config.curation.clusters_to_remove:
+    if hierarchical_backend:
+        cluster_targets = list(ctx.config.curation.cluster_targets)
+        if ctx.config.curation.clusters_to_remove:
+            if working_layer_index is None:
+                raise ValueError(
+                    "Legacy curation.clusters_to_remove requires a resolved Toponymy working layer."
+                )
+            logger.info(
+                "Applying legacy curation.clusters_to_remove against working layer %s.",
+                working_layer_index,
+            )
+            cluster_targets.extend(
+                {
+                    "layer": working_layer_index,
+                    "cluster_id": int(cluster_id),
+                }
+                for cluster_id in ctx.config.curation.clusters_to_remove
+            )
+        if cluster_targets:
+            ctx.curated_df = remove_cluster_targets(
+                ctx.curated_df,
+                cluster_targets,
+            )
+    elif ctx.config.curation.cluster_targets:
+        raise ValueError(
+            "curation.cluster_targets is supported only for toponymy and toponymy_evoc backends."
+        )
+    elif ctx.config.curation.clusters_to_remove:
         ctx.curated_df = remove_clusters(
             ctx.curated_df,
             ctx.config.curation.clusters_to_remove,

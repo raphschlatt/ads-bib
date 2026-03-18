@@ -107,8 +107,10 @@ visualization:
   title: Hawking ADS Bibliometric Map
   subtitle_template: "Topics labeled with {provider}/{model}"
   dark_mode: true
+  topic_tree: auto
 
 curation:
+  cluster_targets: []
   clusters_to_remove: []
 
 citations:
