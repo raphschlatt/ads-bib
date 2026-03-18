@@ -203,3 +203,15 @@ Seed entries:
   - `runs/README.md`
   - `runs/.gitkeep`
 - `.gitignore` must enforce "structure visible, contents ignored" for `data/` and `runs/`.
+
+## Learned User Preferences
+
+- Default to analysis and concrete suggestions first when explicitly asked for "nur Analyse/Plan"; do not start implementation until the user switches to execution.
+- Prioritize "clean and lean" simplification: prefer removing duplicate UI/code paths over adding wrappers.
+- Keep cross-backend behavior and outputs aligned (for example BERTopic vs Toponymy) and avoid parallel UX concepts for the same function.
+- When proposing tuning choices, explain all key parameters succinctly (including both clustering and visualization dimensions), not only a subset.
+
+## Learned Workspace Facts
+
+- For environment guidance in this workspace, prefer Python 3.12 and avoid Python 3.13 experiment tracks unless explicitly requested.
+- Keep environment/tooling guidance aligned to the agreed stack in user discussions: conda environment workflow plus uv-driven package operations.

@@ -82,7 +82,9 @@ def test_openrouter_pipeline_config_template_loads():
     assert data["topic_model"]["llm_model_file"] is None
     assert data["topic_model"]["llm_model_path"] is None
     assert data["topic_model"]["toponymy_layer_index"] == "auto"
-    assert data["visualization"]["topic_tree"] == "auto"
+    assert data["topic_model"]["toponymy_local_label_max_tokens"] == 128
+    assert data["visualization"]["font_family"] == "Cormorant SC"
+    assert data["visualization"]["topic_tree"] is False
     assert data["curation"]["cluster_targets"] == []
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
@@ -202,7 +204,9 @@ def test_official_pipeline_config_templates_load(
     }
     assert config.topic_model.min_df == 3
     assert config.topic_model.bertopic_label_max_tokens == 64
-    assert config.visualization.topic_tree == "auto"
+    assert config.topic_model.toponymy_local_label_max_tokens == 128
+    assert config.visualization.font_family == "Cormorant SC"
+    assert config.visualization.topic_tree is False
     assert config.curation.cluster_targets == []
     assert config.citations.min_counts == {
         "direct": 3,
@@ -456,9 +460,14 @@ def test_pipeline_config_accepts_string_toponymy_layer_index_int():
     assert config.topic_model.toponymy_layer_index == 2
 
 
-def test_pipeline_config_defaults_visualization_topic_tree_to_auto():
+def test_pipeline_config_defaults_visualization_topic_tree_to_false():
     config = pipeline.PipelineConfig.from_dict({})
-    assert config.visualization.topic_tree == "auto"
+    assert config.visualization.topic_tree is False
+
+
+def test_pipeline_config_normalizes_visualization_topic_tree_auto_to_false():
+    config = pipeline.PipelineConfig.from_dict({"visualization": {"topic_tree": "auto"}})
+    assert config.visualization.topic_tree is False
 
 
 def test_pipeline_config_normalizes_curation_cluster_targets():

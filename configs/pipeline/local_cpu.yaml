@@ -88,7 +88,7 @@ topic_model:
   llm_model_path: data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf
   llm_api_key: null
   bertopic_label_max_tokens: 64
-  toponymy_local_label_max_tokens: 256
+  toponymy_local_label_max_tokens: 128
   pipeline_models:
     - POS
     - KeyBERT
@@ -107,7 +107,8 @@ visualization:
   title: Hawking ADS Bibliometric Map
   subtitle_template: "Topics labeled with {provider}/{model}"
   dark_mode: true
-  topic_tree: auto
+  font_family: Cormorant SC
+  topic_tree: false
 
 curation:
   cluster_targets: []

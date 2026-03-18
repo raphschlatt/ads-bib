@@ -205,7 +205,7 @@ class TopicModelConfig:
     llm_model_path: str | None = None
     llm_api_key: str | None = None
     bertopic_label_max_tokens: int = 128
-    toponymy_local_label_max_tokens: int = 256
+    toponymy_local_label_max_tokens: int = 128
     pipeline_models: list[str] = field(default_factory=lambda: ["POS", "KeyBERT", "MMR"])
     parallel_models: list[str] = field(default_factory=lambda: ["MMR", "POS", "KeyBERT"])
     toponymy_embedding_model: str | None = None
@@ -214,26 +214,26 @@ class TopicModelConfig:
     outlier_threshold: float = 0.5
 
 
-def _normalize_topic_tree_setting(value: bool | str | None) -> bool | Literal["auto"]:
-    """Normalize visualization.topic_tree to ``True``, ``False``, or ``"auto"``."""
+def _normalize_topic_tree_setting(value: bool | str | None) -> bool:
+    """Normalize visualization.topic_tree to ``True`` or ``False``."""
     if value is None:
-        return "auto"
+        return False
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         normalized = value.strip().lower()
         if normalized in {"", "auto", "none", "null"}:
-            return "auto"
+            return False
         if normalized in {"true", "1", "yes", "on"}:
             return True
         if normalized in {"false", "0", "no", "off"}:
             return False
         raise ValueError(
-            f"Invalid visualization.topic_tree value '{value}'. Expected true, false, or 'auto'."
+            f"Invalid visualization.topic_tree value '{value}'. Expected true, false, or null."
         )
     raise TypeError(
         f"Invalid visualization.topic_tree type {type(value).__name__}. "
-        "Expected bool, 'auto', or null."
+        "Expected bool or null."
     )
 
 
@@ -243,7 +243,8 @@ class VisualizationConfig:
     title: str = "ADS Bibliometric Map"
     subtitle_template: str = "Topics labeled with {provider}/{model}"
     dark_mode: bool = True
-    topic_tree: bool | Literal["auto"] = "auto"
+    font_family: str = "Cormorant SC"
+    topic_tree: bool = False
 
 
 @dataclass
@@ -1584,6 +1585,7 @@ def run_visualize_stage(ctx: PipelineContext) -> PipelineContext:
         title=ctx.config.visualization.title,
         subtitle=_topic_subtitle(ctx.config),
         dark_mode=ctx.config.visualization.dark_mode,
+        font_family=ctx.config.visualization.font_family,
         topic_tree=ctx.config.visualization.topic_tree,
         output_path=ctx.run.paths["plots"] / "topic_map.html",
     )

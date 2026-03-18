@@ -247,19 +247,19 @@ The most common loop: change `cluster_params` or `backend`, rerun from
 The `visualize` stage renders an interactive HTML topic map using datamapplot.
 Each document is a point in 2D space, sized by citation count. BERTopic maps
 stay flat. Toponymy and Toponymy+EVoC maps pass the full hierarchy to
-datamapplot in natural fine-to-coarse order and auto-enable the topic tree
-when multiple layers are available. The map supports:
+datamapplot in natural fine-to-coarse order. The map supports:
 
 - **Hover** -- title, authors, year, journal, abstract, citation count
 - **Hierarchy hover** -- full Toponymy path for each document when applicable
-- **Legend** -- click a topic to filter, checkboxes for multi-select
+- **Selector/legend** -- one datamapplot-native layer+colormap selector, color-coded and clickable
 - **Word cloud** -- lasso-select a region to see its top terms
 - **Year histogram** -- brush to filter by publication period
 - **Click** -- opens the ADS abstract page in a new tab
 
 Set `title` for the heading, `subtitle_template` with `{provider}` and
-`{model}` placeholders, `dark_mode` to `True` or `False`, and `topic_tree` to
-`true`, `false`, or `auto`. Leave `topic_tree="auto"` for Toponymy backends.
+`{model}` placeholders, `dark_mode` to `True` or `False`, and `font_family` for
+the map typography. `topic_tree` is now an optional expert-mode toggle (default
+`false`) for hierarchical runs.
 
 ### Curation
 

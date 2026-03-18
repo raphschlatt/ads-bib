@@ -38,6 +38,7 @@ keys are passed through unchanged when you switch the backend away from BERTopic
 | `toponymy_cluster_params` | Toponymy cluster overrides | Used only for `toponymy` |
 | `toponymy_evoc_cluster_params` | EVoC cluster overrides | Used only for `toponymy_evoc` |
 | `toponymy_layer_index` | Working-layer selector for compatibility aliases | `auto` selects the coarsest available layer; explicit integers override it |
+| `toponymy_local_label_max_tokens` | Local Toponymy label token cap | Default `128` to keep hierarchy labels concise |
 | `toponymy_embedding_model` | Toponymy internal embedding model | Falls back to the main embedding model if unset |
 | `toponymy_max_workers` | Toponymy worker concurrency | Applies to Toponymy labeling and embedding calls |
 
@@ -62,7 +63,8 @@ available as compatibility aliases for one transition cycle.
 | `title` | Map title | Rendered above the datamapplot canvas |
 | `subtitle_template` | Map subtitle template | Supports `{provider}` and `{model}` placeholders |
 | `dark_mode` | Dark UI theme | `true` or `false` |
-| `topic_tree` | Datamapplot topic-tree toggle | `auto` enables it for multi-layer Toponymy outputs; BERTopic remains flat |
+| `font_family` | Label and title font | Default `Cormorant SC`; pass any Google/system font recognized by datamapplot |
+| `topic_tree` | Expert-mode topic-tree toggle | Optional (`true`/`false`), default `false`; applies only when hierarchy layers are present |
 
 ### Curation Keys
 

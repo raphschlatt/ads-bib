@@ -74,7 +74,7 @@ from ads_bib.topic_model import (
 ### More experimental or dependency-sensitive
 
 - `toponymy_evoc`
-- interactive visualization polish details and optional UI dependencies
+- optional hierarchy-only visualization extras (for example the topic tree panel)
 - the optional external AND step
 
 ## AND integration contract

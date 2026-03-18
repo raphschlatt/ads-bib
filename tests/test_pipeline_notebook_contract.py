@@ -98,7 +98,9 @@ def test_pipeline_notebook_code_contract():
     assert '"llm_model_file": None' in code
     assert '"llm_model_path": None' in code
     assert '"llm_prompt_name": "physics"' in code
-    assert '"topic_tree": "auto"' in code
+    assert '"toponymy_local_label_max_tokens": 128' in code
+    assert '"font_family": "Cormorant SC"' in code
+    assert '"topic_tree": False' in code
     assert '"cluster_targets": []' in code
     assert 'CITATIONS = {' in code
     assert "run.save_config(globals())" not in code
