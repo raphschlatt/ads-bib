@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 import importlib
-from importlib import metadata as importlib_metadata
 import inspect
 import logging
 from pathlib import Path
@@ -68,9 +67,8 @@ DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 128  # Keep hierarchy labels concise
 BERTopicLLMProvider: TypeAlias = Literal["local", "llama_server", "huggingface_api", "openrouter"]
 ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "openrouter"]
 ToponymyEmbeddingProvider: TypeAlias = Literal["local", "openrouter"]
-ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
+ToponymyBackend: TypeAlias = Literal["toponymy"]
 ToponymyLayerIndex: TypeAlias = int | Literal["auto"] | None
-SUPPORTED_TOPONYMY_EVOC_PAIR = ("0.4.0", "0.1.3")
 
 
 def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
@@ -88,60 +86,6 @@ def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
         "with `uv pip install -e \".[all,test]\"`."
     )
     raise ImportError(message) from exc
-
-
-def _installed_dist_version(dist_name: str) -> str | None:
-    """Return the installed distribution version when available."""
-    try:
-        return importlib_metadata.version(dist_name)
-    except importlib_metadata.PackageNotFoundError:
-        return None
-
-
-def _signature_parameter_names(callable_obj: Any) -> set[str]:
-    """Return the set of supported parameter names for *callable_obj*."""
-    try:
-        return set(inspect.signature(callable_obj).parameters)
-    except (TypeError, ValueError):
-        return set()
-
-
-def _is_legacy_toponymy_evoc_wrapper(clusterer_cls: Any) -> bool:
-    """Return whether Toponymy's EVoC wrapper still targets the legacy evoc API."""
-    params = _signature_parameter_names(clusterer_cls.__init__)
-    if not {"min_clusters", "next_cluster_size_quantile"}.issubset(params):
-        return False
-    try:
-        source = inspect.getsource(clusterer_cls.__init__)
-    except (OSError, TypeError):
-        return True
-    return "min_num_clusters" in source and "next_cluster_size_quantile" in source
-
-
-def _ensure_toponymy_evoc_runtime_compatibility(*, clusterer_cls: Any, evoc_cls: Any) -> None:
-    """Fail early when Toponymy's EVoC wrapper and standalone evoc are out of sync."""
-    if not _is_legacy_toponymy_evoc_wrapper(clusterer_cls):
-        return
-
-    evoc_params = _signature_parameter_names(evoc_cls.__init__)
-    if {"min_num_clusters", "next_cluster_size_quantile"}.issubset(evoc_params):
-        return
-
-    toponymy_version = _installed_dist_version("toponymy") or "unknown"
-    evoc_version = _installed_dist_version("evoc") or "unknown"
-    supported_toponymy, supported_evoc = SUPPORTED_TOPONYMY_EVOC_PAIR
-    raise RuntimeError(
-        "backend='toponymy_evoc' found an unsupported Toponymy/EVoC combination. "
-        f"Detected toponymy=={toponymy_version} and evoc=={evoc_version}. "
-        "This Toponymy EVoC wrapper still expects the legacy standalone evoc API "
-        "(`min_num_clusters`, `next_cluster_size_quantile`), but the installed evoc "
-        "version exposes a newer constructor. "
-        f"This repo currently supports `toponymy=={supported_toponymy}` with "
-        f"`evoc=={supported_evoc}`. Reinstall the topic stack with "
-        '`uv pip install -e ".[all,test]"`, or pin the pair explicitly with '
-        f'`uv pip install "toponymy=={supported_toponymy}" "evoc=={supported_evoc}"`.'
-    )
-
 
 # ---------------------------------------------------------------------------
 # Clustering
@@ -859,8 +803,8 @@ def _normalize_toponymy_inputs(
         raise ValueError("api_key is required for Toponymy with OpenRouter.")
 
     backend_norm = backend.strip().lower()
-    if backend_norm not in {"toponymy", "toponymy_evoc"}:
-        raise ValueError(f"Invalid backend '{backend}'. Expected 'toponymy' or 'toponymy_evoc'.")
+    if backend_norm != "toponymy":
+        raise ValueError(f"Invalid backend '{backend}'. Expected 'toponymy'.")
 
     return (
         cast(ToponymyLLMProvider, llm_provider_norm),
@@ -871,42 +815,18 @@ def _normalize_toponymy_inputs(
 
 def _build_toponymy_clusterer(
     *,
-    backend_norm: str,
     clusterer_params: dict[str, Any],
     toponymy_clusterer_cls: Any,
-    embeddings: np.ndarray,
     clusterable_vectors: np.ndarray,
 ) -> tuple[Any, np.ndarray]:
-    """Create configured Toponymy/EVoC clusterer and vectors for fit."""
-    if backend_norm == "toponymy":
-        clusterer = _instantiate_with_filtered_kwargs(
-            toponymy_clusterer_cls,
-            clusterer_params,
-            component_name="ToponymyClusterer",
-        )
-        logger.info("  Clusterer: %s", clusterer.__class__.__name__)
-        return clusterer, clusterable_vectors
-
-    try:
-        from toponymy.clustering import EVoCClusterer
-        import evoc
-    except Exception as exc:
-        raise ImportError(
-            "backend='toponymy_evoc' requires optional dependency 'evoc' and "
-            "a Toponymy version that exposes EVoCClusterer."
-        ) from exc
-
-    _ensure_toponymy_evoc_runtime_compatibility(clusterer_cls=EVoCClusterer, evoc_cls=evoc.EVoC)
-
+    """Create configured Toponymy clusterer and vectors for fit."""
     clusterer = _instantiate_with_filtered_kwargs(
-        EVoCClusterer,
+        toponymy_clusterer_cls,
         clusterer_params,
-        component_name="EVoCClusterer",
+        component_name="ToponymyClusterer",
     )
-    _patch_clusterer_for_toponymy_kwargs(clusterer)
-    logger.info("  Using raw embeddings for clustering with EVoCClusterer.")
     logger.info("  Clusterer: %s", clusterer.__class__.__name__)
-    return clusterer, embeddings
+    return clusterer, clusterable_vectors
 
 
 _TOPONYMY_FIRST_LAYER_ERROR = "Not enough clusters found in the first layer"
@@ -1532,10 +1452,9 @@ def fit_toponymy(
     embeddings : np.ndarray
         Full embedding matrix used for naming/context.
     clusterable_vectors : np.ndarray
-        Vectors used for clustering (5D reduced vectors for ``backend="toponymy"``;
-        raw high-dimensional vectors for ``backend="toponymy_evoc"``).
+        Vectors used for Toponymy clustering (typically 5D reduced vectors).
     backend : str
-        ``"toponymy"`` or ``"toponymy_evoc"``.
+        ``"toponymy"``.
     layer_index : int | "auto" | None
         Hierarchical layer index selected as the working-layer compatibility
         view for ``topic_id``/``Name``.
@@ -1591,10 +1510,8 @@ def fit_toponymy(
     clusterer_params = dict(clusterer_params or {})
 
     clusterer, clusterable_vectors_for_fit = _build_toponymy_clusterer(
-        backend_norm=backend_norm,
         clusterer_params=clusterer_params,
         toponymy_clusterer_cls=ToponymyClusterer,
-        embeddings=embeddings,
         clusterable_vectors=clusterable_vectors,
     )
     llm_wrapper, llm_usage, text_embedding_model = _build_toponymy_models(
@@ -1633,7 +1550,7 @@ def fit_toponymy(
 
     _record_llm_usage(
         llm_usage,
-        step="llm_labeling_toponymy_evoc" if backend_norm == "toponymy_evoc" else "llm_labeling_toponymy",
+        step="llm_labeling_toponymy",
         llm_provider=llm_provider_norm,
         llm_model=llm_model,
         api_key=api_key,

@@ -189,13 +189,12 @@ The default backend is `fast_hdbscan`. Switch to `hdbscan` if you need
 
 ### Backends and Labeling
 
-Topic modeling has three backends:
+Topic modeling has two backends:
 
 | Backend | Clustering input | When to use | LLM providers |
 | --- | --- | --- | --- |
 | `bertopic` | 5D reduced vectors | Best when you want the standard BERTopic path with outlier reduction and representation models | `local`, `llama_server`, `huggingface_api`, `openrouter` |
 | `toponymy` | 5D reduced vectors | Best when you want a layered hierarchy that stays aligned with the 5D map | `local`, `llama_server`, `openrouter` |
-| `toponymy_evoc` | Raw embeddings | Best when you want Toponymy-style hierarchy without 5D clustering, or when you want to cluster directly in embedding space | `local`, `llama_server`, `openrouter` |
 
 Toponymy keeps one working-layer compatibility view for `topic_id`/`Name` and stores the full
 hierarchy as `topic_layer_<n>_id`, `topic_layer_<n>_label`,
@@ -205,10 +204,10 @@ columns remain as compatibility aliases for older downstream code.
 canonical Toponymy output. The default `toponymy_layer_index=auto` chooses the
 coarsest available overview layer for those aliases; an explicit integer keeps
 the selected working layer fixed.
-`toponymy_evoc` follows Toponymy's `EVoCClusterer` wrapper, not a direct
-repo-owned `evoc` adapter. That path is currently supported in this repo only
-for the pinned pair `toponymy==0.4.0` and `evoc==0.1.3`; if you upgrade either
-package manually, expect an early compatibility error before clustering starts.
+This repo no longer supports `toponymy_evoc`; a clean-room proof showed that
+the raw-embedding EVoC path depended on undeclared upstream runtime
+dependencies and a legacy standalone `evoc` pin, so the supported hierarchy
+backend here is `toponymy` only.
 
 Topic labeling uses an LLM to name each cluster. Provider choices mirror
 translation: `openrouter`, `llama_server`, `huggingface_api` (BERTopic only),
@@ -226,14 +225,14 @@ outlier reduction strictness.
 
 For small corpora, Toponymy cluster defaults can still be too strict. If
 `topic_fit` fails with a first-layer cluster error, set explicit smaller values
-in `toponymy_cluster_params` or `toponymy_evoc_cluster_params` (start with
-`min_clusters=3`, then lower `base_min_cluster_size` if needed). Keep
-`toponymy_layer_index="auto"` unless you intentionally want one specific layer.
+in `toponymy_cluster_params` (start with `min_clusters=3`, then lower
+`base_min_cluster_size` if needed). Keep `toponymy_layer_index="auto"` unless
+you intentionally want one specific layer.
 
 ### Tuning Order
 
 1. Choose an embedding model (rarely changes after the first run)
-2. Choose the backend: `bertopic`, `toponymy`, or `toponymy_evoc`
+2. Choose the backend: `bertopic` or `toponymy`
 3. Adjust `n_neighbors` if clusters are too merged or fragmented
 4. Tune `min_cluster_size` and `min_samples` for the right granularity
 5. For Toponymy, tune in this order: `min_clusters`, `base_min_cluster_size`,

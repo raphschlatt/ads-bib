@@ -82,19 +82,17 @@ Constrain stages or override settings:
 ```bash
 ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
 ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
-ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy_evoc
 ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy --set topic_model.toponymy_layer_index=auto
 ```
 
 For Toponymy, also override the provider fields so they match the selected
-road. `toponymy` uses 5D reduced vectors; `toponymy_evoc` clusters raw
-embeddings and keeps the same downstream topic outputs. The canonical Toponymy
-output is the full `topic_layer_<n>_id` / `topic_layer_<n>_label` hierarchy.
-`topic_id` and `Name` are kept as working-layer compatibility aliases.
-`toponymy_evoc` uses Toponymy's `EVoCClusterer` wrapper over standalone `evoc`,
-so this repo currently supports that backend only with `toponymy==0.4.0` and
-`evoc==0.1.3`. If you changed either package manually, reinstall the topic
-extras before using the raw-embedding backend.
+road. `toponymy` uses 5D reduced vectors and keeps the downstream hierarchy
+outputs. The canonical Toponymy output is the full `topic_layer_<n>_id` /
+`topic_layer_<n>_label` hierarchy. `topic_id` and `Name` are kept as
+working-layer compatibility aliases. This repo no longer supports
+`toponymy_evoc`; a clean-room proof showed that the raw-embedding EVoC path
+depended on undeclared upstream runtime dependencies and a legacy standalone
+`evoc` pin.
 
 Keep `visualization.topic_tree: false` for the default map UI with one
 right-side `Topics` panel. BERTopic stays flat there; Toponymy uses indented

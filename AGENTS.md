@@ -69,7 +69,7 @@ Seed entries:
 - `2026-02-25 | Conservative quality gate (ruff + pytest) | enforce baseline quality without large cleanup churn | deterministic local/CI check command with low friction | tighten rules later only with explicit payoff`
 - `2026-02-25 | Consolidated topic_model subpackage path | removed legacy aliases/wrappers after migration | one active implementation path under src/ads_bib/topic_model/ | fewer compatibility leftovers to carry`
 - `2026-03-09 | AND as optional external source step | external package is now integrated through one source-based adapter path | no mention-based placeholder path remains in notebook/runtime modules | keep only source-level contract in ads_bib`
-- `2026-02-25 | No BERTopic+EVoC path | EVoC already covered by toponymy_evoc; avoid duplicate backend behavior | lower maintenance and test matrix complexity | require explicit benchmark evidence before reconsidering`
+- `2026-03-18 | Remove toponymy_evoc backend after clean-room proof | blank-canvas verification showed the Toponymy EVoC path depended on undeclared upstream runtime dependencies and a legacy standalone evoc pin rather than one clean upstream-owned install story | supported topic backends are bertopic and toponymy only | remove repo pins, guards, docs, configs, and tests for the dropped path`
 - `2026-03-09 | Shared package runner with named stages | notebook-only orchestration drifted from CLI/testing needs | notebook and CLI now call the same pipeline functions with stage-based resume | remove numeric phase logic and duplicate orchestration paths`
 - `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/ | no notebook-local helpers or secret wiring to maintain`
 - `2026-03-09 | Notebook explicit, CLI orchestrated | shared stage functions had started mixing work, hidden prerequisite chaining, and snapshot resume | notebook stages run only their named work or same-stage resume; run_pipeline remains the only auto-chaining batch path | remove recursive stage calls and any tests/docs that depend on them`
@@ -81,8 +81,6 @@ Seed entries:
 - `2026-03-12 | No archive tree on default branch | closed notebooks/backlogs added repository noise without runtime value | the default branch stays lean and historical material remains recoverable via git history | remove archive files and stale archive references`
 - `2026-03-16 | Server-only GGUF generation via external llama_server | local GGUF compatibility now depends on the llama.cpp runtime version more than on the Python env; Qwen3.5 is the reference local CPU label model proven in the dedicated MWE notebook | ADS_env is the Python env only, while translation and local topic labeling use one shared external llama.cpp server path with explicit model_repo/model_file/model_path config | remove env-local llama.cpp shadowing and stale llama-cpp-python install signals`
 - `2026-03-16 | Hybrid README landing page + Zensical docs site | README scope had grown beyond a clean GitHub landing page and long-form guidance needed stable URLs plus GitHub-native hosting | README.md stays short for repo orientation while docs/ ships the structured documentation site through GitHub Pages | avoid duplicating long-form guidance across README and docs`
-- `2026-03-18 | Pin toponymy_evoc to a tested Toponymy/evoc pair | Toponymy 0.4.0 EVoCClusterer still targets the legacy standalone evoc constructor while newer evoc releases changed that API | packaging and runtime now support one repo-tested pair with an early compatibility guard instead of a local semantic adapter | avoid repo-owned EVoC compatibility shims unless upstream APIs converge`
-- `2026-03-18 | Pin toponymy_evoc to a tested Toponymy/evoc pair | Toponymy 0.4.0 EVoCClusterer still targets the legacy standalone evoc constructor while newer evoc releases changed that API | packaging and runtime now support one repo-tested pair with an early compatibility guard instead of a local semantic adapter | avoid repo-owned EVoC compatibility shims unless upstream APIs converge`
 
 ## 3) DataFrame Schema Conventions
 
@@ -101,9 +99,7 @@ Seed entries:
 - Backend matrix:
   - `bertopic`: BERTopic + optional outlier reassignment refresh. Uses 5D reduced vectors.
   - `toponymy`: Toponymy + `ToponymyClusterer` (sync LLM path). Uses 5D reduced vectors. UMAP is preferred to preserve hierarchical structures.
-  - `toponymy_evoc`: Toponymy + `EVoCClusterer` (sync LLM path). **Clusters directly on raw high-dimensional embeddings**, bypassing 5D reduction.
-- `toponymy_evoc` is version-sensitive at the dependency boundary: keep it on the pinned Toponymy/standalone-`evoc` pair declared in packaging and fail early on unsupported combinations rather than adding local API-remapping layers.
-- `toponymy_evoc` is version-sensitive at the dependency boundary: keep it on the pinned Toponymy/standalone-`evoc` pair declared in packaging and fail early on unsupported combinations rather than adding local API-remapping layers.
+- No EVoC backend is currently supported. Reintroduce one only after a fresh clean-room proof shows a single upstream-owned install story.
 - Clustering & Reduction Parameters:
   - `min_cluster_size`: Scales dynamically with dataset size (e.g. ~0.1%).
   - Toponymy parameters: `min_clusters` defines broad top-level clusters, while `base_min_cluster_size` defines bottom-level micro-clusters. `TOPONYMY_LAYER_INDEX` only defines the "primary" fallback layer for visualization base colors.
@@ -111,7 +107,6 @@ Seed entries:
 - Cost tracker step names:
   - BERTopic: `llm_labeling`, `llm_labeling_post_outliers`
   - Toponymy: `llm_labeling_toponymy`
-  - Toponymy + EVoC: `llm_labeling_toponymy_evoc`
 - Toponymy provides aggregated LLM cost logging identical to the BERTopic output format.
 - BERTopic OpenRouter labeling is a conscious third-party exception (LiteLLM path) unless a low-risk adapter is explicitly implemented.
 - All Toponymy hierarchical layers are preserved as `Topic_Layer_X` columns in the output DataFrame for multi-level interactive maps.
@@ -220,4 +215,4 @@ Seed entries:
 
 - For environment guidance in this workspace, prefer Python 3.12 and avoid Python 3.13 experiment tracks unless explicitly requested.
 - Keep environment/tooling guidance aligned to the agreed stack in user discussions: conda environment workflow plus uv-driven package operations.
-- `toponymy_evoc` is dependency-sensitive here because the repo uses Toponymy's `EVoCClusterer` wrapper over standalone `evoc`; treat `toponymy` and `evoc` as a version-coupled pair rather than interchangeable packages.
+- `toponymy_evoc` was removed after clean-room proof showed no clean upstream-owned install story; do not reintroduce it without fresh proof.

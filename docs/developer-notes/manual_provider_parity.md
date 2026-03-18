@@ -6,7 +6,7 @@ Scope:
 
 1. Full run (all stages).
 2. Use the Hawking query (`'author:"Hawking, S*"'`).
-3. Validate all topic backends: `bertopic`, `toponymy`, and `toponymy_evoc`.
+3. Validate the supported topic backends: `bertopic` and `toponymy`.
 
 ## Shared Baseline
 
@@ -30,15 +30,10 @@ If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local 
 pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
 ```
 
-5. Preflight for `toponymy_evoc` before using that backend:
-
-```bash
-python -c "from importlib.metadata import version; print('toponymy', version('toponymy')); print('evoc', version('evoc'))"
-```
-
-This repo currently validates `toponymy_evoc` against `toponymy==0.4.0` and
-`evoc==0.1.3`. If you see any other pair, reinstall the topic stack before
-running the raw-embedding backend.
+`toponymy_evoc` is no longer part of the supported surface. A clean-room proof
+showed that the raw-embedding EVoC path depended on undeclared upstream runtime
+dependencies and a legacy standalone `evoc` pin, so parity runs cover only
+`bertopic` and `toponymy`.
 
 ## Profile A: OpenRouter + BERTopic
 
@@ -76,10 +71,6 @@ TOPIC_MODEL = { ..., "backend": "toponymy" }
 ```
 
 Run notebook top-to-bottom and record the same checks.
-
-If you are validating the raw-embedding path, repeat the same run with
-`"backend": "toponymy_evoc"` and the same artifact checks, but only after the
-`toponymy==0.4.0` / `evoc==0.1.3` preflight above passes.
 
 For Toponymy backends, also verify that the topic dataframe keeps the
 working-layer compatibility view in `topic_id`/`Name` and persists hierarchy columns such as
@@ -141,9 +132,8 @@ TOPIC_MODEL = { ..., "backend": "toponymy" }
 
 Run notebook top-to-bottom and record the same checks.
 
-Repeat once with `"backend": "toponymy_evoc"` when you want to validate the
-embedding-space clustering path under the same local provider road, again only
-for the pinned `toponymy==0.4.0` / `evoc==0.1.3` pair.
+Do not add a `toponymy_evoc` parity run here; that backend is intentionally
+unsupported in this repo.
 
 ## Profile E: Local GPU + BERTopic
 

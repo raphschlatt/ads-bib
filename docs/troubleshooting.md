@@ -20,24 +20,23 @@ Fix:
 - For minimal setups, install only the extras that match your chosen
   providers.
 
-## Toponymy/EVoC version skew
+## Removed `toponymy_evoc` backend
 
-Symptom: `toponymy_evoc` fails before clustering with a compatibility error, or
-older traces mention `EVoC.__init__()` rejecting `min_num_clusters`.
+Symptom: an older config, notebook cell, or command still uses
+`topic_model.backend=toponymy_evoc`.
 
 Fix:
 
-- Check the installed pair:
+- Switch the backend to `toponymy`.
+- Remove any `toponymy_evoc_cluster_params` entries from configs or notebook
+  section dicts.
+- Rerun from `topic_fit`.
 
-```bash
-python -c "from importlib.metadata import version; print('toponymy', version('toponymy')); print('evoc', version('evoc'))"
-```
+Why:
 
-- This repo currently supports `toponymy_evoc` only with `toponymy==0.4.0` and
-  `evoc==0.1.3`.
-- Reinstall the pinned topic stack with `uv pip install -e ".[all,test]"`, or
-  pin the pair explicitly with
-  `uv pip install "toponymy==0.4.0" "evoc==0.1.3"`.
+- A clean-room proof showed that the raw-embedding EVoC path depended on
+  undeclared upstream runtime dependencies and a legacy standalone `evoc` pin.
+- This repo now supports only `bertopic` and `toponymy`.
 
 ## Missing `llama-server`
 

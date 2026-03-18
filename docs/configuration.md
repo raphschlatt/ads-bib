@@ -30,29 +30,28 @@ Completed runs save their resolved configuration to
 ### Topic Model Keys
 
 The topic-model section is shared by the notebook and CLI. Toponymy-specific
-keys stay backend-local; `toponymy_evoc` keys are routed through Toponymy's own
-`EVoCClusterer` wrapper rather than a repo-owned standalone `evoc` adapter.
+keys stay backend-local.
 
 | Key | Meaning | Notes |
 | --- | --- | --- |
-| `backend` | Topic backend | `bertopic`, `toponymy`, or `toponymy_evoc` |
+| `backend` | Topic backend | `bertopic` or `toponymy` |
 | `toponymy_cluster_params` | Toponymy cluster overrides | Used only for `toponymy` |
-| `toponymy_evoc_cluster_params` | EVoC cluster overrides | Used only for `toponymy_evoc`; depends on the supported Toponymy/`evoc` pair |
 | `toponymy_layer_index` | Working-layer selector for compatibility aliases | `auto` selects the coarsest available layer; explicit integers override it |
 | `toponymy_local_label_max_tokens` | Local Toponymy label token cap | Default `128` to keep hierarchy labels concise |
 | `toponymy_embedding_model` | Toponymy internal embedding model | Falls back to the main embedding model if unset |
 | `toponymy_max_workers` | Toponymy worker concurrency | Applies to Toponymy labeling and embedding calls |
 
-This repo currently pins and validates `toponymy_evoc` against
-`toponymy==0.4.0` and `evoc==0.1.3`. Treat other package pairings as
-unsupported until they have been retested here.
+This repo no longer supports `toponymy_evoc`. A clean-room proof showed that
+the raw-embedding EVoC path depended on undeclared upstream runtime
+dependencies and a legacy standalone `evoc` pin, so the supported topic
+backends here are `bertopic` and `toponymy`.
 
 The shipped presets are intentionally asymmetric:
 
 - `openrouter.yaml`, `local_cpu.yaml`, and `local_gpu.yaml` are Toponymy-ready
   starting points when you also pick compatible providers.
 - `hf_api.yaml` stays BERTopic-oriented as shipped; switch providers before
-  using `toponymy` or `toponymy_evoc`.
+  using `toponymy`.
 
 Toponymy backends are hierarchy-first: they persist the full hierarchy as
 `topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`,
@@ -75,7 +74,7 @@ available as compatibility aliases for one transition cycle.
 
 | Key | Meaning | Notes |
 | --- | --- | --- |
-| `cluster_targets` | Canonical hierarchy-aware removals | List of `{layer, cluster_id}` mappings; supported for `toponymy` and `toponymy_evoc` |
+| `cluster_targets` | Canonical hierarchy-aware removals | List of `{layer, cluster_id}` mappings; supported for `toponymy` |
 | `clusters_to_remove` | Legacy flat removals | BERTopic uses this exactly as before; Toponymy maps it to the selected working layer |
 
 For Toponymy backends, prefer `cluster_targets` because it lets you remove

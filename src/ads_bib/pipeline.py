@@ -194,7 +194,6 @@ class TopicModelConfig:
     clustering_method: str = "fast_hdbscan"
     cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_cluster_params: dict[str, Any] = field(default_factory=dict)
-    toponymy_evoc_cluster_params: dict[str, Any] = field(default_factory=dict)
     toponymy_layer_index: int | Literal["auto"] | None = "auto"
     llm_prompt_name: str = "physics"
     llm_prompt: str | None = None
@@ -308,10 +307,10 @@ class PipelineConfig:
         )
 
         backend = self.topic_model.backend.strip().lower()
-        if backend not in {"bertopic", "toponymy", "toponymy_evoc"}:
+        if backend not in {"bertopic", "toponymy"}:
             raise ValueError(
                 f"Invalid topic_model.backend '{self.topic_model.backend}'. "
-                "Expected one of: bertopic, toponymy, toponymy_evoc."
+                "Expected one of: bertopic, toponymy."
             )
 
         if backend == "bertopic":
@@ -872,15 +871,6 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
         "base_min_cluster_size": base_min_cluster_size,
         **cfg.toponymy_cluster_params,
     }
-    toponymy_evoc_cluster_params = {
-        "min_clusters": toponymy_min_clusters,
-        "min_samples": 3,
-        "base_min_cluster_size": base_min_cluster_size,
-        "noise_level": 0.35,
-        "n_neighbors": 15,
-        "n_epochs": 35,
-        **cfg.toponymy_evoc_cluster_params,
-    }
 
     logger.info("Topic defaults | docs=%s | min_df=%s | min_cluster_size=%s | base_min_cluster_size=%s",
                 f"{n_docs:,}", min_df, cluster_params["min_cluster_size"], base_min_cluster_size)
@@ -888,7 +878,6 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
         "min_df": min_df,
         "cluster_params": cluster_params,
         "toponymy_cluster_params": toponymy_cluster_params,
-        "toponymy_evoc_cluster_params": toponymy_evoc_cluster_params,
         "toponymy_embedding_model": cfg.toponymy_embedding_model or cfg.embedding_model,
     }
 
@@ -1454,12 +1443,8 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         show_progress=False,
                     )
         topic_info = topic_model.get_topic_info()
-    elif cfg.backend in {"toponymy", "toponymy_evoc"}:
-        clusterer_params = (
-            resolved["toponymy_evoc_cluster_params"]
-            if cfg.backend == "toponymy_evoc"
-            else resolved["toponymy_cluster_params"]
-        )
+    elif cfg.backend == "toponymy":
+        clusterer_params = resolved["toponymy_cluster_params"]
         _warn_if_aggressive_toponymy_config(
             backend=cfg.backend,
             n_docs=len(ctx.documents),
@@ -1525,7 +1510,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
     ctx.topic_info = topic_info
     ctx.topic_hierarchy = (
         topic_model_backends.get_toponymy_hierarchy_metadata(topic_model)
-        if cfg.backend in {"toponymy", "toponymy_evoc"}
+        if cfg.backend == "toponymy"
         else None
     )
     ctx.tracker.log_steps_summary(
@@ -1533,7 +1518,6 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
             "llm_labeling",
             "llm_labeling_post_outliers",
             "llm_labeling_toponymy",
-            "llm_labeling_toponymy_evoc",
             "toponymy_embeddings",
         ]
     )
@@ -1617,7 +1601,7 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
         )
     ctx.curated_df = ctx.topic_df.copy()
     hierarchical_backend = (
-        ctx.config.topic_model.backend in {"toponymy", "toponymy_evoc"}
+        ctx.config.topic_model.backend == "toponymy"
         and any(
             column.startswith("topic_layer_") and column.endswith("_id")
             for column in ctx.curated_df.columns
@@ -1658,7 +1642,7 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
             )
     elif ctx.config.curation.cluster_targets:
         raise ValueError(
-            "curation.cluster_targets is supported only for toponymy and toponymy_evoc backends."
+            "curation.cluster_targets is supported only for the toponymy backend."
         )
     elif ctx.config.curation.clusters_to_remove:
         ctx.curated_df = remove_clusters(

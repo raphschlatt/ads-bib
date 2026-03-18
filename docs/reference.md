@@ -73,7 +73,6 @@ from ads_bib.topic_model import (
 
 ### More experimental or dependency-sensitive
 
-- `toponymy_evoc` (currently validated only for `toponymy==0.4.0` with `evoc==0.1.3`)
 - optional hierarchy-only visualization extras (for example the topic tree panel)
 - the optional external AND step
 

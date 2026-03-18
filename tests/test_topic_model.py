@@ -352,27 +352,6 @@ class _FakeToponymyClusterer:
         self.kwargs = kwargs
 
 
-class _FakeEVoCClusterer:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-
-class _FakeLegacyToponymyEVoCClusterer:
-    def __init__(self, min_clusters=4, next_cluster_size_quantile=0.85):
-        self.legacy_kwargs = {
-            "min_num_clusters": min_clusters,
-            "next_cluster_size_quantile": next_cluster_size_quantile,
-        }
-
-
-class _FakeStandaloneNewEVoC:
-    def __init__(self, approx_n_clusters=None, max_layers=10):
-        self.kwargs = {
-            "approx_n_clusters": approx_n_clusters,
-            "max_layers": max_layers,
-        }
-
-
 class _FakeOpenAIEmbedder:
     def __init__(self, api_key, model, base_url):
         self.api_key = api_key
@@ -446,7 +425,6 @@ def _install_fake_toponymy_modules(monkeypatch, *, include_hf_namer: bool = True
     fake_embedding_wrappers.OpenAIEmbedder = _FakeOpenAIEmbedder
 
     fake_clustering = types.ModuleType("toponymy.clustering")
-    fake_clustering.EVoCClusterer = _FakeEVoCClusterer
 
     fake_llm_wrappers = types.ModuleType("toponymy.llm_wrappers")
     if include_hf_namer:
@@ -458,7 +436,7 @@ def _install_fake_toponymy_modules(monkeypatch, *, include_hf_namer: bool = True
     monkeypatch.setitem(sys.modules, "toponymy.llm_wrappers", fake_llm_wrappers)
 
 
-def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
+def test_fit_toponymy_uses_toponymy_clusterer_and_tracks_step(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
     calls: dict = {}
 
@@ -482,7 +460,7 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
         documents=["d1", "d2", "d3"],
         embeddings=np.ones((3, 3), dtype=np.float32),
         clusterable_vectors=np.ones((3, 2), dtype=np.float32),
-        backend="toponymy_evoc",
+        backend="toponymy",
         layer_index=0,
         llm_provider="openrouter",
         llm_model="google/gemini-3-flash-preview",
@@ -493,12 +471,12 @@ def test_fit_toponymy_uses_backend_clusterer_and_tracks_step(monkeypatch):
         cost_tracker=object(),
     )
 
-    assert isinstance(model.clusterer, _FakeEVoCClusterer)
+    assert isinstance(model.clusterer, _FakeToponymyClusterer)
     assert model.clusterer.kwargs["min_clusters"] == 4
     assert topics.tolist() == [-1, 0, 1]
     assert topic_info["Topic"].tolist() == [-1, 0, 1]
     assert topic_info["Name"].tolist() == ["Outlier Topic", "Alpha", "Beta"]
-    assert calls["record"]["step"] == "llm_labeling_toponymy_evoc"
+    assert calls["record"]["step"] == "llm_labeling_toponymy"
     assert calls["record"]["llm_provider"] == "openrouter"
     assert calls["record"]["usage"]["prompt_tokens"] == 22
     assert calls["namer"]["max_workers"] == 5
@@ -535,14 +513,7 @@ def test_fit_toponymy_auto_selects_coarsest_layer(monkeypatch):
     assert model.topic_primary_layer_selection_ == "auto"
 
 
-@pytest.mark.parametrize(
-    ("backend", "expected_cluster_shape"),
-    [
-        ("toponymy", (3, 2)),
-        ("toponymy_evoc", (3, 3)),
-    ],
-)
-def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch, backend, expected_cluster_shape):
+def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
     def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
@@ -556,7 +527,7 @@ def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch, backend,
         documents=["d1", "d2", "d3"],
         embeddings=np.ones((3, 3), dtype=np.float16),
         clusterable_vectors=np.ones((3, 2), dtype=np.float16),
-        backend=backend,
+        backend="toponymy",
         layer_index=0,
         llm_provider="openrouter",
         llm_model="google/gemini-3-flash-preview",
@@ -568,7 +539,7 @@ def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch, backend,
 
     assert model.embedding_vectors.dtype == np.float32
     assert model.clusterable_vectors.dtype == np.float32
-    assert model.clusterable_vectors.shape == expected_cluster_shape
+    assert model.clusterable_vectors.shape == (3, 2)
 
 
 def test_fit_toponymy_logs_dtype_bridge_for_float16_inputs(monkeypatch, caplog):
@@ -659,7 +630,7 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         documents=["d1", "d2"],
         embeddings=np.ones((2, 3), dtype=np.float32),
         clusterable_vectors=np.ones((2, 2), dtype=np.float32),
-        backend="toponymy_evoc",
+        backend="toponymy",
         llm_provider="local",
         llm_model="local-llm",
         embedding_provider="openrouter",
@@ -771,74 +742,6 @@ def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeyp
     )
 
     assert tracker.entries == []
-
-
-def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch):
-    _install_fake_toponymy_modules(monkeypatch)
-
-    class _StrictEVoCClusterer:
-        def __init__(self, min_clusters=5, min_samples=3):
-            self.kwargs = {"min_clusters": min_clusters, "min_samples": min_samples}
-
-    sys.modules["toponymy.clustering"].EVoCClusterer = _StrictEVoCClusterer
-
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
-        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
-
-    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        model, topics, _ = tm.fit_toponymy(
-            documents=["d1", "d2", "d3"],
-            embeddings=np.ones((3, 3), dtype=np.float32),
-            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
-            backend="toponymy_evoc",
-            layer_index=0,
-            llm_provider="openrouter",
-            llm_model="google/gemini-3-flash-preview",
-            embedding_provider="openrouter",
-            api_key="key",
-            clusterer_params={"min_clusters": 4, "cluster_levels": 2},
-        )
-
-    assert any(
-        "Dropping unsupported EVoCClusterer parameter(s): cluster_levels" in str(w.message)
-        for w in caught
-    )
-    assert isinstance(model.clusterer, _StrictEVoCClusterer)
-    assert model.clusterer.kwargs == {"min_clusters": 4, "min_samples": 3}
-    assert topics.tolist() == [-1, 0, 1]
-
-
-def test_build_toponymy_clusterer_raises_actionable_error_for_evoc_version_skew(monkeypatch):
-    _install_fake_toponymy_modules(monkeypatch)
-    sys.modules["toponymy.clustering"].EVoCClusterer = _FakeLegacyToponymyEVoCClusterer
-
-    fake_evoc = types.ModuleType("evoc")
-    fake_evoc.EVoC = _FakeStandaloneNewEVoC
-    monkeypatch.setitem(sys.modules, "evoc", fake_evoc)
-    monkeypatch.setattr(
-        tm_backends,
-        "_installed_dist_version",
-        lambda dist_name: {"toponymy": "0.4.0", "evoc": "0.3.0.post1"}.get(dist_name),
-    )
-
-    with pytest.raises(RuntimeError, match="unsupported Toponymy/EVoC combination") as excinfo:
-        tm_backends._build_toponymy_clusterer(
-            backend_norm="toponymy_evoc",
-            clusterer_params={"min_clusters": 4},
-            toponymy_clusterer_cls=_FakeToponymyClusterer,
-            embeddings=np.ones((3, 3), dtype=np.float32),
-            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
-        )
-
-    message = str(excinfo.value)
-    assert "toponymy==0.4.0" in message
-    assert "evoc==0.3.0.post1" in message
-    assert "evoc==0.1.3" in message
-    assert 'uv pip install -e ".[all,test]"' in message
 
 
 def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch):
@@ -979,10 +882,7 @@ def test_fit_toponymy_raises_actionable_error_for_missing_transitive_dependency(
 
 @pytest.mark.parametrize(
     ("backend", "clusterer_params"),
-    [
-        ("toponymy", {"min_clusters": 7, "base_min_cluster_size": 11}),
-        ("toponymy_evoc", {"min_clusters": 6, "base_min_cluster_size": 9}),
-    ],
+    [("toponymy", {"min_clusters": 7, "base_min_cluster_size": 11})],
 )
 def test_fit_toponymy_rewrites_first_layer_cluster_error(monkeypatch, backend, clusterer_params):
     _install_fake_toponymy_modules(monkeypatch)
@@ -1067,7 +967,7 @@ def test_fit_toponymy_rejects_invalid_backend():
         )
         assert False, "Expected ValueError for invalid backend"
     except ValueError as exc:
-        assert "Expected 'toponymy' or 'toponymy_evoc'" in str(exc)
+        assert "Expected 'toponymy'" in str(exc)
 
 
 def test_fit_toponymy_rejects_huggingface_api_embedding_provider():

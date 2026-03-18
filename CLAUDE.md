@@ -40,7 +40,7 @@ Active release backlog: `Package_ToDo.md`.
 - AND is an external package, just imported when ready
 - AND integration is deferred for the internal RC until the external package API is stable
 - Translation backends: OpenRouter (API, any LLM), llama_server (local GGUF via external llama-server), NLLB (local CPU via CTranslate2, 200+ languages), HuggingFace API
-- No BERTopic+EVoC path for now; EVoC support remains `toponymy_evoc` only
+- No EVoC backend is currently supported; keep the topic-model surface to `bertopic` and `toponymy` unless a future clean-room proof justifies reintroduction
 - All paths relative to notebook location via `config.init_paths()`
 - Static config in `.env` (API keys), dynamic config in notebook cells
 
@@ -91,6 +91,5 @@ Optional groups: `[topic]`, `[translate-local]` (openai+huggingface-hub), `[tran
 
 - `bertopic`: BERTopic workflow (`llm_labeling`, `llm_labeling_post_outliers`). Clusters on 5D reduced vectors.
 - `toponymy`: Toponymy + `ToponymyClusterer` (`llm_labeling_toponymy`). Clusters on 5D reduced vectors (UMAP preferred).
-- `toponymy_evoc`: Toponymy + `EVoCClusterer` (`llm_labeling_toponymy_evoc`). **Clusters directly on raw high-dimensional embeddings** to avoid dimensionality reduction artifacts.
 - Toponymy path is sync-only by design for now (no async wrapper in pipeline), but provides aggregated LLM cost tracking matching the BERTopic output format.
 - All hierarchical layers from Toponymy are extracted and stored as `Topic_Layer_X` DataFrame columns to enable interactive zoomable plotting with datamapplot.

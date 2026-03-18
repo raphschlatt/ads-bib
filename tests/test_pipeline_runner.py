@@ -335,9 +335,7 @@ def test_resolve_topic_defaults_scales_toponymy_min_clusters_for_small_corpus(tm
     resolved = pipeline._resolve_topic_defaults(ctx)
 
     assert resolved["toponymy_cluster_params"]["min_clusters"] == 3
-    assert resolved["toponymy_evoc_cluster_params"]["min_clusters"] == 3
     assert resolved["toponymy_cluster_params"]["base_min_cluster_size"] == 10
-    assert resolved["toponymy_evoc_cluster_params"]["base_min_cluster_size"] == 10
 
 
 def test_resolve_topic_defaults_keeps_toponymy_overrides_authoritative(tmp_path):
@@ -346,7 +344,6 @@ def test_resolve_topic_defaults_keeps_toponymy_overrides_authoritative(tmp_path)
             "run": {"project_root": str(tmp_path)},
             "topic_model": {
                 "toponymy_cluster_params": {"min_clusters": 7, "base_min_cluster_size": 12},
-                "toponymy_evoc_cluster_params": {"min_clusters": 6, "base_min_cluster_size": 11},
             },
         }
     )
@@ -357,8 +354,6 @@ def test_resolve_topic_defaults_keeps_toponymy_overrides_authoritative(tmp_path)
 
     assert resolved["toponymy_cluster_params"]["min_clusters"] == 7
     assert resolved["toponymy_cluster_params"]["base_min_cluster_size"] == 12
-    assert resolved["toponymy_evoc_cluster_params"]["min_clusters"] == 6
-    assert resolved["toponymy_evoc_cluster_params"]["base_min_cluster_size"] == 11
 
 
 def test_warn_if_aggressive_toponymy_config_logs_warning(monkeypatch):

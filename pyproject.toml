@@ -60,7 +60,6 @@ topic = [
     "openai",
     "toponymy==0.4.0",
     "dask",
-    "evoc==0.1.3",
     "seaborn",
     "matplotlib",
 ]

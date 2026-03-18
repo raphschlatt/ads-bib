@@ -108,7 +108,6 @@ def _earliest_invalidation_stage(
                 ("topic_model", "clustering_method"),
                 ("topic_model", "cluster_params"),
                 ("topic_model", "toponymy_cluster_params"),
-                ("topic_model", "toponymy_evoc_cluster_params"),
                 ("topic_model", "toponymy_layer_index"),
                 ("topic_model", "llm_prompt_name"),
                 ("topic_model", "llm_prompt"),
