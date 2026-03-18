@@ -20,6 +20,25 @@ Fix:
 - For minimal setups, install only the extras that match your chosen
   providers.
 
+## Toponymy/EVoC version skew
+
+Symptom: `toponymy_evoc` fails before clustering with a compatibility error, or
+older traces mention `EVoC.__init__()` rejecting `min_num_clusters`.
+
+Fix:
+
+- Check the installed pair:
+
+```bash
+python -c "from importlib.metadata import version; print('toponymy', version('toponymy')); print('evoc', version('evoc'))"
+```
+
+- This repo currently supports `toponymy_evoc` only with `toponymy==0.4.0` and
+  `evoc==0.1.3`.
+- Reinstall the pinned topic stack with `uv pip install -e ".[all,test]"`, or
+  pin the pair explicitly with
+  `uv pip install "toponymy==0.4.0" "evoc==0.1.3"`.
+
 ## Missing `llama-server`
 
 Symptom: local GGUF translation or labeling fails before generation starts.

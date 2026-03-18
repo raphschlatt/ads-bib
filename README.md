@@ -92,10 +92,14 @@ The CLI is dependency-aware and batch-oriented. Both frontends persist
 For topic modeling, use the Pipeline Guide to choose between `bertopic`,
 `toponymy`, and `toponymy_evoc`. `hf_api.yaml` is BERTopic-oriented as shipped;
 switch the backend and provider settings explicitly before using Toponymy.
+`toponymy_evoc` stays on Toponymy's own `EVoCClusterer` wrapper path rather than
+on a repo-owned standalone `evoc` adapter. In this repo that backend is
+currently supported only with `toponymy==0.4.0` and `evoc==0.1.3`; reinstall the
+topic extras if you hit a Toponymy/EVoC compatibility error.
 Toponymy and Toponymy+EVoC are hierarchy-first backends: the canonical output is
 the full `topic_layer_<n>_*` hierarchy, while `topic_id` and `Name` remain
-working-layer compatibility aliases. The interactive map auto-enables the
-topic tree when more than one Toponymy layer is available.
+working-layer compatibility aliases. The default map keeps one right-side
+`Topics` panel; `topic_tree` stays an optional expert view.
 
 See the [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/)
 for provider choices, parameter tuning, and the full configuration reference.

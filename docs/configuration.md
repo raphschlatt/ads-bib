@@ -30,17 +30,22 @@ Completed runs save their resolved configuration to
 ### Topic Model Keys
 
 The topic-model section is shared by the notebook and CLI. Toponymy-specific
-keys are passed through unchanged when you switch the backend away from BERTopic.
+keys stay backend-local; `toponymy_evoc` keys are routed through Toponymy's own
+`EVoCClusterer` wrapper rather than a repo-owned standalone `evoc` adapter.
 
 | Key | Meaning | Notes |
 | --- | --- | --- |
 | `backend` | Topic backend | `bertopic`, `toponymy`, or `toponymy_evoc` |
 | `toponymy_cluster_params` | Toponymy cluster overrides | Used only for `toponymy` |
-| `toponymy_evoc_cluster_params` | EVoC cluster overrides | Used only for `toponymy_evoc` |
+| `toponymy_evoc_cluster_params` | EVoC cluster overrides | Used only for `toponymy_evoc`; depends on the supported Toponymy/`evoc` pair |
 | `toponymy_layer_index` | Working-layer selector for compatibility aliases | `auto` selects the coarsest available layer; explicit integers override it |
 | `toponymy_local_label_max_tokens` | Local Toponymy label token cap | Default `128` to keep hierarchy labels concise |
 | `toponymy_embedding_model` | Toponymy internal embedding model | Falls back to the main embedding model if unset |
 | `toponymy_max_workers` | Toponymy worker concurrency | Applies to Toponymy labeling and embedding calls |
+
+This repo currently pins and validates `toponymy_evoc` against
+`toponymy==0.4.0` and `evoc==0.1.3`. Treat other package pairings as
+unsupported until they have been retested here.
 
 The shipped presets are intentionally asymmetric:
 

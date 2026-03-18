@@ -357,6 +357,22 @@ class _FakeEVoCClusterer:
         self.kwargs = kwargs
 
 
+class _FakeLegacyToponymyEVoCClusterer:
+    def __init__(self, min_clusters=4, next_cluster_size_quantile=0.85):
+        self.legacy_kwargs = {
+            "min_num_clusters": min_clusters,
+            "next_cluster_size_quantile": next_cluster_size_quantile,
+        }
+
+
+class _FakeStandaloneNewEVoC:
+    def __init__(self, approx_n_clusters=None, max_layers=10):
+        self.kwargs = {
+            "approx_n_clusters": approx_n_clusters,
+            "max_layers": max_layers,
+        }
+
+
 class _FakeOpenAIEmbedder:
     def __init__(self, api_key, model, base_url):
         self.api_key = api_key
@@ -794,6 +810,35 @@ def test_fit_toponymy_filters_unsupported_evoc_init_params(monkeypatch):
     assert isinstance(model.clusterer, _StrictEVoCClusterer)
     assert model.clusterer.kwargs == {"min_clusters": 4, "min_samples": 3}
     assert topics.tolist() == [-1, 0, 1]
+
+
+def test_build_toponymy_clusterer_raises_actionable_error_for_evoc_version_skew(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+    sys.modules["toponymy.clustering"].EVoCClusterer = _FakeLegacyToponymyEVoCClusterer
+
+    fake_evoc = types.ModuleType("evoc")
+    fake_evoc.EVoC = _FakeStandaloneNewEVoC
+    monkeypatch.setitem(sys.modules, "evoc", fake_evoc)
+    monkeypatch.setattr(
+        tm_backends,
+        "_installed_dist_version",
+        lambda dist_name: {"toponymy": "0.4.0", "evoc": "0.3.0.post1"}.get(dist_name),
+    )
+
+    with pytest.raises(RuntimeError, match="unsupported Toponymy/EVoC combination") as excinfo:
+        tm_backends._build_toponymy_clusterer(
+            backend_norm="toponymy_evoc",
+            clusterer_params={"min_clusters": 4},
+            toponymy_clusterer_cls=_FakeToponymyClusterer,
+            embeddings=np.ones((3, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        )
+
+    message = str(excinfo.value)
+    assert "toponymy==0.4.0" in message
+    assert "evoc==0.3.0.post1" in message
+    assert "evoc==0.1.3" in message
+    assert 'uv pip install -e ".[all,test]"' in message
 
 
 def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch):

@@ -205,6 +205,10 @@ columns remain as compatibility aliases for older downstream code.
 canonical Toponymy output. The default `toponymy_layer_index=auto` chooses the
 coarsest available overview layer for those aliases; an explicit integer keeps
 the selected working layer fixed.
+`toponymy_evoc` follows Toponymy's `EVoCClusterer` wrapper, not a direct
+repo-owned `evoc` adapter. That path is currently supported in this repo only
+for the pinned pair `toponymy==0.4.0` and `evoc==0.1.3`; if you upgrade either
+package manually, expect an early compatibility error before clustering starts.
 
 Topic labeling uses an LLM to name each cluster. Provider choices mirror
 translation: `openrouter`, `llama_server`, `huggingface_api` (BERTopic only),
@@ -233,7 +237,7 @@ in `toponymy_cluster_params` or `toponymy_evoc_cluster_params` (start with
 3. Adjust `n_neighbors` if clusters are too merged or fragmented
 4. Tune `min_cluster_size` and `min_samples` for the right granularity
 5. For Toponymy, tune in this order: `min_clusters`, `base_min_cluster_size`,
-   `base_n_clusters`, `next_cluster_size_quantile`, `max_layers`
+   `base_n_clusters`, `next_cluster_size_quantile`
 6. Keep `toponymy_layer_index="auto"` unless you need a fixed working layer
 7. Experiment with labeling models if topic names are unclear
 

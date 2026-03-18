@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 import importlib
+from importlib import metadata as importlib_metadata
 import inspect
 import logging
 from pathlib import Path
@@ -69,6 +70,7 @@ ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "openrouter"]
 ToponymyEmbeddingProvider: TypeAlias = Literal["local", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy", "toponymy_evoc"]
 ToponymyLayerIndex: TypeAlias = int | Literal["auto"] | None
+SUPPORTED_TOPONYMY_EVOC_PAIR = ("0.4.0", "0.1.3")
 
 
 def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
@@ -86,6 +88,59 @@ def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
         "with `uv pip install -e \".[all,test]\"`."
     )
     raise ImportError(message) from exc
+
+
+def _installed_dist_version(dist_name: str) -> str | None:
+    """Return the installed distribution version when available."""
+    try:
+        return importlib_metadata.version(dist_name)
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+
+def _signature_parameter_names(callable_obj: Any) -> set[str]:
+    """Return the set of supported parameter names for *callable_obj*."""
+    try:
+        return set(inspect.signature(callable_obj).parameters)
+    except (TypeError, ValueError):
+        return set()
+
+
+def _is_legacy_toponymy_evoc_wrapper(clusterer_cls: Any) -> bool:
+    """Return whether Toponymy's EVoC wrapper still targets the legacy evoc API."""
+    params = _signature_parameter_names(clusterer_cls.__init__)
+    if not {"min_clusters", "next_cluster_size_quantile"}.issubset(params):
+        return False
+    try:
+        source = inspect.getsource(clusterer_cls.__init__)
+    except (OSError, TypeError):
+        return True
+    return "min_num_clusters" in source and "next_cluster_size_quantile" in source
+
+
+def _ensure_toponymy_evoc_runtime_compatibility(*, clusterer_cls: Any, evoc_cls: Any) -> None:
+    """Fail early when Toponymy's EVoC wrapper and standalone evoc are out of sync."""
+    if not _is_legacy_toponymy_evoc_wrapper(clusterer_cls):
+        return
+
+    evoc_params = _signature_parameter_names(evoc_cls.__init__)
+    if {"min_num_clusters", "next_cluster_size_quantile"}.issubset(evoc_params):
+        return
+
+    toponymy_version = _installed_dist_version("toponymy") or "unknown"
+    evoc_version = _installed_dist_version("evoc") or "unknown"
+    supported_toponymy, supported_evoc = SUPPORTED_TOPONYMY_EVOC_PAIR
+    raise RuntimeError(
+        "backend='toponymy_evoc' found an unsupported Toponymy/EVoC combination. "
+        f"Detected toponymy=={toponymy_version} and evoc=={evoc_version}. "
+        "This Toponymy EVoC wrapper still expects the legacy standalone evoc API "
+        "(`min_num_clusters`, `next_cluster_size_quantile`), but the installed evoc "
+        "version exposes a newer constructor. "
+        f"This repo currently supports `toponymy=={supported_toponymy}` with "
+        f"`evoc=={supported_evoc}`. Reinstall the topic stack with "
+        '`uv pip install -e ".[all,test]"`, or pin the pair explicitly with '
+        f'`uv pip install "toponymy=={supported_toponymy}" "evoc=={supported_evoc}"`.'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -834,11 +889,14 @@ def _build_toponymy_clusterer(
 
     try:
         from toponymy.clustering import EVoCClusterer
+        import evoc
     except Exception as exc:
         raise ImportError(
             "backend='toponymy_evoc' requires optional dependency 'evoc' and "
             "a Toponymy version that exposes EVoCClusterer."
         ) from exc
+
+    _ensure_toponymy_evoc_runtime_compatibility(clusterer_cls=EVoCClusterer, evoc_cls=evoc.EVoC)
 
     clusterer = _instantiate_with_filtered_kwargs(
         EVoCClusterer,

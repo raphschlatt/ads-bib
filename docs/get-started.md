@@ -91,6 +91,10 @@ road. `toponymy` uses 5D reduced vectors; `toponymy_evoc` clusters raw
 embeddings and keeps the same downstream topic outputs. The canonical Toponymy
 output is the full `topic_layer_<n>_id` / `topic_layer_<n>_label` hierarchy.
 `topic_id` and `Name` are kept as working-layer compatibility aliases.
+`toponymy_evoc` uses Toponymy's `EVoCClusterer` wrapper over standalone `evoc`,
+so this repo currently supports that backend only with `toponymy==0.4.0` and
+`evoc==0.1.3`. If you changed either package manually, reinstall the topic
+extras before using the raw-embedding backend.
 
 Keep `visualization.topic_tree: false` for the default map UI with one
 right-side `Topics` panel. BERTopic stays flat there; Toponymy uses indented

@@ -58,9 +58,9 @@ topic = [
     "huggingface-hub",
     "litellm",
     "openai",
-    "toponymy",
+    "toponymy==0.4.0",
     "dask",
-    "evoc",
+    "evoc==0.1.3",
     "seaborn",
     "matplotlib",
 ]

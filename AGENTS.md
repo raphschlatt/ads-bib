@@ -81,6 +81,8 @@ Seed entries:
 - `2026-03-12 | No archive tree on default branch | closed notebooks/backlogs added repository noise without runtime value | the default branch stays lean and historical material remains recoverable via git history | remove archive files and stale archive references`
 - `2026-03-16 | Server-only GGUF generation via external llama_server | local GGUF compatibility now depends on the llama.cpp runtime version more than on the Python env; Qwen3.5 is the reference local CPU label model proven in the dedicated MWE notebook | ADS_env is the Python env only, while translation and local topic labeling use one shared external llama.cpp server path with explicit model_repo/model_file/model_path config | remove env-local llama.cpp shadowing and stale llama-cpp-python install signals`
 - `2026-03-16 | Hybrid README landing page + Zensical docs site | README scope had grown beyond a clean GitHub landing page and long-form guidance needed stable URLs plus GitHub-native hosting | README.md stays short for repo orientation while docs/ ships the structured documentation site through GitHub Pages | avoid duplicating long-form guidance across README and docs`
+- `2026-03-18 | Pin toponymy_evoc to a tested Toponymy/evoc pair | Toponymy 0.4.0 EVoCClusterer still targets the legacy standalone evoc constructor while newer evoc releases changed that API | packaging and runtime now support one repo-tested pair with an early compatibility guard instead of a local semantic adapter | avoid repo-owned EVoC compatibility shims unless upstream APIs converge`
+- `2026-03-18 | Pin toponymy_evoc to a tested Toponymy/evoc pair | Toponymy 0.4.0 EVoCClusterer still targets the legacy standalone evoc constructor while newer evoc releases changed that API | packaging and runtime now support one repo-tested pair with an early compatibility guard instead of a local semantic adapter | avoid repo-owned EVoC compatibility shims unless upstream APIs converge`
 
 ## 3) DataFrame Schema Conventions
 
@@ -100,6 +102,8 @@ Seed entries:
   - `bertopic`: BERTopic + optional outlier reassignment refresh. Uses 5D reduced vectors.
   - `toponymy`: Toponymy + `ToponymyClusterer` (sync LLM path). Uses 5D reduced vectors. UMAP is preferred to preserve hierarchical structures.
   - `toponymy_evoc`: Toponymy + `EVoCClusterer` (sync LLM path). **Clusters directly on raw high-dimensional embeddings**, bypassing 5D reduction.
+- `toponymy_evoc` is version-sensitive at the dependency boundary: keep it on the pinned Toponymy/standalone-`evoc` pair declared in packaging and fail early on unsupported combinations rather than adding local API-remapping layers.
+- `toponymy_evoc` is version-sensitive at the dependency boundary: keep it on the pinned Toponymy/standalone-`evoc` pair declared in packaging and fail early on unsupported combinations rather than adding local API-remapping layers.
 - Clustering & Reduction Parameters:
   - `min_cluster_size`: Scales dynamically with dataset size (e.g. ~0.1%).
   - Toponymy parameters: `min_clusters` defines broad top-level clusters, while `base_min_cluster_size` defines bottom-level micro-clusters. `TOPONYMY_LAYER_INDEX` only defines the "primary" fallback layer for visualization base colors.
@@ -207,11 +211,13 @@ Seed entries:
 ## Learned User Preferences
 
 - Default to analysis and concrete suggestions first when explicitly asked for "nur Analyse/Plan"; do not start implementation until the user switches to execution.
-- Prioritize "clean and lean" simplification: prefer removing duplicate UI/code paths over adding wrappers.
+- Prioritize "clean and lean" simplification: prefer removing duplicate UI/code paths and avoid repo-owned compatibility layers when a smaller upstream-aligned fix or version constraint will do.
 - Keep cross-backend behavior and outputs aligned (for example BERTopic vs Toponymy) and avoid parallel UX concepts for the same function.
 - When proposing tuning choices, explain all key parameters succinctly (including both clustering and visualization dimensions), not only a subset.
+- Capture major dependency or architecture decisions in repo docs when they are made, so the same reasoning does not have to be rediscovered later.
 
 ## Learned Workspace Facts
 
 - For environment guidance in this workspace, prefer Python 3.12 and avoid Python 3.13 experiment tracks unless explicitly requested.
 - Keep environment/tooling guidance aligned to the agreed stack in user discussions: conda environment workflow plus uv-driven package operations.
+- `toponymy_evoc` is dependency-sensitive here because the repo uses Toponymy's `EVoCClusterer` wrapper over standalone `evoc`; treat `toponymy` and `evoc` as a version-coupled pair rather than interchangeable packages.
