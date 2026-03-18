@@ -86,13 +86,15 @@ def test_create_topic_map_uses_new_coordinate_and_topic_columns(monkeypatch):
 
     assert calls["data_map"].shape == (2, 2)
     assert list(calls["kwargs"]["extra_point_data"]["cluster"]) == [0, -1]
-    assert "colormaps" in calls["kwargs"]
+    assert "colormaps" not in calls["kwargs"]
     assert "marker_color_array" in calls["kwargs"]
     assert "label_color_map" in calls["kwargs"]
     assert "enable_topic_tree" not in calls["kwargs"]
     assert calls["kwargs"]["histogram_enable_click_persistence"] is True
     assert "custom_css" in calls["kwargs"]
     assert "custom_js" in calls["kwargs"]
+    assert "topic_panel_flat_key" in calls["kwargs"]["extra_point_data"]
+    assert '"mode":"flat"' in calls["kwargs"]["custom_js"]
     assert plot is not None
 
 
@@ -144,11 +146,15 @@ def test_create_topic_map_auto_detects_canonical_topic_layer_columns_in_natural_
 
     assert len(calls["label_layers"]) == 2
     assert list(calls["label_layers"][0]) == ["Layer0_A", "Layer0_B"]
-    assert calls["kwargs"]["cluster_layer_colormaps"] is True
+    assert "cluster_layer_colormaps" not in calls["kwargs"]
+    assert "colormaps" not in calls["kwargs"]
     assert "enable_topic_tree" not in calls["kwargs"]
     assert list(calls["kwargs"]["extra_point_data"]["topic_label"]) == ["Topic A", "Outlier Topic"]
+    assert "topic_panel_layer_1_key" in calls["kwargs"]["extra_point_data"]
+    assert "topic_panel_layer_0_key" in calls["kwargs"]["extra_point_data"]
     assert calls["kwargs"]["marker_color_array"][0] == calls["kwargs"]["label_color_map"]["Layer1_A"]
     assert calls["kwargs"]["marker_color_array"][1] == "#aaaaaa44"
+    assert '"mode":"hierarchical"' in calls["kwargs"]["custom_js"]
     assert "ads-topic-panel" in calls["kwargs"]["custom_js"]
     hierarchy_html = list(calls["kwargs"]["extra_point_data"]["topic_hierarchy_html"])
     assert "Layer 1: Layer1_A (working)" in hierarchy_html[0]

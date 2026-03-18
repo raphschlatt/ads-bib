@@ -251,15 +251,16 @@ datamapplot in natural fine-to-coarse order. The map supports:
 
 - **Hover** -- title, authors, year, journal, abstract, citation count
 - **Hierarchy hover** -- full Toponymy path for each document when applicable
-- **Selector/legend** -- one selector surface with restored right-side chrome, color-coded and clickable
+- **Topics panel** -- one repo-owned right-side panel: flat for BERTopic, indented for Toponymy, color-coded and clickable
 - **Word cloud** -- lasso-select a region to see its top terms
 - **Year histogram** -- brush to filter by publication period
 - **Click** -- opens the ADS abstract page in a new tab
 
 Set `title` for the heading, `subtitle_template` with `{provider}` and
 `{model}` placeholders, `dark_mode` to `True` or `False`, and `font_family` for
-the map typography. `topic_tree` is now an optional expert-mode toggle (default
-`false`) for hierarchical runs.
+the map typography. The normal map UI uses the right-side `Topics` panel;
+`topic_tree` remains an optional expert-mode toggle (default `false`) for
+hierarchical runs.
 
 ### Curation
 

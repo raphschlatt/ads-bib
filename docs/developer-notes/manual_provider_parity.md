@@ -73,9 +73,9 @@ If you are validating the raw-embedding path, repeat the same run with
 For Toponymy backends, also verify that the topic dataframe keeps the
 working-layer compatibility view in `topic_id`/`Name` and persists hierarchy columns such as
 `topic_layer_0_id`, `topic_layer_0_label`, `topic_primary_layer_index`, and
-`topic_layer_count`. Verify that the topic map keeps one selector/legend
-surface with the restored right-side chrome, and that hover cards show the full
-hierarchy path.
+`topic_layer_count`. Verify that the topic map keeps one right-side `Topics`
+panel, flat for BERTopic and indented for Toponymy, and that hover cards show
+the full hierarchy path.
 If `visualization.topic_tree` is explicitly enabled, verify the tree appears as
 an extra expert panel with color-coded bullets.
 

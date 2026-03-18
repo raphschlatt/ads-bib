@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from html import escape
 import logging
 from pathlib import Path
@@ -73,6 +74,9 @@ _HOVER_TEMPLATE = """
 """
 
 
+_TOPIC_PANEL_SELECTION_KIND = "topics-panel"
+
+
 _RESTORED_TOPIC_CHROME_CSS = """
 #ads-topic-panel {
     display: none;
@@ -99,6 +103,8 @@ _RESTORED_TOPIC_CHROME_CSS = """
 }
 #ads-topic-panel-title {
     line-height: 1.1;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 #ads-topic-panel-toggle {
     font-size: 18px;
@@ -114,35 +120,82 @@ _RESTORED_TOPIC_CHROME_CSS = """
 #ads-topic-panel.is-collapsed #ads-topic-panel-body {
     display: none;
 }
-#ads-topic-panel #legend-container,
-#ads-topic-panel #colormap-selector-container {
-    margin: 0;
-    padding: 0;
-    width: 100% !important;
+#ads-topic-panel-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: calc(80vh - 72px);
+    overflow-y: auto;
+}
+#ads-topic-panel-rows::-webkit-scrollbar {
+    width: 10px;
+}
+#ads-topic-panel-rows::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(127, 127, 127, 0.45);
+}
+.ads-topic-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.12;
+}
+.ads-topic-row:hover {
+    background-color: rgba(127, 127, 127, 0.12);
+}
+.ads-topic-row.is-selected {
+    background-color: rgba(127, 127, 127, 0.16);
+}
+.ads-topic-row-label {
+    flex: 1 1 auto;
     min-width: 0;
-    background: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
+    white-space: normal;
+    word-break: break-word;
 }
-#ads-topic-panel #legend-container {
-    max-height: calc(80vh - 110px);
-    overflow-y: auto;
+.ads-topic-row-layer {
+    display: block;
+    margin-bottom: 2px;
+    opacity: 0.75;
+    font-size: 0.72em;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
 }
-#ads-topic-panel .color-map-dropdown,
-#ads-topic-panel .color-map-options {
-    width: 100% !important;
+.ads-topic-expand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    min-width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
 }
-#ads-topic-panel .color-map-options,
-#ads-topic-panel .color-legend-container {
-    max-height: 45vh;
-    overflow-y: auto;
+.ads-topic-expand.is-placeholder {
+    cursor: default;
+    opacity: 0;
 }
-#ads-topic-panel .color-map-selected,
-#ads-topic-panel .color-map-option,
-#ads-topic-panel .legend-item,
-#ads-topic-panel .legend-label,
-#ads-topic-panel .color-map-text {
-    font-family: inherit;
+.ads-topic-swatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    min-width: 12px;
+    height: 12px;
+    margin-top: 3px;
+    border-radius: 2px;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 body.darkmode #ads-topic-panel,
 body.darkmode #d3histogram-container.more-opaque,
@@ -156,11 +209,14 @@ body.darkmode #title-container.more-opaque {
 body.darkmode #ads-topic-panel-header {
     border-bottom-color: #30363d;
 }
-body.darkmode #ads-topic-panel .color-map-selected,
-body.darkmode #ads-topic-panel .color-map-option,
-body.darkmode #ads-topic-panel .legend-item,
-body.darkmode #ads-topic-panel .legend-label,
-body.darkmode #ads-topic-panel .color-map-text {
+body.darkmode .ads-topic-row:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+body.darkmode .ads-topic-row.is-selected {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+body.darkmode #ads-topic-panel,
+body.darkmode #ads-topic-panel * {
     color: #e0e0e0 !important;
 }
 body:not(.darkmode) #ads-topic-panel,
@@ -175,37 +231,58 @@ body:not(.darkmode) #title-container.more-opaque {
 """
 
 
-def _build_restored_topic_chrome_js(*, dark_mode: bool) -> str:
-    """Return a small JS layer that restores the legacy right-side chrome."""
-    dark_flag = "true" if dark_mode else "false"
-    return f"""
-const APPLY_DARK_UI = {dark_flag};
-if (APPLY_DARK_UI) {{ document.body.classList.add("darkmode"); }}
+def _build_restored_topic_chrome_js(
+    *,
+    dark_mode: bool,
+    topic_panel_payload: dict[str, object],
+) -> str:
+    """Return JS for the repo-owned right-side Topics panel."""
+    payload_json = json.dumps(topic_panel_payload, ensure_ascii=True, separators=(",", ":"))
+    return (
+        """
+const APPLY_DARK_UI = __DARK_FLAG__;
+if (APPLY_DARK_UI) { document.body.classList.add("darkmode"); }
 
-(() => {{
+const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
+
+(() => {
   const panelId = "ads-topic-panel";
   const panelBodyId = "ads-topic-panel-body";
   const panelHeaderId = "ads-topic-panel-header";
   const panelToggleId = "ads-topic-panel-toggle";
-  const initFlag = "__adsBibTopicChromeInitialized";
+  const rowsId = "ads-topic-panel-rows";
+  const selectionKind = TOPIC_PANEL_PAYLOAD.selectionKind || "topics-panel";
+  const rows = Array.isArray(TOPIC_PANEL_PAYLOAD.rows) ? TOPIC_PANEL_PAYLOAD.rows : [];
+  const rowMap = new Map(rows.map((row) => [row.key, row]));
+  const childrenMap = new Map();
+  const state = {
+    selectedKeys: new Set(),
+    expandedKeys: new Set(TOPIC_PANEL_PAYLOAD.defaultExpandedKeys || []),
+  };
 
-  function addMoreOpaque(id) {{
+  for (const row of rows) {
+    const parentKey = row.parentKey || "";
+    if (!childrenMap.has(parentKey)) {
+      childrenMap.set(parentKey, []);
+    }
+    childrenMap.get(parentKey).push(row.key);
+  }
+
+  function addMoreOpaque(id) {
     const element = document.getElementById(id);
-    if (element) {{
+    if (element) {
       element.classList.add("more-opaque");
-    }}
-  }}
+    }
+  }
 
-  function ensurePanel() {{
+  function ensurePanel() {
     const topRightStack = document.querySelector(".stack.top-right");
-    const selector = document.getElementById("colormap-selector-container");
-    const legend = document.getElementById("legend-container");
-    if (!topRightStack || !selector || !legend) {{
+    if (!topRightStack) {
       return null;
-    }}
+    }
 
     let panel = document.getElementById(panelId);
-    if (!panel) {{
+    if (!panel) {
       panel = document.createElement("div");
       panel.id = panelId;
       panel.className = "container-box stack-box more-opaque";
@@ -214,77 +291,200 @@ if (APPLY_DARK_UI) {{ document.body.classList.add("darkmode"); }}
       header.type = "button";
       header.id = panelHeaderId;
       header.innerHTML = '<span id="ads-topic-panel-title">Topics</span><span id="' + panelToggleId + '">▼</span>';
+      header.setAttribute("aria-expanded", "true");
+      header.addEventListener("click", () => {
+        const collapsed = panel.classList.toggle("is-collapsed");
+        header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        const toggle = document.getElementById(panelToggleId);
+        if (toggle) {
+          toggle.textContent = collapsed ? "▶" : "▼";
+        }
+      });
 
       const body = document.createElement("div");
       body.id = panelBodyId;
 
-      header.addEventListener("click", () => {{
-        const collapsed = panel.classList.toggle("is-collapsed");
-        header.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        const toggle = document.getElementById(panelToggleId);
-        if (toggle) {{
-          toggle.textContent = collapsed ? "▶" : "▼";
-        }}
-      }});
-      header.setAttribute("aria-expanded", "true");
+      const rowsContainer = document.createElement("div");
+      rowsContainer.id = rowsId;
+      body.appendChild(rowsContainer);
 
       panel.appendChild(header);
       panel.appendChild(body);
       topRightStack.appendChild(panel);
-    }}
+    }
 
-    const body = document.getElementById(panelBodyId);
-    if (body && selector.parentElement !== body) {{
-      body.appendChild(selector);
-    }}
-    if (body && legend.parentElement !== body) {{
-      body.appendChild(legend);
-    }}
-    selector.style.display = "block";
     panel.style.display = "block";
     return panel;
-  }}
+  }
 
-  function applyDefaultColormap() {{
-    const colorSelector = window.datamap && window.datamap.colorSelector;
-    if (!colorSelector || !Array.isArray(colorSelector.colorMaps)) {{
-      return false;
-    }}
-    if (window[initFlag]) {{
+  function buildOrderedKeys(parentKey = "") {
+    const keys = childrenMap.get(parentKey) || [];
+    let ordered = [];
+    for (const key of keys) {
+      ordered.push(key);
+      ordered = ordered.concat(buildOrderedKeys(key));
+    }
+    return ordered;
+  }
+
+  const orderedRowKeys = buildOrderedKeys("");
+
+  function rowVisible(row) {
+    if (!row.parentKey) {
       return true;
-    }}
-    const defaultMap = colorSelector.colorMaps.find((colorMap) => colorMap.field !== "none");
-    if (!defaultMap) {{
-      return false;
-    }}
-    colorSelector.handleColorMapSelection(defaultMap);
-    if (colorSelector.colorMapOptions) {{
-      colorSelector.colorMapOptions.style.display = "none";
-    }}
-    window[initFlag] = true;
-    return true;
-  }}
+    }
 
-  function initChrome() {{
+    let currentParent = row.parentKey;
+    while (currentParent) {
+      if (!state.expandedKeys.has(currentParent)) {
+        return false;
+      }
+      const parentRow = rowMap.get(currentParent);
+      currentParent = parentRow && parentRow.parentKey ? parentRow.parentKey : "";
+    }
+    return true;
+  }
+
+  function selectedIndicesForRow(row) {
+    if (!datamap.metaData || !row.selectionField || !datamap.metaData[row.selectionField]) {
+      return [];
+    }
+
+    const values = datamap.metaData[row.selectionField];
+    const indices = [];
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] === row.key) {
+        indices.push(i);
+      }
+    }
+    return indices;
+  }
+
+  function applySelection() {
+    if (state.selectedKeys.size === 0) {
+      datamap.removeSelection(selectionKind);
+      return;
+    }
+
+    const selectedIndices = new Set();
+    for (const key of state.selectedKeys) {
+      const row = rowMap.get(key);
+      if (!row) {
+        continue;
+      }
+      for (const index of selectedIndicesForRow(row)) {
+        selectedIndices.add(index);
+      }
+    }
+    datamap.addSelection(Array.from(selectedIndices).sort((a, b) => a - b), selectionKind);
+  }
+
+  function toggleSelection(key) {
+    if (state.selectedKeys.has(key)) {
+      state.selectedKeys.delete(key);
+    } else {
+      state.selectedKeys.add(key);
+    }
+    applySelection();
+    renderRows();
+  }
+
+  function toggleExpanded(key) {
+    if (state.expandedKeys.has(key)) {
+      state.expandedKeys.delete(key);
+    } else {
+      state.expandedKeys.add(key);
+    }
+    renderRows();
+  }
+
+  function buildRow(row) {
+    const rowElement = document.createElement("div");
+    rowElement.className = "ads-topic-row";
+    if (state.selectedKeys.has(row.key)) {
+      rowElement.classList.add("is-selected");
+    }
+    rowElement.style.paddingLeft = `${row.depth * 18 + 8}px`;
+
+    const expandButton = document.createElement("button");
+    expandButton.type = "button";
+    expandButton.className = "ads-topic-expand";
+    if (row.hasChildren) {
+      expandButton.textContent = state.expandedKeys.has(row.key) ? "▼" : "▶";
+      expandButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleExpanded(row.key);
+      });
+    } else {
+      expandButton.textContent = "•";
+      expandButton.classList.add("is-placeholder");
+      expandButton.tabIndex = -1;
+      expandButton.setAttribute("aria-hidden", "true");
+    }
+
+    const swatch = document.createElement("span");
+    swatch.className = "ads-topic-swatch";
+    swatch.style.backgroundColor = row.color;
+    swatch.textContent = state.selectedKeys.has(row.key) ? "✓" : "";
+
+    const labelWrapper = document.createElement("span");
+    labelWrapper.className = "ads-topic-row-label";
+
+    const labelText = document.createElement("span");
+    labelText.textContent = row.label;
+    labelWrapper.appendChild(labelText);
+
+    rowElement.appendChild(expandButton);
+    rowElement.appendChild(swatch);
+    rowElement.appendChild(labelWrapper);
+    rowElement.addEventListener("click", () => toggleSelection(row.key));
+
+    return rowElement;
+  }
+
+  function renderRows() {
+    const rowsContainer = document.getElementById(rowsId);
+    if (!rowsContainer) {
+      return;
+    }
+
+    rowsContainer.innerHTML = "";
+    for (const key of orderedRowKeys) {
+      const row = rowMap.get(key);
+      if (!row || !rowVisible(row)) {
+        continue;
+      }
+      rowsContainer.appendChild(buildRow(row));
+    }
+  }
+
+  function initPanel() {
     addMoreOpaque("title-container");
     addMoreOpaque("search-container");
     addMoreOpaque("topic-tree");
     addMoreOpaque("d3histogram-container");
     addMoreOpaque("word-cloud");
+    if (!datamap || !datamap.metaData) {
+      return false;
+    }
     ensurePanel();
-    return applyDefaultColormap();
-  }}
+    renderRows();
+    return true;
+  }
 
   let attempts = 0;
-  const timer = window.setInterval(() => {{
+  const timer = window.setInterval(() => {
     attempts += 1;
-    if (initChrome() || attempts >= 200) {{
+    if (initPanel() || attempts >= 200) {
       window.clearInterval(timer);
-      initChrome();
-    }}
-  }}, 100);
-}})();
+      initPanel();
+    }
+  }, 100);
+})();
 """
+        .replace("__DARK_FLAG__", "true" if dark_mode else "false")
+        .replace("__TOPIC_PANEL_PAYLOAD__", payload_json)
+    )
 
 
 def _normalize_topic_tree_setting(
@@ -684,6 +884,194 @@ def _build_marker_color_array(
     return np.asarray(colors, dtype=object)
 
 
+def _topic_panel_selection_field(layer_index: int | None) -> str:
+    """Return the metadata field name used for panel-based point selection."""
+    if layer_index is None:
+        return "topic_panel_flat_key"
+    return f"topic_panel_layer_{layer_index}_key"
+
+
+def _coerce_cluster_id(value: object) -> int | None:
+    """Coerce a cluster identifier to ``int`` when available."""
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _topic_panel_row_key(
+    *,
+    layer_index: int | None,
+    cluster_id: int | None,
+    label: str,
+) -> str:
+    """Build a stable row key for topic-panel entries."""
+    if layer_index is None:
+        prefix = "flat"
+    else:
+        prefix = f"layer_{layer_index}"
+    if cluster_id is None:
+        return f"{prefix}::label::{label}"
+    if cluster_id == -1:
+        return f"{prefix}::noise::{label}"
+    return f"{prefix}::{cluster_id}"
+
+
+def _build_flat_topic_panel_payload(
+    df: pd.DataFrame,
+    *,
+    label_column: str,
+    label_color_map: dict[str, str],
+) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    """Build flat BERTopic-style topic-panel metadata and payload."""
+    field = _topic_panel_selection_field(None)
+    labels = df[label_column].fillna("Unlabelled").astype(str).tolist()
+    topic_ids = df["topic_id"].tolist() if "topic_id" in df.columns else [None] * len(df)
+
+    keys: list[str] = []
+    rows_by_key: dict[str, dict[str, object]] = {}
+    ordered_keys: list[str] = []
+
+    for topic_id, label in zip(topic_ids, labels, strict=False):
+        key = _topic_panel_row_key(
+            layer_index=None,
+            cluster_id=_coerce_cluster_id(topic_id),
+            label=label,
+        )
+        keys.append(key)
+        if key in rows_by_key:
+            continue
+        ordered_keys.append(key)
+        rows_by_key[key] = {
+            "key": key,
+            "label": label,
+            "color": label_color_map.get(label, "#999999"),
+            "depth": 0,
+            "parentKey": None,
+            "selectionField": field,
+            "layerIndex": None,
+            "layerLabel": None,
+            "hasChildren": False,
+        }
+
+    return (
+        {field: np.asarray(keys, dtype=object)},
+        {
+            "mode": "flat",
+            "selectionKind": _TOPIC_PANEL_SELECTION_KIND,
+            "defaultExpandedKeys": [],
+            "rows": [rows_by_key[key] for key in ordered_keys],
+        },
+    )
+
+
+def _build_hierarchical_topic_panel_payload(
+    df: pd.DataFrame,
+    *,
+    hierarchy_label_columns: list[str],
+    label_color_map: dict[str, str],
+) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    """Build Toponymy topic-panel metadata and a nested row payload."""
+    layer_specs: list[dict[str, object]] = []
+    point_fields: dict[str, np.ndarray] = {}
+
+    for label_column in reversed(hierarchy_label_columns):
+        layer_index = _topic_layer_index_from_label_column(label_column)
+        if layer_index is None:
+            continue
+        id_column = f"topic_layer_{layer_index}_id"
+        selection_field = _topic_panel_selection_field(layer_index)
+        labels = df[label_column].fillna("Unlabelled").astype(str).tolist()
+        ids = df[id_column].tolist() if id_column in df.columns else [None] * len(df)
+        keys = [
+            _topic_panel_row_key(
+                layer_index=layer_index,
+                cluster_id=_coerce_cluster_id(cluster_id),
+                label=label,
+            )
+            for cluster_id, label in zip(ids, labels, strict=False)
+        ]
+        layer_specs.append(
+            {
+                "layer_index": layer_index,
+                "selection_field": selection_field,
+                "labels": labels,
+                "keys": keys,
+            }
+        )
+        point_fields[selection_field] = np.asarray(keys, dtype=object)
+
+    rows_by_key: dict[str, dict[str, object]] = {}
+    children_by_parent: dict[str | None, list[str]] = {}
+
+    for row_index in range(len(df)):
+        parent_key: str | None = None
+        for depth, spec in enumerate(layer_specs):
+            key = spec["keys"][row_index]
+            label = spec["labels"][row_index]
+            if key not in rows_by_key:
+                color = (
+                    rows_by_key[parent_key]["color"]
+                    if parent_key is not None
+                    else label_color_map.get(label, "#999999")
+                )
+                rows_by_key[key] = {
+                    "key": key,
+                    "label": label,
+                    "color": color,
+                    "depth": depth,
+                    "parentKey": parent_key,
+                    "selectionField": spec["selection_field"],
+                    "layerIndex": spec["layer_index"],
+                    "layerLabel": f"Layer {spec['layer_index']}",
+                }
+                children_by_parent.setdefault(parent_key, []).append(key)
+            parent_key = key
+
+    ordered_rows: list[dict[str, object]] = []
+
+    def _append_rows(parent_key: str | None) -> None:
+        for key in children_by_parent.get(parent_key, []):
+            row = rows_by_key[key]
+            row["hasChildren"] = key in children_by_parent
+            ordered_rows.append(row)
+            _append_rows(key)
+
+    _append_rows(None)
+    return (
+        point_fields,
+        {
+            "mode": "hierarchical",
+            "selectionKind": _TOPIC_PANEL_SELECTION_KIND,
+            "defaultExpandedKeys": [],
+            "rows": ordered_rows,
+        },
+    )
+
+
+def _build_topic_panel_payload(
+    df: pd.DataFrame,
+    *,
+    initial_visible_label_column: str,
+    hierarchy_label_columns: list[str],
+    label_color_map: dict[str, str],
+) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    """Build the repo-owned topic-panel payload for flat or hierarchical runs."""
+    if _is_hierarchical_label_columns(hierarchy_label_columns):
+        return _build_hierarchical_topic_panel_payload(
+            df,
+            hierarchy_label_columns=hierarchy_label_columns,
+            label_color_map=label_color_map,
+        )
+    return _build_flat_topic_panel_payload(
+        df,
+        label_column=initial_visible_label_column,
+        label_color_map=label_color_map,
+    )
+
+
 def _format_hierarchy_badge(text: str, *, accent: bool = False) -> str:
     """Render one compact hover badge for a hierarchy label."""
     background = "#0b6efd" if accent else "#eeeeee"
@@ -761,10 +1149,10 @@ def _build_plot_kwargs(
     hist_start: pd.Timestamp,
     hist_end: pd.Timestamp,
     noise_label: str,
-    hierarchical: bool,
     topic_tree_enabled: bool,
     label_color_map: dict[str, str],
     marker_color_array: np.ndarray,
+    topic_panel_payload: dict[str, object],
 ) -> dict[str, object]:
     """Build keyword arguments for `datamapplot.create_interactive_plot`."""
     bin_c, sel_c, unsel_c, ctx_c = _histogram_theme_colors()
@@ -790,8 +1178,6 @@ def _build_plot_kwargs(
         point_radius_max_pixels=20,
         point_radius_min_pixels=2,
         label_color_map=label_color_map,
-        colormaps={"Working Topics": extra_data["topic_label"].to_numpy(object)},
-        cluster_layer_colormaps=hierarchical,
         noise_label=noise_label,
         color_label_text=False,
         color_cluster_boundaries=False,
@@ -817,7 +1203,10 @@ def _build_plot_kwargs(
         hover_text_html_template=_HOVER_TEMPLATE,
         on_click="window.open(`https://ui.adsabs.harvard.edu/abs/{bibcode}/abstract`)",
         custom_css=_RESTORED_TOPIC_CHROME_CSS,
-        custom_js=_build_restored_topic_chrome_js(dark_mode=dark_mode),
+        custom_js=_build_restored_topic_chrome_js(
+            dark_mode=dark_mode,
+            topic_panel_payload=topic_panel_payload,
+        ),
     )
 
     if topic_tree_enabled:
@@ -986,6 +1375,14 @@ def create_topic_map(
         label_color_map=label_color_map,
         noise_labels=noise_labels,
     )
+    topic_panel_fields, topic_panel_payload = _build_topic_panel_payload(
+        df_work,
+        initial_visible_label_column=initial_visible_label_column,
+        hierarchy_label_columns=hierarchy_label_columns,
+        label_color_map=label_color_map,
+    )
+    for field_name, values in topic_panel_fields.items():
+        extra_data[field_name] = values
 
     kwargs = _build_plot_kwargs(
         df_work=df_work,
@@ -999,10 +1396,10 @@ def create_topic_map(
         hist_start=hist_start,
         hist_end=hist_end,
         noise_label=noise_label,
-        hierarchical=hierarchical,
         topic_tree_enabled=topic_tree_enabled,
         label_color_map=label_color_map,
         marker_color_array=marker_color_array,
+        topic_panel_payload=topic_panel_payload,
     )
 
     if word_cloud:
