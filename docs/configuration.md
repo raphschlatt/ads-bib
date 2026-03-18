@@ -63,7 +63,7 @@ available as compatibility aliases for one transition cycle.
 | `title` | Map title | Rendered above the datamapplot canvas |
 | `subtitle_template` | Map subtitle template | Supports `{provider}` and `{model}` placeholders |
 | `dark_mode` | Dark UI theme | `true` or `false` |
-| `font_family` | Label and title font | Default `Cormorant SC`; pass any Google/system font recognized by datamapplot |
+| `font_family` | Label and title font | Default `Cinzel`; pass any Google/system font recognized by datamapplot |
 | `topic_tree` | Expert-mode topic-tree toggle | Optional (`true`/`false`), default `false`; applies only when hierarchy layers are present |
 
 ### Curation Keys

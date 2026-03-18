@@ -107,7 +107,7 @@ visualization:
   title: Hawking ADS Bibliometric Map
   subtitle_template: "Topics labeled with {provider}/{model}"
   dark_mode: true
-  font_family: Cormorant SC
+  font_family: Cinzel
   topic_tree: false
 
 curation:

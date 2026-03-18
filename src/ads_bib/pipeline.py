@@ -243,7 +243,7 @@ class VisualizationConfig:
     title: str = "ADS Bibliometric Map"
     subtitle_template: str = "Topics labeled with {provider}/{model}"
     dark_mode: bool = True
-    font_family: str = "Cormorant SC"
+    font_family: str = "Cinzel"
     topic_tree: bool = False
 
 

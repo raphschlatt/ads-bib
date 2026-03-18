@@ -73,6 +73,220 @@ _HOVER_TEMPLATE = """
 """
 
 
+_RESTORED_TOPIC_CHROME_CSS = """
+#ads-topic-panel {
+    display: none;
+    min-width: 320px;
+    max-width: min(32vw, 460px);
+    max-height: 80vh;
+    padding: 0;
+    overflow: hidden;
+}
+#ads-topic-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin: 0;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid rgba(17, 24, 39, 0.16);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+#ads-topic-panel-title {
+    line-height: 1.1;
+}
+#ads-topic-panel-toggle {
+    font-size: 18px;
+    line-height: 1;
+    user-select: none;
+}
+#ads-topic-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px 12px;
+}
+#ads-topic-panel.is-collapsed #ads-topic-panel-body {
+    display: none;
+}
+#ads-topic-panel #legend-container,
+#ads-topic-panel #colormap-selector-container {
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+    min-width: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+}
+#ads-topic-panel #legend-container {
+    max-height: calc(80vh - 110px);
+    overflow-y: auto;
+}
+#ads-topic-panel .color-map-dropdown,
+#ads-topic-panel .color-map-options {
+    width: 100% !important;
+}
+#ads-topic-panel .color-map-options,
+#ads-topic-panel .color-legend-container {
+    max-height: 45vh;
+    overflow-y: auto;
+}
+#ads-topic-panel .color-map-selected,
+#ads-topic-panel .color-map-option,
+#ads-topic-panel .legend-item,
+#ads-topic-panel .legend-label,
+#ads-topic-panel .color-map-text {
+    font-family: inherit;
+}
+body.darkmode #ads-topic-panel,
+body.darkmode #d3histogram-container.more-opaque,
+body.darkmode #word-cloud.more-opaque,
+body.darkmode #topic-tree.more-opaque,
+body.darkmode #search-container.more-opaque,
+body.darkmode #title-container.more-opaque {
+    background-color: rgba(22, 27, 34, 0.97) !important;
+    color: #e0e0e0 !important;
+}
+body.darkmode #ads-topic-panel-header {
+    border-bottom-color: #30363d;
+}
+body.darkmode #ads-topic-panel .color-map-selected,
+body.darkmode #ads-topic-panel .color-map-option,
+body.darkmode #ads-topic-panel .legend-item,
+body.darkmode #ads-topic-panel .legend-label,
+body.darkmode #ads-topic-panel .color-map-text {
+    color: #e0e0e0 !important;
+}
+body:not(.darkmode) #ads-topic-panel,
+body:not(.darkmode) #d3histogram-container.more-opaque,
+body:not(.darkmode) #word-cloud.more-opaque,
+body:not(.darkmode) #topic-tree.more-opaque,
+body:not(.darkmode) #search-container.more-opaque,
+body:not(.darkmode) #title-container.more-opaque {
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    color: #111111 !important;
+}
+"""
+
+
+def _build_restored_topic_chrome_js(*, dark_mode: bool) -> str:
+    """Return a small JS layer that restores the legacy right-side chrome."""
+    dark_flag = "true" if dark_mode else "false"
+    return f"""
+const APPLY_DARK_UI = {dark_flag};
+if (APPLY_DARK_UI) {{ document.body.classList.add("darkmode"); }}
+
+(() => {{
+  const panelId = "ads-topic-panel";
+  const panelBodyId = "ads-topic-panel-body";
+  const panelHeaderId = "ads-topic-panel-header";
+  const panelToggleId = "ads-topic-panel-toggle";
+  const initFlag = "__adsBibTopicChromeInitialized";
+
+  function addMoreOpaque(id) {{
+    const element = document.getElementById(id);
+    if (element) {{
+      element.classList.add("more-opaque");
+    }}
+  }}
+
+  function ensurePanel() {{
+    const topRightStack = document.querySelector(".stack.top-right");
+    const selector = document.getElementById("colormap-selector-container");
+    const legend = document.getElementById("legend-container");
+    if (!topRightStack || !selector || !legend) {{
+      return null;
+    }}
+
+    let panel = document.getElementById(panelId);
+    if (!panel) {{
+      panel = document.createElement("div");
+      panel.id = panelId;
+      panel.className = "container-box stack-box more-opaque";
+
+      const header = document.createElement("button");
+      header.type = "button";
+      header.id = panelHeaderId;
+      header.innerHTML = '<span id="ads-topic-panel-title">Topics</span><span id="' + panelToggleId + '">▼</span>';
+
+      const body = document.createElement("div");
+      body.id = panelBodyId;
+
+      header.addEventListener("click", () => {{
+        const collapsed = panel.classList.toggle("is-collapsed");
+        header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        const toggle = document.getElementById(panelToggleId);
+        if (toggle) {{
+          toggle.textContent = collapsed ? "▶" : "▼";
+        }}
+      }});
+      header.setAttribute("aria-expanded", "true");
+
+      panel.appendChild(header);
+      panel.appendChild(body);
+      topRightStack.appendChild(panel);
+    }}
+
+    const body = document.getElementById(panelBodyId);
+    if (body && selector.parentElement !== body) {{
+      body.appendChild(selector);
+    }}
+    if (body && legend.parentElement !== body) {{
+      body.appendChild(legend);
+    }}
+    selector.style.display = "block";
+    panel.style.display = "block";
+    return panel;
+  }}
+
+  function applyDefaultColormap() {{
+    const colorSelector = window.datamap && window.datamap.colorSelector;
+    if (!colorSelector || !Array.isArray(colorSelector.colorMaps)) {{
+      return false;
+    }}
+    if (window[initFlag]) {{
+      return true;
+    }}
+    const defaultMap = colorSelector.colorMaps.find((colorMap) => colorMap.field !== "none");
+    if (!defaultMap) {{
+      return false;
+    }}
+    colorSelector.handleColorMapSelection(defaultMap);
+    if (colorSelector.colorMapOptions) {{
+      colorSelector.colorMapOptions.style.display = "none";
+    }}
+    window[initFlag] = true;
+    return true;
+  }}
+
+  function initChrome() {{
+    addMoreOpaque("title-container");
+    addMoreOpaque("search-container");
+    addMoreOpaque("topic-tree");
+    addMoreOpaque("d3histogram-container");
+    addMoreOpaque("word-cloud");
+    ensurePanel();
+    return applyDefaultColormap();
+  }}
+
+  let attempts = 0;
+  const timer = window.setInterval(() => {{
+    attempts += 1;
+    if (initChrome() || attempts >= 200) {{
+      window.clearInterval(timer);
+      initChrome();
+    }}
+  }}, 100);
+}})();
+"""
+
+
 def _normalize_topic_tree_setting(
     value: bool | str | None,
 ) -> bool:
@@ -173,6 +387,16 @@ def _resolve_display_label_column(
     raise ValueError(
         "Could not resolve a display label column. Expected 'Name' or topic_layer labels."
     )
+
+
+def _resolve_initial_visible_label_column(
+    display_label_column: str,
+    hierarchy_label_columns: list[str],
+) -> str:
+    """Resolve the label column that should drive the initial visible map layer."""
+    if hierarchy_label_columns:
+        return hierarchy_label_columns[-1]
+    return display_label_column
 
 
 def _resolve_display_and_hierarchy_columns(
@@ -368,6 +592,98 @@ def _resolve_noise_label(
     return "Unlabelled"
 
 
+def _resolve_noise_labels(
+    df: pd.DataFrame,
+    *,
+    display_label_column: str,
+    hierarchy_label_columns: list[str],
+) -> list[str]:
+    """Resolve all distinct noise labels encountered across display and hierarchy columns."""
+    candidates: list[str] = []
+
+    if display_label_column in df.columns and "topic_id" in df.columns:
+        values = (
+            df.loc[df["topic_id"] == -1, display_label_column]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        candidates.extend(values)
+
+    for label_column in hierarchy_label_columns:
+        layer_index = _topic_layer_index_from_label_column(label_column)
+        if layer_index is None:
+            continue
+        id_column = f"topic_layer_{layer_index}_id"
+        if id_column not in df.columns:
+            continue
+        values = (
+            df.loc[df[id_column] == -1, label_column]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        candidates.extend(values)
+
+    unique_candidates = list(dict.fromkeys(candidates))
+    if not unique_candidates:
+        return ["Unlabelled"]
+    return unique_candidates
+
+
+def _build_label_color_map(
+    df: pd.DataFrame,
+    *,
+    palette_columns: list[str],
+    noise_labels: list[str],
+) -> dict[str, str]:
+    """Build one deterministic turbo palette shared across map labels and widgets."""
+    ordered_labels: list[str] = []
+    seen: set[str] = set()
+    noise_set = {str(label) for label in noise_labels}
+
+    for column in palette_columns:
+        if column not in df.columns:
+            continue
+        for value in df[column].dropna().astype(str):
+            if value in noise_set or value in seen:
+                continue
+            seen.add(value)
+            ordered_labels.append(value)
+
+    color_map = {
+        label: rgb2hex(color)
+        for label, color in zip(
+            ordered_labels,
+            sns.color_palette("turbo", n_colors=max(len(ordered_labels), 1)),
+            strict=False,
+        )
+    }
+    for label in noise_set:
+        color_map[label] = "#aaaaaa44"
+    return color_map
+
+
+def _build_marker_color_array(
+    df: pd.DataFrame,
+    *,
+    label_column: str,
+    label_color_map: dict[str, str],
+    noise_labels: list[str],
+) -> np.ndarray:
+    """Return point colors for the initial visible label layer."""
+    noise_set = {str(label) for label in noise_labels}
+    topic_ids = df["topic_id"].to_numpy() if "topic_id" in df.columns else np.zeros(len(df))
+    labels = df[label_column].fillna("Unlabelled").astype(str).to_numpy(object)
+    colors = [
+        "#aaaaaa44" if topic_id == -1 or label in noise_set else label_color_map.get(label, "#999999")
+        for label, topic_id in zip(labels, topic_ids, strict=False)
+    ]
+    return np.asarray(colors, dtype=object)
+
+
 def _format_hierarchy_badge(text: str, *, accent: bool = False) -> str:
     """Render one compact hover badge for a hierarchy label."""
     background = "#0b6efd" if accent else "#eeeeee"
@@ -447,6 +763,8 @@ def _build_plot_kwargs(
     noise_label: str,
     hierarchical: bool,
     topic_tree_enabled: bool,
+    label_color_map: dict[str, str],
+    marker_color_array: np.ndarray,
 ) -> dict[str, object]:
     """Build keyword arguments for `datamapplot.create_interactive_plot`."""
     bin_c, sel_c, unsel_c, ctx_c = _histogram_theme_colors()
@@ -468,8 +786,10 @@ def _build_plot_kwargs(
         cluster_boundary_line_width=8,
         use_medoids=True,
         marker_size_array=marker_size,
+        marker_color_array=marker_color_array,
         point_radius_max_pixels=20,
         point_radius_min_pixels=2,
+        label_color_map=label_color_map,
         colormaps={"Working Topics": extra_data["topic_label"].to_numpy(object)},
         cluster_layer_colormaps=hierarchical,
         noise_label=noise_label,
@@ -483,6 +803,7 @@ def _build_plot_kwargs(
         histogram_data=df_work["publication_date"],
         histogram_group_datetime_by="year",
         histogram_range=(hist_start, hist_end),
+        histogram_enable_click_persistence=True,
         histogram_settings={
             "histogram_log_scale": True,
             "histogram_title": "Publications per Year",
@@ -495,6 +816,8 @@ def _build_plot_kwargs(
         },
         hover_text_html_template=_HOVER_TEMPLATE,
         on_click="window.open(`https://ui.adsabs.harvard.edu/abs/{bibcode}/abstract`)",
+        custom_css=_RESTORED_TOPIC_CHROME_CSS,
+        custom_js=_build_restored_topic_chrome_js(dark_mode=dark_mode),
     )
 
     if topic_tree_enabled:
@@ -550,7 +873,7 @@ def create_topic_map(
     title: str = "ADS Topic Map",
     subtitle: str = "",
     dark_mode: bool = True,
-    font_family: str = "Cormorant SC",
+    font_family: str = "Cinzel",
     year_range: tuple[str, str] | None = None,
     word_cloud: bool = True,
     polygon_alpha: float | None = None,
@@ -588,6 +911,10 @@ def create_topic_map(
         label_column,
     )
     label_layer_columns = hierarchy_label_columns or [display_label_column]
+    initial_visible_label_column = _resolve_initial_visible_label_column(
+        display_label_column,
+        hierarchy_label_columns,
+    )
     hierarchical = _is_hierarchical_label_columns(hierarchy_label_columns)
     topic_tree_enabled = _normalize_topic_tree_setting(topic_tree) and hierarchical
 
@@ -605,6 +932,7 @@ def create_topic_map(
         "DOI",
         "tokens",
         display_label_column,
+        initial_visible_label_column,
         *label_layer_columns,
     ]
     _require_columns(
@@ -633,6 +961,31 @@ def create_topic_map(
         display_label_column=display_label_column,
         hierarchy_label_columns=hierarchy_label_columns,
     )
+    noise_labels = _resolve_noise_labels(
+        df_work,
+        display_label_column=display_label_column,
+        hierarchy_label_columns=hierarchy_label_columns,
+    )
+    palette_columns = list(
+        dict.fromkeys(
+            [
+                initial_visible_label_column,
+                *label_layer_columns,
+                display_label_column,
+            ]
+        )
+    )
+    label_color_map = _build_label_color_map(
+        df_work,
+        palette_columns=palette_columns,
+        noise_labels=noise_labels,
+    )
+    marker_color_array = _build_marker_color_array(
+        df_work,
+        label_column=initial_visible_label_column,
+        label_color_map=label_color_map,
+        noise_labels=noise_labels,
+    )
 
     kwargs = _build_plot_kwargs(
         df_work=df_work,
@@ -648,6 +1001,8 @@ def create_topic_map(
         noise_label=noise_label,
         hierarchical=hierarchical,
         topic_tree_enabled=topic_tree_enabled,
+        label_color_map=label_color_map,
+        marker_color_array=marker_color_array,
     )
 
     if word_cloud:

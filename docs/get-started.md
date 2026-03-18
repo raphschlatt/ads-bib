@@ -92,9 +92,9 @@ embeddings and keeps the same downstream topic outputs. The canonical Toponymy
 output is the full `topic_layer_<n>_id` / `topic_layer_<n>_label` hierarchy.
 `topic_id` and `Name` are kept as working-layer compatibility aliases.
 
-Keep `visualization.topic_tree: false` for the default clean map UI (single
-native selector/legend). Turn it on only when you explicitly want the extra
-hierarchy tree panel. For Toponymy curation, prefer explicit hierarchy-aware
+Keep `visualization.topic_tree: false` for the default map UI with the restored
+right-side selector/legend chrome. Turn it on only when you explicitly want the
+extra hierarchy tree panel. For Toponymy curation, prefer explicit hierarchy-aware
 targets:
 
 ```python

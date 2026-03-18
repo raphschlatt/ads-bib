@@ -251,7 +251,7 @@ datamapplot in natural fine-to-coarse order. The map supports:
 
 - **Hover** -- title, authors, year, journal, abstract, citation count
 - **Hierarchy hover** -- full Toponymy path for each document when applicable
-- **Selector/legend** -- one datamapplot-native layer+colormap selector, color-coded and clickable
+- **Selector/legend** -- one selector surface with restored right-side chrome, color-coded and clickable
 - **Word cloud** -- lasso-select a region to see its top terms
 - **Year histogram** -- brush to filter by publication period
 - **Click** -- opens the ADS abstract page in a new tab
