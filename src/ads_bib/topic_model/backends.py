@@ -65,6 +65,8 @@ DEFAULT_BERTOPIC_TOP_N_WORDS = 20     # Keywords per topic for c-TF-IDF represen
 DEFAULT_POS_SPACY_MODEL = "en_core_web_md"
 DEFAULT_KEYBERT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_BERTOPIC_LLM_MAX_NEW_TOKENS = 128   # Concise topic labels (4-7 words)
+DEFAULT_BERTOPIC_PIPELINE_MODELS = ["POS", "KeyBERT", "MMR"]
+DEFAULT_BERTOPIC_PARALLEL_MODELS = ["MMR", "POS", "KeyBERT"]
 DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 128  # Keep hierarchy labels concise and readable
 BERTopicLLMProvider: TypeAlias = Literal["local", "llama_server", "huggingface_api", "openrouter"]
 ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "openrouter"]
@@ -1512,8 +1514,10 @@ def fit_bertopic(
     from bertopic.vectorizers import ClassTfidfTransformer
     from sklearn.feature_extraction.text import CountVectorizer
 
-    pipeline_models = pipeline_models or ["POS", "KeyBERT", "MMR"]
-    parallel_models = parallel_models or ["MMR", "POS", "KeyBERT"]
+    if pipeline_models is None:
+        pipeline_models = list(DEFAULT_BERTOPIC_PIPELINE_MODELS)
+    if parallel_models is None:
+        parallel_models = list(DEFAULT_BERTOPIC_PARALLEL_MODELS)
     logger.info(
         "Preparing BERTopic components (pipeline=%s, parallel=%s) ...",
         pipeline_models,
