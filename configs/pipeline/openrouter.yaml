@@ -69,7 +69,7 @@ topic_model:
     n_neighbors: 30
     metric: angular
     random_state: 42
-  backend: bertopic
+  backend: toponymy
   clustering_method: fast_hdbscan
   cluster_params:
     min_cluster_size: 15

@@ -80,11 +80,13 @@ _TOPIC_PANEL_SELECTION_KIND = "topics-panel"
 _RESTORED_TOPIC_CHROME_CSS = """
 #ads-topic-panel {
     display: none;
+    flex-direction: column;
     min-width: 320px;
     max-width: min(32vw, 460px);
     max-height: 80vh;
     padding: 0;
     overflow: hidden;
+    overscroll-behavior: contain;
 }
 #ads-topic-panel-header {
     display: flex;
@@ -114,6 +116,8 @@ _RESTORED_TOPIC_CHROME_CSS = """
 #ads-topic-panel-body {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
     gap: 8px;
     padding: 8px 12px 12px;
 }
@@ -123,9 +127,12 @@ _RESTORED_TOPIC_CHROME_CSS = """
 #ads-topic-panel-rows {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     gap: 2px;
-    max-height: calc(80vh - 72px);
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
 }
 #ads-topic-panel-rows::-webkit-scrollbar {
     width: 10px;
@@ -143,6 +150,17 @@ _RESTORED_TOPIC_CHROME_CSS = """
     cursor: pointer;
     user-select: none;
     line-height: 1.12;
+}
+.ads-topic-row-prefix {
+    display: inline-flex;
+    align-items: flex-start;
+    flex: 0 0 auto;
+    gap: 8px;
+}
+.ads-topic-depth-spacer {
+    display: inline-block;
+    flex: 0 0 auto;
+    height: 1px;
 }
 .ads-topic-row:hover {
     background-color: rgba(127, 127, 127, 0.12);
@@ -178,10 +196,6 @@ _RESTORED_TOPIC_CHROME_CSS = """
     color: inherit;
     cursor: pointer;
     font-size: 12px;
-}
-.ads-topic-expand.is-placeholder {
-    cursor: default;
-    opacity: 0;
 }
 .ads-topic-swatch {
     display: inline-flex;
@@ -253,6 +267,7 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
   const rowsId = "ads-topic-panel-rows";
   const selectionKind = TOPIC_PANEL_PAYLOAD.selectionKind || "topics-panel";
   const rows = Array.isArray(TOPIC_PANEL_PAYLOAD.rows) ? TOPIC_PANEL_PAYLOAD.rows : [];
+  const depthStep = 18;
   const rowMap = new Map(rows.map((row) => [row.key, row]));
   const childrenMap = new Map();
   const state = {
@@ -313,7 +328,7 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
       topRightStack.appendChild(panel);
     }
 
-    panel.style.display = "block";
+    panel.style.display = "flex";
     return panel;
   }
 
@@ -404,22 +419,25 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
     if (state.selectedKeys.has(row.key)) {
       rowElement.classList.add("is-selected");
     }
-    rowElement.style.paddingLeft = `${row.depth * 18 + 8}px`;
 
-    const expandButton = document.createElement("button");
-    expandButton.type = "button";
-    expandButton.className = "ads-topic-expand";
+    const prefix = document.createElement("span");
+    prefix.className = "ads-topic-row-prefix";
+
+    const depthSpacer = document.createElement("span");
+    depthSpacer.className = "ads-topic-depth-spacer";
+    depthSpacer.style.width = `${row.depth * depthStep}px`;
+    prefix.appendChild(depthSpacer);
+
     if (row.hasChildren) {
+      const expandButton = document.createElement("button");
+      expandButton.type = "button";
+      expandButton.className = "ads-topic-expand";
       expandButton.textContent = state.expandedKeys.has(row.key) ? "▼" : "▶";
       expandButton.addEventListener("click", (event) => {
         event.stopPropagation();
         toggleExpanded(row.key);
       });
-    } else {
-      expandButton.textContent = "•";
-      expandButton.classList.add("is-placeholder");
-      expandButton.tabIndex = -1;
-      expandButton.setAttribute("aria-hidden", "true");
+      prefix.appendChild(expandButton);
     }
 
     const swatch = document.createElement("span");
@@ -434,8 +452,8 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
     labelText.textContent = row.label;
     labelWrapper.appendChild(labelText);
 
-    rowElement.appendChild(expandButton);
-    rowElement.appendChild(swatch);
+    prefix.appendChild(swatch);
+    rowElement.appendChild(prefix);
     rowElement.appendChild(labelWrapper);
     rowElement.addEventListener("click", () => toggleSelection(row.key));
 
@@ -467,7 +485,18 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
     if (!datamap || !datamap.metaData) {
       return false;
     }
-    ensurePanel();
+    const panel = ensurePanel();
+    const rowsContainer = document.getElementById(rowsId);
+    if (panel && panel.dataset.scrollBound !== "true") {
+      panel.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+      panel.addEventListener("touchmove", (event) => event.stopPropagation(), { passive: true });
+      panel.dataset.scrollBound = "true";
+    }
+    if (rowsContainer && rowsContainer.dataset.scrollBound !== "true") {
+      rowsContainer.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+      rowsContainer.addEventListener("touchmove", (event) => event.stopPropagation(), { passive: true });
+      rowsContainer.dataset.scrollBound = "true";
+    }
     renderRows();
     return true;
   }

@@ -162,6 +162,38 @@ def test_create_topic_map_auto_detects_canonical_topic_layer_columns_in_natural_
     assert plot is not None
 
 
+def test_create_topic_map_hierarchical_panel_uses_collapsed_tree_layout_and_rows_scroll_container(monkeypatch):
+    viz, calls = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    df["topic_layer_0_label"] = ["Layer0_A", "Layer0_B"]
+    df["topic_layer_1_label"] = ["Layer1_A", "Layer1_B"]
+    df["topic_primary_layer_index"] = [1, 1]
+    df["topic_layer_0_id"] = [10, -1]
+    df["topic_layer_1_id"] = [20, -1]
+
+    viz.create_topic_map(df, word_cloud=False)
+
+    css = calls["kwargs"]["custom_css"]
+    js = calls["kwargs"]["custom_js"]
+
+    assert '"defaultExpandedKeys":[]' in js
+    assert "ads-topic-panel" in js
+    assert "depthSpacer" in js
+    assert "panel.style.display = \"flex\"" in js
+    assert "event.stopPropagation()" in js
+    assert "is-placeholder" not in js
+    assert css.count("overflow-y: auto;") == 1
+    assert "flex: 1 1 auto;" in css
+    assert "min-height: 0;" in css
+    assert "overscroll-behavior: contain;" in css
+    assert "touch-action: pan-y;" in css
+    assert ".ads-topic-depth-spacer" in css
+    assert "padding: 4px 8px;" in css
+    assert "width: 16px;" in css
+    assert "margin-top: 1px;" in css
+    assert "is-placeholder" not in css
+
+
 def test_create_topic_map_respects_explicit_topic_tree_true(monkeypatch):
     viz, calls = _load_visualize_module(monkeypatch)
     df = _build_df()
