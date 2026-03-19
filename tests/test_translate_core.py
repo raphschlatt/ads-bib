@@ -271,6 +271,55 @@ def test_translate_openrouter_uses_shared_chat_core(monkeypatch):
     assert calls["messages"] == build_translation_messages("Hallo", target_lang="en")
 
 
+def test_translate_openrouter_raises_on_content_none(monkeypatch):
+    class _Resp:
+        class _Choice:
+            class _Message:
+                content = None
+
+            message = _Message()
+
+        choices = [_Choice()]
+
+    monkeypatch.setattr(tr, "_get_openai_client", lambda api_key, api_base: object())
+    monkeypatch.setattr(tr, "openrouter_chat_completion", lambda **kwargs: _Resp())
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="content=None"):
+        tr._translate_openrouter("Hallo", "en", "openrouter/test-model", "dummy-key")
+
+
+def test_translate_openrouter_strips_think_tags(monkeypatch):
+    class _Resp:
+        class _Choice:
+            class _Message:
+                content = "<think>reasoning</think>Hello translated"
+
+            message = _Message()
+
+        choices = [_Choice()]
+
+    monkeypatch.setattr(tr, "_get_openai_client", lambda api_key, api_base: object())
+    monkeypatch.setattr(tr, "openrouter_chat_completion", lambda **kwargs: _Resp())
+    monkeypatch.setattr(
+        tr,
+        "openrouter_usage_from_response",
+        lambda response: {
+            "prompt_tokens": 5,
+            "completion_tokens": 2,
+            "total_tokens": 7,
+            "call_record": {"generation_id": "gid-1", "direct_cost": 0.01},
+        },
+    )
+
+    translated, _, _, _, _ = tr._translate_openrouter(
+        "Hallo", "en", "openrouter/test-model", "dummy-key",
+    )
+    assert translated == "Hello translated"
+    assert "<think>" not in translated
+
+
 def test_translate_huggingface_api_uses_async_client(monkeypatch):
     calls: dict = {}
 

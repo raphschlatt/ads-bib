@@ -226,7 +226,13 @@ def _translate_openrouter(
         temperature=0,
         retry_label="OpenRouter translation call",
     )
-    translated = resp.choices[0].message.content.strip()
+    content = resp.choices[0].message.content
+    if content is None:
+        raise RuntimeError(
+            f"OpenRouter returned content=None for translation (model={model}). "
+            "The model may not support plain-text generation in this configuration."
+        )
+    translated = _strip_think_tags(content.strip())
     usage = openrouter_usage_from_response(resp)
     pt = usage["prompt_tokens"]
     ct = usage["completion_tokens"]

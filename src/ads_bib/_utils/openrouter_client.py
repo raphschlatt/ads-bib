@@ -23,12 +23,21 @@ def openrouter_chat_completion(
     max_tokens: int,
     temperature: float,
     response_format: dict[str, Any] | None = None,
+    extra_body: dict[str, Any] | None = None,
     max_retries: int = 2,
     delay: float = 1.0,
     backoff: str = "linear",
     retry_label: str = "OpenRouter chat call",
 ) -> Any:
-    """Execute one chat completion call with retry handling."""
+    """Execute one chat completion call with retry handling.
+
+    Reasoning is suppressed by default (``reasoning.effort = "none"``)
+    because labeling and translation tasks do not benefit from chain-of-
+    thought and reasoning tokens consume the ``max_tokens`` budget.  When
+    *response_format* is set, ``provider.require_parameters`` is also
+    enabled so OpenRouter only routes to providers that support the
+    requested format.
+    """
 
     def _on_retry(retry_index: int, retries: int, wait: float, exc: Exception) -> None:
         logger.warning(
@@ -50,6 +59,16 @@ def openrouter_chat_completion(
         }
         if response_format is not None:
             kwargs["response_format"] = response_format
+        merged_extra: dict[str, Any] = {"reasoning": {"effort": "none"}}
+        if response_format is not None:
+            merged_extra.setdefault("provider", {})["require_parameters"] = True
+        if extra_body:
+            for key, val in extra_body.items():
+                if isinstance(val, dict) and isinstance(merged_extra.get(key), dict):
+                    merged_extra[key].update(val)
+                else:
+                    merged_extra[key] = val
+        kwargs["extra_body"] = merged_extra
         return client.chat.completions.create(**kwargs)
 
     try:

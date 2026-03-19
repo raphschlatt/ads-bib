@@ -418,6 +418,47 @@ def _strip_think_tags_from_topics(topic_model) -> None:
         ]
 
 
+class _SafeOpenRouterLiteLLM:
+    """Drop-in wrapper for BERTopic's ``LiteLLM`` that guards against ``content=None``.
+
+    BERTopic's upstream ``_litellm.py`` calls
+    ``response["choices"][0]["message"]["content"].strip()`` with no null-check,
+    which crashes when reasoning models return ``content=None``.  This wrapper
+    delegates to a real ``LiteLLM`` instance but patches ``litellm.completion``
+    for the duration of ``extract_topics`` so that ``None`` content is replaced
+    with an empty string.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        from bertopic.representation import LiteLLM
+
+        self._inner = LiteLLM(**kwargs)
+
+    def extract_topics(
+        self, topic_model: Any, documents: Any, c_tf_idf: Any, topics: Any,
+    ) -> Any:
+        import bertopic.representation._litellm as _bt_litellm
+
+        _orig = _bt_litellm.completion
+
+        def _null_safe_completion(*args: Any, **kwargs: Any) -> Any:
+            response = _orig(*args, **kwargs)
+            for choice in response.get("choices", []):
+                msg = choice.get("message", {})
+                if msg.get("content") is None:
+                    msg["content"] = ""
+            return response
+
+        _bt_litellm.completion = _null_safe_completion
+        try:
+            return self._inner.extract_topics(topic_model, documents, c_tf_idf, topics)
+        finally:
+            _bt_litellm.completion = _orig
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 def _create_llm(
     provider: str,
     model: str,
@@ -512,6 +553,8 @@ def _create_llm(
                 kwargs["model"] = f"openrouter/{resolved_model}"
             if resolved_api_key:
                 kwargs["generator_kwargs"]["api_key"] = resolved_api_key
+            kwargs["generator_kwargs"]["extra_body"] = {"reasoning": {"effort": "none"}}
+            return _SafeOpenRouterLiteLLM(**kwargs)
         else:
             kwargs["model"] = normalize_huggingface_model_for_litellm(resolved_model)
             if resolved_api_key:
@@ -623,30 +666,27 @@ def _create_tracked_toponymy_namer(
             temperature: float,
             max_tokens: int,
         ) -> str:
-            try:
-                async with self._semaphore:
-                    response = await asyncio.to_thread(
-                        openrouter_chat_completion,
-                        client=self.client,
-                        model=self.model,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        response_format={"type": "json_object"},
-                        retry_label="Toponymy OpenRouter labeling call",
-                    )
-                stats = openrouter_usage_from_response(response)
-                usage["prompt_tokens"] += int(stats["prompt_tokens"])
-                usage["completion_tokens"] += int(stats["completion_tokens"])
-                usage["call_records"].append(stats["call_record"])
-                return response.choices[0].message.content or ""
-            except Exception as exc:
-                warnings.warn(
-                    f"Toponymy OpenRouter labeling failed: {type(exc).__name__}: {exc}",
-                    RuntimeWarning,
-                    stacklevel=2,
+            async with self._semaphore:
+                response = await asyncio.to_thread(
+                    openrouter_chat_completion,
+                    client=self.client,
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format={"type": "json_object"},
+                    retry_label="Toponymy OpenRouter labeling call",
                 )
-                return ""
+            stats = openrouter_usage_from_response(response)
+            usage["prompt_tokens"] += int(stats["prompt_tokens"])
+            usage["completion_tokens"] += int(stats["completion_tokens"])
+            usage["call_records"].append(stats["call_record"])
+            content = response.choices[0].message.content
+            if content is None:
+                raise RuntimeError(
+                    f"OpenRouter returned content=None for Toponymy labeling (model={self.model})."
+                )
+            return content
 
         async def _call_llm_batch(
             self,
