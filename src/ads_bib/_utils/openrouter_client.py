@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal, TypeAlias
 
 from ads_bib._utils.ads_api import retry_call
 from ads_bib._utils.openrouter_costs import (
@@ -13,6 +13,7 @@ from ads_bib._utils.openrouter_costs import (
 )
 
 logger = logging.getLogger(__name__)
+OpenRouterContentState: TypeAlias = Literal["ok", "missing", "empty"]
 
 
 def openrouter_chat_completion(
@@ -22,6 +23,7 @@ def openrouter_chat_completion(
     messages: list[dict[str, str]],
     max_tokens: int,
     temperature: float,
+    stop: list[str] | str | None = None,
     response_format: dict[str, Any] | None = None,
     extra_body: dict[str, Any] | None = None,
     max_retries: int = 2,
@@ -57,6 +59,8 @@ def openrouter_chat_completion(
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if stop is not None:
+            kwargs["stop"] = stop
         if response_format is not None:
             kwargs["response_format"] = response_format
         merged_extra: dict[str, Any] = {"reasoning": {"effort": "none"}}
@@ -88,6 +92,30 @@ def openrouter_chat_completion(
             exc,
         )
         raise
+
+
+def openrouter_response_content(response: Any) -> tuple[str | None, OpenRouterContentState]:
+    """Return message content plus a normalized availability state."""
+    choices = response.get("choices", []) if isinstance(response, dict) else getattr(response, "choices", [])
+    if not choices:
+        return None, "missing"
+
+    first_choice = choices[0]
+    if isinstance(first_choice, dict):
+        message = first_choice.get("message", {})
+    else:
+        message = getattr(first_choice, "message", None)
+        if message is None:
+            return None, "missing"
+
+    content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+    if content is None:
+        return None, "missing"
+
+    text = str(content)
+    if not text.strip():
+        return text, "empty"
+    return text, "ok"
 
 
 def openrouter_usage_from_response(response: Any) -> dict[str, Any]:

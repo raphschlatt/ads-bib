@@ -171,7 +171,7 @@ def test_reduce_outliers_tracks_post_outlier_llm_usage(monkeypatch):
 
     @contextmanager
     def _fake_track_litellm_usage(*, enabled: bool):
-        assert enabled is True
+        assert enabled is False
         yield {"prompt_tokens": 12, "completion_tokens": 3, "call_records": []}
 
     def _fake_record_llm_usage(usage, **kwargs):
@@ -180,6 +180,11 @@ def test_reduce_outliers_tracks_post_outlier_llm_usage(monkeypatch):
         calls["llm_provider"] = kwargs["llm_provider"]
 
     monkeypatch.setattr(tm_backends, "_track_litellm_usage", _fake_track_litellm_usage)
+    monkeypatch.setattr(
+        tm_backends,
+        "_consume_openrouter_representation_usage",
+        lambda representation_model: {"prompt_tokens": 12, "completion_tokens": 3, "call_records": []},
+    )
     monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
 
     tm.reduce_outliers(

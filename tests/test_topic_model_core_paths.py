@@ -157,6 +157,11 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
         calls["record_kwargs"] = kwargs
 
     monkeypatch.setattr(tm_backends, "_track_litellm_usage", _fake_track_litellm_usage)
+    monkeypatch.setattr(
+        tm_backends,
+        "_consume_openrouter_representation_usage",
+        lambda representation_model: {"prompt_tokens": 9, "completion_tokens": 3, "call_records": []},
+    )
     monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
 
     model = tm.fit_bertopic(
@@ -178,7 +183,7 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert isinstance(model, _FakeBERTopic)
     assert calls["fit_documents"] == ["d1", "d2"]
     assert calls["fit_shape"] == (2, 5)
-    assert calls["track_enabled"] is True
+    assert calls["track_enabled"] is False
     assert calls["init_kwargs"]["hdbscan_model"] is cluster_model
     assert calls["init_kwargs"]["top_n_words"] == 33
     assert calls["vectorizer_kwargs"]["min_df"] == 1

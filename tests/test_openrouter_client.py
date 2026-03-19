@@ -136,6 +136,49 @@ def test_extra_body_merges_caller_entries(monkeypatch):
     assert extra["provider"]["order"] == ["Together"]
 
 
+def test_openrouter_chat_completion_passes_stop(monkeypatch):
+    client, captured = _make_capturing_client()
+    monkeypatch.setattr(oc, "retry_call", _passthrough_retry_call)
+
+    oc.openrouter_chat_completion(
+        client=client,
+        model="test/model",
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=32,
+        temperature=0.0,
+        stop=["\n"],
+    )
+
+    assert captured["stop"] == ["\n"]
+
+
+def test_openrouter_response_content_reports_ok_for_non_empty_string():
+    response = {"choices": [{"message": {"content": "alpha"}}]}
+
+    content, state = oc.openrouter_response_content(response)
+
+    assert content == "alpha"
+    assert state == "ok"
+
+
+def test_openrouter_response_content_reports_missing_for_none():
+    response = {"choices": [{"message": {"content": None}}]}
+
+    content, state = oc.openrouter_response_content(response)
+
+    assert content is None
+    assert state == "missing"
+
+
+def test_openrouter_response_content_reports_empty_for_whitespace():
+    response = {"choices": [{"message": {"content": "   "}}]}
+
+    content, state = oc.openrouter_response_content(response)
+
+    assert content == "   "
+    assert state == "empty"
+
+
 def test_openrouter_usage_from_response_normalizes_fields(monkeypatch):
     monkeypatch.setattr(
         oc,

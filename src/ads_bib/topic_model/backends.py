@@ -9,6 +9,7 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
+import time
 from typing import Any, Literal, TypeAlias, cast
 import warnings
 
@@ -35,6 +36,7 @@ from ads_bib._utils.logging import (
 from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
+    openrouter_response_content,
     openrouter_usage_from_response,
 )
 from ads_bib._utils.openrouter_costs import (
@@ -418,45 +420,177 @@ def _strip_think_tags_from_topics(topic_model) -> None:
         ]
 
 
-class _SafeOpenRouterLiteLLM:
-    """Drop-in wrapper for BERTopic's ``LiteLLM`` that guards against ``content=None``.
+def _new_usage_summary() -> dict[str, Any]:
+    """Return an empty usage accumulator with the shared LLM schema."""
+    return {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
-    BERTopic's upstream ``_litellm.py`` calls
-    ``response["choices"][0]["message"]["content"].strip()`` with no null-check,
-    which crashes when reasoning models return ``content=None``.  This wrapper
-    delegates to a real ``LiteLLM`` instance but patches ``litellm.completion``
-    for the duration of ``extract_topics`` so that ``None`` content is replaced
-    with an empty string.
-    """
 
-    def __init__(self, **kwargs: Any) -> None:
-        from bertopic.representation import LiteLLM
+def _merge_usage_summary(target: dict[str, Any], source: dict[str, Any] | None) -> None:
+    """Merge one usage payload into another."""
+    if not source:
+        return
+    target["prompt_tokens"] += int(source.get("prompt_tokens", 0))
+    target["completion_tokens"] += int(source.get("completion_tokens", 0))
+    target["call_records"].extend(list(source.get("call_records", [])))
 
-        self._inner = LiteLLM(**kwargs)
 
-    def extract_topics(
-        self, topic_model: Any, documents: Any, c_tf_idf: Any, topics: Any,
-    ) -> Any:
-        import bertopic.representation._litellm as _bt_litellm
+def _consume_openrouter_representation_usage(representation_model: Any) -> dict[str, Any]:
+    """Collect and reset usage from repo-owned OpenRouter BERTopic representations."""
+    usage = _new_usage_summary()
 
-        _orig = _bt_litellm.completion
+    def _visit(node: Any) -> None:
+        if isinstance(node, dict):
+            for value in node.values():
+                _visit(value)
+            return
+        if isinstance(node, (list, tuple)):
+            for value in node:
+                _visit(value)
+            return
+        consume = getattr(node, "consume_usage", None)
+        if callable(consume):
+            _merge_usage_summary(usage, consume())
 
-        def _null_safe_completion(*args: Any, **kwargs: Any) -> Any:
-            response = _orig(*args, **kwargs)
-            for choice in response.get("choices", []):
-                msg = choice.get("message", {})
-                if msg.get("content") is None:
-                    msg["content"] = ""
-            return response
+    _visit(representation_model)
+    return usage
 
-        _bt_litellm.completion = _null_safe_completion
-        try:
-            return self._inner.extract_topics(topic_model, documents, c_tf_idf, topics)
-        finally:
-            _bt_litellm.completion = _orig
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._inner, name)
+def _create_openrouter_bertopic_representation(
+    *,
+    model: str,
+    prompt: str,
+    nr_docs: int,
+    diversity: float,
+    delay: float,
+    max_tokens: int,
+    api_key: str | None,
+) -> Any:
+    """Create a BERTopic representation model that calls OpenRouter directly."""
+    from bertopic.representation._base import BaseRepresentation
+
+    class _OpenRouterBERTopicRepresentation(BaseRepresentation):
+        def __init__(self) -> None:
+            self.model = model.removeprefix("openrouter/")
+            self.prompt = prompt
+            self.nr_docs = nr_docs
+            self.diversity = diversity
+            self.delay_in_seconds = delay
+            self.max_tokens = max(1, int(max_tokens))
+            self.api_key = api_key
+            self.api_base = DEFAULT_OPENROUTER_API_BASE
+            self._client = None
+            self._usage = _new_usage_summary()
+
+        def _get_client(self) -> Any:
+            if self._client is None:
+                from openai import OpenAI
+
+                self._client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+            return self._client
+
+        def consume_usage(self) -> dict[str, Any]:
+            usage = _new_usage_summary()
+            _merge_usage_summary(usage, self._usage)
+            self._usage = _new_usage_summary()
+            return usage
+
+        def extract_topics(
+            self,
+            topic_model: Any,
+            documents: pd.DataFrame,
+            c_tf_idf: Any,
+            topics: dict[int, list[tuple[str, float]]],
+        ) -> dict[int, list[tuple[str, float]]]:
+            repr_docs_mappings, _, _, _ = topic_model._extract_representative_docs(
+                c_tf_idf,
+                documents,
+                topics,
+                500,
+                self.nr_docs,
+                self.diversity,
+            )
+
+            updated_topics: dict[int, list[tuple[str, float]]] = {}
+            for topic, docs in tqdm(repr_docs_mappings.items(), disable=not topic_model.verbose):
+                if self.delay_in_seconds:
+                    time.sleep(self.delay_in_seconds)
+
+                fallback = list(topics.get(topic, [(f"Topic {topic}", 1.0)]))
+                try:
+                    response = openrouter_chat_completion(
+                        client=self._get_client(),
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": "You are a helpful assistant."},
+                            {"role": "user", "content": self._create_prompt(docs, topic, topics)},
+                        ],
+                        max_tokens=self.max_tokens,
+                        temperature=0.0,
+                        stop=["\n"],
+                        retry_label="BERTopic OpenRouter labeling call",
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "  BERTopic OpenRouter labeling fallback for topic %s (model=%s): %s: %s",
+                        topic,
+                        self.model,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    updated_topics[topic] = fallback
+                    continue
+
+                stats = openrouter_usage_from_response(response)
+                self._usage["prompt_tokens"] += int(stats["prompt_tokens"])
+                self._usage["completion_tokens"] += int(stats["completion_tokens"])
+                self._usage["call_records"].append(stats["call_record"])
+
+                content, content_state = openrouter_response_content(response)
+                label = self._normalize_label(content) if content_state == "ok" and content is not None else ""
+                if not label:
+                    logger.warning(
+                        "  BERTopic OpenRouter labeling fallback for topic %s (model=%s): content_state=%s",
+                        topic,
+                        self.model,
+                        content_state,
+                    )
+                    updated_topics[topic] = fallback
+                    continue
+
+                updated_topics[topic] = [(label, 1)]
+
+            return updated_topics
+
+        def _create_prompt(
+            self,
+            docs: list[str],
+            topic: int,
+            topics: dict[int, list[tuple[str, float]]],
+        ) -> str:
+            prompt_text = self.prompt
+            keywords = [word for word, _score in topics.get(topic, [])]
+            if "[KEYWORDS]" in prompt_text:
+                prompt_text = prompt_text.replace("[KEYWORDS]", " ".join(keywords))
+            if "[DOCUMENTS]" in prompt_text:
+                prompt_text = prompt_text.replace(
+                    "[DOCUMENTS]",
+                    "".join(f"- {doc[:255]}\n" for doc in docs),
+                )
+            return prompt_text
+
+        @staticmethod
+        def _normalize_label(content: str | None) -> str:
+            if content is None:
+                return ""
+            label = _strip_think_tags(str(content)).strip()
+            if not label:
+                return ""
+            label = label.splitlines()[0].strip()
+            if label.lower().startswith("topic:"):
+                label = label.split(":", 1)[1].strip()
+            return label
+
+    return _OpenRouterBERTopicRepresentation()
 
 
 def _create_llm(
@@ -527,14 +661,24 @@ def _create_llm(
             diversity=diversity,
         )
 
-    if provider in ("huggingface_api", "openrouter"):
+    if provider == "openrouter":
+        return _create_openrouter_bertopic_representation(
+            model=model,
+            prompt=prompt,
+            nr_docs=nr_docs,
+            diversity=diversity,
+            delay=delay,
+            max_tokens=llm_max_new_tokens,
+            api_key=api_key,
+        )
+
+    if provider == "huggingface_api":
         from bertopic.representation import LiteLLM
 
         resolved_model = model
         resolved_api_key = api_key
-        if provider == "huggingface_api":
-            resolved_model = normalize_huggingface_model(model)
-            resolved_api_key = resolve_huggingface_api_key(api_key)
+        resolved_model = normalize_huggingface_model(model)
+        resolved_api_key = resolve_huggingface_api_key(api_key)
 
         kwargs: dict[str, Any] = {
             "model": resolved_model,
@@ -548,17 +692,9 @@ def _create_llm(
                 "stop": ["\n"],
             },
         }
-        if provider == "openrouter":
-            if not resolved_model.startswith("openrouter/"):
-                kwargs["model"] = f"openrouter/{resolved_model}"
-            if resolved_api_key:
-                kwargs["generator_kwargs"]["api_key"] = resolved_api_key
-            kwargs["generator_kwargs"]["extra_body"] = {"reasoning": {"effort": "none"}}
-            return _SafeOpenRouterLiteLLM(**kwargs)
-        else:
-            kwargs["model"] = normalize_huggingface_model_for_litellm(resolved_model)
-            if resolved_api_key:
-                kwargs["generator_kwargs"]["api_key"] = resolved_api_key
+        kwargs["model"] = normalize_huggingface_model_for_litellm(resolved_model)
+        if resolved_api_key:
+            kwargs["generator_kwargs"]["api_key"] = resolved_api_key
         return LiteLLM(**kwargs)
 
     raise ValueError(f"Unknown LLM provider: {provider}")
@@ -666,26 +802,39 @@ def _create_tracked_toponymy_namer(
             temperature: float,
             max_tokens: int,
         ) -> str:
-            async with self._semaphore:
-                response = await asyncio.to_thread(
-                    openrouter_chat_completion,
-                    client=self.client,
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    response_format={"type": "json_object"},
-                    retry_label="Toponymy OpenRouter labeling call",
+            try:
+                async with self._semaphore:
+                    response = await asyncio.to_thread(
+                        openrouter_chat_completion,
+                        client=self.client,
+                        model=self.model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        response_format={"type": "json_object"},
+                        retry_label="Toponymy OpenRouter labeling call",
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "  Toponymy OpenRouter labeling fallback (model=%s): %s: %s",
+                    self.model,
+                    type(exc).__name__,
+                    exc,
                 )
+                return ""
+
             stats = openrouter_usage_from_response(response)
             usage["prompt_tokens"] += int(stats["prompt_tokens"])
             usage["completion_tokens"] += int(stats["completion_tokens"])
             usage["call_records"].append(stats["call_record"])
-            content = response.choices[0].message.content
-            if content is None:
-                raise RuntimeError(
-                    f"OpenRouter returned content=None for Toponymy labeling (model={self.model})."
+            content, content_state = openrouter_response_content(response)
+            if content_state != "ok" or content is None:
+                logger.warning(
+                    "  Toponymy OpenRouter labeling fallback (model=%s): content_state=%s",
+                    self.model,
+                    content_state,
                 )
+                return ""
             return content
 
         async def _call_llm_batch(
@@ -1431,11 +1580,16 @@ def fit_bertopic(
 
     logger.info("Fitting BERTopic (LLM: %s/%s) ...", llm_provider, llm_model)
 
-    track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
-    with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
+    track_litellm_usage = cost_tracker is not None and llm_provider == "huggingface_api"
+    with _track_litellm_usage(enabled=track_litellm_usage) as llm_usage:
         with tqdm(total=1, desc="BERTopic fit", disable=not show_progress) as pbar:
             topic_model.fit_transform(documents, reduced_5d)
             pbar.update(1)
+
+    if llm_provider == "openrouter":
+        llm_usage = _consume_openrouter_representation_usage(
+            getattr(topic_model, "representation_model", rep_model)
+        )
 
     _record_llm_usage(
         llm_usage,
@@ -1691,8 +1845,8 @@ def reduce_outliers(
     logger.info("  Refreshing topic representations after outlier reassignment (not a full BERTopic refit).")
     logger.info("  Topic reduction must happen before this step when using manual topic assignments.")
 
-    track_llm_usage = cost_tracker is not None and llm_provider in ("openrouter", "huggingface_api")
-    with _track_litellm_usage(enabled=track_llm_usage) as llm_usage:
+    track_litellm_usage = cost_tracker is not None and llm_provider == "huggingface_api"
+    with _track_litellm_usage(enabled=track_litellm_usage) as llm_usage:
         with tqdm(total=1, desc="BERTopic refresh", disable=not show_progress) as pbar:
             with _suppress_manual_topics_warning():
                 topic_model.update_topics(
@@ -1703,6 +1857,11 @@ def reduce_outliers(
                     representation_model=topic_model.representation_model,
                 )
             pbar.update(1)
+
+    if llm_provider == "openrouter":
+        llm_usage = _consume_openrouter_representation_usage(
+            getattr(topic_model, "representation_model", None)
+        )
 
     _record_llm_usage(
         llm_usage,

@@ -28,6 +28,7 @@ from ads_bib._utils.logging import get_console_stream
 from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
+    openrouter_response_content,
     openrouter_usage_from_response,
 )
 from ads_bib._utils.openrouter_costs import (
@@ -226,10 +227,10 @@ def _translate_openrouter(
         temperature=0,
         retry_label="OpenRouter translation call",
     )
-    content = resp.choices[0].message.content
-    if content is None:
+    content, content_state = openrouter_response_content(resp)
+    if content_state != "ok" or content is None:
         raise RuntimeError(
-            f"OpenRouter returned content=None for translation (model={model}). "
+            f"OpenRouter returned content_state={content_state!r} for translation (model={model}). "
             "The model may not support plain-text generation in this configuration."
         )
     translated = _strip_think_tags(content.strip())

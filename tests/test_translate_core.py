@@ -286,7 +286,7 @@ def test_translate_openrouter_raises_on_content_none(monkeypatch):
 
     import pytest
 
-    with pytest.raises(RuntimeError, match="content=None"):
+    with pytest.raises(RuntimeError, match="content_state='missing'"):
         tr._translate_openrouter("Hallo", "en", "openrouter/test-model", "dummy-key")
 
 
