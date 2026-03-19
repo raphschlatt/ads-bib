@@ -1790,6 +1790,94 @@ def fit_toponymy(
 # Outlier reduction
 # ---------------------------------------------------------------------------
 
+
+def _invert_cluster_tree(
+    cluster_tree: dict[tuple[int, int], list[tuple[int, int]]],
+) -> dict[tuple[int, int], tuple[int, int]]:
+    """Invert ``{parent: [children]}`` to ``{child: parent}`` for O(1) lookup."""
+    child_to_parent: dict[tuple[int, int], tuple[int, int]] = {}
+    for parent, children in cluster_tree.items():
+        for child in children:
+            child_to_parent[child] = parent
+    return child_to_parent
+
+
+def reduce_toponymy_outliers(
+    topic_model: Any,
+    embeddings: np.ndarray,
+    *,
+    threshold: float = 0.5,
+) -> np.ndarray:
+    """Reassign Toponymy outliers bottom-up with tree propagation.
+
+    For each layer (finest → coarsest):
+
+    1. **Tree propagation** (layers 1+): docs reassigned at the previous layer
+       inherit their parent cluster via ``cluster_tree_``.
+    2. **Embedding similarity**: remaining outliers are matched against the
+       layer's ``centroid_vectors`` using cosine similarity.
+
+    Parameters
+    ----------
+    topic_model
+        Fitted Toponymy model with ``cluster_layers_``, ``cluster_tree_``,
+        ``topic_names_``, and ``topic_primary_layer_index_``.
+    embeddings : np.ndarray
+        Full embedding vectors (must match dimensionality of
+        ``layer.centroid_vectors``).
+    threshold : float
+        Minimum cosine similarity for reassignment (same semantics as
+        the BERTopic ``outlier_threshold``).
+
+    Returns
+    -------
+    np.ndarray
+        Updated topic assignments for the primary (selected) layer.
+    """
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    cluster_layers = topic_model.cluster_layers_
+    cluster_tree = getattr(topic_model, "cluster_tree_", None) or {}
+    child_to_parent = _invert_cluster_tree(cluster_tree)
+
+    prev_labels: np.ndarray | None = None
+
+    for i, layer in enumerate(cluster_layers):
+        labels = layer.cluster_labels
+        before = int((labels == -1).sum())
+
+        # Pass A — tree propagation from the layer below
+        if i > 0 and prev_labels is not None:
+            outlier_and_prev_assigned = (labels == -1) & (prev_labels != -1)
+            for doc_idx in np.where(outlier_and_prev_assigned)[0]:
+                parent = child_to_parent.get((i - 1, int(prev_labels[doc_idx])))
+                if parent is not None and parent[0] == i:
+                    labels[doc_idx] = parent[1]
+
+        # Pass B — cosine similarity for remaining outliers
+        outlier_mask = labels == -1
+        centroids = getattr(layer, "centroid_vectors", None)
+        if outlier_mask.any() and centroids is not None and len(centroids) > 0:
+            sims = cosine_similarity(
+                embeddings[outlier_mask], centroids,
+            )
+            sims[sims < threshold] = 0
+            best = sims.argmax(axis=1)
+            assigned = sims.max(axis=1) > 0
+            labels[np.where(outlier_mask)[0][assigned]] = best[assigned]
+
+        # Refresh per-doc label strings
+        if hasattr(layer, "make_topic_name_vector"):
+            layer.make_topic_name_vector()
+
+        after = int((labels == -1).sum())
+        logger.info("  Layer %s outliers: %s → %s", i, f"{before:,}", f"{after:,}")
+        prev_labels = labels
+
+    primary = getattr(topic_model, "topic_primary_layer_index_", len(cluster_layers) - 1)
+    return np.asarray(cluster_layers[primary].cluster_labels, dtype=int)
+
+
 def reduce_outliers(
     topic_model: "BERTopic",
     documents: list[str],
@@ -1883,4 +1971,5 @@ __all__ = [
     "fit_bertopic",
     "fit_toponymy",
     "reduce_outliers",
+    "reduce_toponymy_outliers",
 ]

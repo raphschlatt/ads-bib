@@ -1810,3 +1810,113 @@ def test_fit_toponymy_supports_llama_server_llm_provider(tmp_path, monkeypatch):
     assert topics.tolist() == [-1, 0, 1]
     assert calls["usage"] is None
     assert calls["kwargs"]["llm_provider"] == "llama_server"
+
+
+# ---------------------------------------------------------------------------
+# Toponymy outlier reduction
+# ---------------------------------------------------------------------------
+
+
+class _OutlierFakeLayer:
+    """Minimal ClusterLayer fake with centroid_vectors and make_topic_name_vector."""
+
+    def __init__(self, labels, centroids, topic_names):
+        self.cluster_labels = np.asarray(labels, dtype=int)
+        self.centroid_vectors = np.asarray(centroids, dtype=np.float32)
+        self.topic_names = list(topic_names)
+        self.topic_name_vector = np.full(len(labels), "Unlabelled", dtype=object)
+        self.make_topic_name_vector()
+
+    def make_topic_name_vector(self):
+        self.topic_name_vector = np.full(len(self.cluster_labels), "Unlabelled", dtype=object)
+        for i, name in enumerate(self.topic_names):
+            self.topic_name_vector[self.cluster_labels == i] = name
+        return self.topic_name_vector
+
+
+def _make_outlier_test_model(layer0_labels, layer1_labels, centroids_0, centroids_1, tree):
+    """Build a minimal fake Toponymy model for outlier-reduction tests."""
+
+    class _Model:
+        pass
+
+    m = _Model()
+    m.cluster_layers_ = [
+        _OutlierFakeLayer(layer0_labels, centroids_0, [f"Fine_{i}" for i in range(len(centroids_0))]),
+        _OutlierFakeLayer(layer1_labels, centroids_1, [f"Coarse_{i}" for i in range(len(centroids_1))]),
+    ]
+    m.cluster_tree_ = tree
+    m.topic_primary_layer_index_ = 1
+    m.topic_names_ = [
+        m.cluster_layers_[0].topic_names,
+        m.cluster_layers_[1].topic_names,
+    ]
+    return m
+
+
+def test_reduce_toponymy_outliers_layer0_similarity():
+    """Outlier at layer 0 close to centroid 0 gets reassigned."""
+    # 3 docs; doc 0 is outlier, docs 1-2 assigned
+    # Centroid 0 = [1, 0], centroid 1 = [0, 1]
+    # Doc 0 embedding = [0.9, 0.1] → closest to centroid 0
+    model = _make_outlier_test_model(
+        layer0_labels=[-1, 0, 1],
+        layer1_labels=[0, 0, 1],
+        centroids_0=[[1, 0], [0, 1]],
+        centroids_1=[[1, 0], [0, 1]],
+        tree={(1, 0): [(0, 0)], (1, 1): [(0, 1)]},
+    )
+    vecs = np.array([[0.9, 0.1], [1, 0], [0, 1]], dtype=np.float32)
+
+    result = tm_backends.reduce_toponymy_outliers(model, vecs, threshold=0.5)
+
+    assert model.cluster_layers_[0].cluster_labels[0] == 0
+    assert model.cluster_layers_[0].topic_name_vector[0] == "Fine_0"
+    # Layer 1 should propagate via tree: fine 0 → coarse 0
+    assert model.cluster_layers_[1].cluster_labels[0] == 0
+    assert result[0] == 0  # primary layer is 1
+
+
+def test_reduce_toponymy_outliers_tree_propagation():
+    """Doc reassigned at layer 0 inherits coarse topic via tree, not similarity."""
+    # Doc 0: outlier on both layers. Embedding close to fine centroid 0.
+    # Fine 0's parent is coarse 1 (not coarse 0!).
+    # Without tree propagation, similarity might assign to coarse 0.
+    # With tree propagation, it must go to coarse 1.
+    model = _make_outlier_test_model(
+        layer0_labels=[-1, 0, 1],
+        layer1_labels=[-1, 0, 1],
+        centroids_0=[[1, 0], [0, 1]],
+        centroids_1=[[1, 0], [0, 1]],  # coarse 0 is also at [1,0]
+        tree={(1, 1): [(0, 0)], (1, 0): [(0, 1)]},  # fine 0 → coarse 1
+    )
+    vecs = np.array([[0.9, 0.1], [1, 0], [0, 1]], dtype=np.float32)
+
+    result = tm_backends.reduce_toponymy_outliers(model, vecs, threshold=0.5)
+
+    # Fine layer: doc 0 → fine cluster 0 (by similarity)
+    assert model.cluster_layers_[0].cluster_labels[0] == 0
+    # Coarse layer: doc 0 → coarse 1 (via tree: fine 0 → coarse 1), NOT coarse 0
+    assert model.cluster_layers_[1].cluster_labels[0] == 1
+    assert result[0] == 1
+
+
+def test_reduce_toponymy_outliers_threshold_respected():
+    """Outlier with low similarity stays -1 when below threshold."""
+    # Doc 0 embedding [0.5, 0.5] is equidistant; with high threshold it stays outlier
+    model = _make_outlier_test_model(
+        layer0_labels=[-1, 0, 1],
+        layer1_labels=[-1, 0, 1],
+        centroids_0=[[1, 0], [0, 1]],
+        centroids_1=[[1, 0], [0, 1]],
+        tree={(1, 0): [(0, 0)], (1, 1): [(0, 1)]},
+    )
+    # Use orthogonal vector that has ~0.7 cosine similarity to both centroids
+    vecs = np.array([[0.5, 0.5], [1, 0], [0, 1]], dtype=np.float32)
+
+    result = tm_backends.reduce_toponymy_outliers(model, vecs, threshold=0.99)
+
+    assert model.cluster_layers_[0].cluster_labels[0] == -1
+    assert model.cluster_layers_[1].cluster_labels[0] == -1
+    assert result[0] == -1
+    assert model.cluster_layers_[0].topic_name_vector[0] == "Unlabelled"
