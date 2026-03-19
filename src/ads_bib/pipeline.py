@@ -1505,11 +1505,23 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
         if cfg.outlier_threshold > 0:
             if reporter is not None:
                 reporter.detail("reassigning outliers across Toponymy layers")
-            topics = topic_model_backends.reduce_toponymy_outliers(
-                topic_model,
-                ctx.embeddings,
-                threshold=cfg.outlier_threshold,
-            )
+                with reporter.progress(total=1, desc="outlier reduction") as pbar:
+                    before = int((topics == -1).sum())
+                    topics = topic_model_backends.reduce_toponymy_outliers(
+                        topic_model,
+                        ctx.embeddings,
+                        threshold=cfg.outlier_threshold,
+                    )
+                    after = int((topics == -1).sum())
+                    if pbar is not None:
+                        pbar.update(1)
+                reporter.detail(f"outliers: {before:,} → {after:,}")
+            else:
+                topics = topic_model_backends.reduce_toponymy_outliers(
+                    topic_model,
+                    ctx.embeddings,
+                    threshold=cfg.outlier_threshold,
+                )
             topic_names = topic_model.topic_names_[topic_model.topic_primary_layer_index_]
             topic_info = topic_model_backends._build_toponymy_topic_info(topics, topic_names)
     else:
