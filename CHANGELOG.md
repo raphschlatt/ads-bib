@@ -36,6 +36,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
 
 ### Docs
+- Removed `CLAUDE.md`; repository engineering rules and conventions live in `AGENTS.md` only.
 - `README.md` now documents inline notebook section configs, the four official config roads, the local HF constraints file, and `.env` as the only secret location.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
 - README/runtime templates now document `HF_TOKEN`, the four official config roads, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).

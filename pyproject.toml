@@ -78,7 +78,6 @@ packages = ["src/ads_bib"]
 exclude = [
     "/.claude",
     "/AGENTS.md",
-    "/CLAUDE.md",
     "/Package_ToDo.md",
 ]
 

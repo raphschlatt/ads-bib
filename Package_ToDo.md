@@ -6,7 +6,7 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
 ## Festgelegte Entscheidungen
 
 - Kein `uv.lock` in dieser Release-Welle; `conda activate ADS_env` bleibt der kanonische lokale Pfad.
-- AI-Dateien duerfen im Repo bleiben, aber nicht in SDist/Wheel landen; lokale `.claude/`-Dateien gehoeren nicht ins Repo.
+- Meta-/Agenten-Regeln (`AGENTS.md`) und internes Backlog (`Package_ToDo.md`) duerfen im Repo bleiben, aber nicht in SDist/Wheel landen; lokale `.claude/`-Dateien gehoeren nicht ins Repo. `CLAUDE.md` wurde entfernt; kanonische Regeln liegen in `AGENTS.md`.
 - AND bleibt ein externes Package; `ads-bib` baut nur den ADS-spezifischen Adapter, die Validierung, das Rueck-Mapping und die Downstream-Nutzung.
 - Notebook output-clean ist ein Release-Freeze-Thema und kein taeglicher Development-Gate.
 - `CITATION.cff` kommt rein; ein separates `AUTHORS.md` ist fuer `0.1.x` nicht erforderlich.
@@ -71,15 +71,15 @@ Ziel: erster externer Release eines notebook-first Research-Packages mit externe
   - Evidenz (2026-03-12): `src/ads_bib/pipeline.py` und `src/ads_bib/notebook.py` nutzen jetzt denselben Summary-Finalisierungspfad; `src/ads_bib/run_manager.py` schreibt `run_summary.yaml` mit `schema_version: 2`, Status- und Stage-Metadaten; `tests/test_pipeline_runner.py`, `tests/test_notebook_session.py` und `tests/test_run_manager.py` decken Completed-/Failed-Run-Summaries ab.
 - [x] `.claude/settings.local.json` aus dem Repo entfernen und `.claude/` ignorieren.
   - Evidenz (2026-03-09): `.gitignore` enthaelt `.claude/`; `git ls-files .claude/settings.local.json .claude` liefert keine Treffer.
-- [x] `AGENTS.md`, `CLAUDE.md` und `Package_ToDo.md` aus SDist/Wheel ausschliessen.
-  - Evidenz (2026-03-12): `pyproject.toml` schliesst diese Pfade im SDist aus; `python -m build` und `python -m twine check dist/*` bleiben gruen; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer diese internen Dateien.
+- [x] `AGENTS.md` und `Package_ToDo.md` aus SDist/Wheel ausschliessen (frueher auch `CLAUDE.md` exclude; `CLAUDE.md` ist aus dem Repo entfernt).
+  - Evidenz (2026-03-12, aktualisiert 2026-03-24): `pyproject.toml` schliesst diese Pfade im SDist aus; `python -m build` und `python -m twine check dist/*` bleiben gruen; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer diese internen Dateien.
 - [x] `archive/` aus dem Default-Branch entfernen.
   - Evidenz (2026-03-12): Die historischen Notebooks/Altdateien unter `archive/` wurden aus dem Default-Branch entfernt; der Verlauf bleibt ueber Git-History verfuegbar; aktive Repo-Referenzen auf `archive/` wurden bereinigt.
 - [x] `.gitignore` explizit um Coverage-/HTML-/Ruff-Artefakte ergaenzen.
   - Evidenz (2026-03-09): `.gitignore` enthaelt `.ruff_cache/`, `.coverage`, `.coverage.*` und `htmlcov/`.
 - [x] SDist/Wheel-Inhalte nach jedem Packaging-Change pruefen.
   - Erfolgskriterium: keine lokalen Tooling-Dateien und keine internen Backlogs im Artefakt.
-  - Evidenz (2026-03-12): `python -m build` -> sdist und wheel erfolgreich gebaut; `python -m twine check dist/*` -> beide Artefakte `PASSED`; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer `AGENTS.md`, `CLAUDE.md`, `Package_ToDo.md`.
+  - Evidenz (2026-03-12, aktualisiert 2026-03-24): `python -m build` -> sdist und wheel erfolgreich gebaut; `python -m twine check dist/*` -> beide Artefakte `PASSED`; Inhaltspruefungen fuer SDist/Wheel zeigen keine Treffer fuer `AGENTS.md`, `Package_ToDo.md`.
 
 ## 6) Metadaten und Doku
 

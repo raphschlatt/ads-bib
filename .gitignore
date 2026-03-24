@@ -53,6 +53,7 @@ NUL
 
 # IDE
 .vscode/
+.cursor/
 .idea/
 *.swp
 *.swo
