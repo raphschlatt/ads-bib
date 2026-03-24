@@ -15,6 +15,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
+- Optional dependency `litellm` moved from the `topic` extra to `topic-llm` (OpenRouter / HF-via-LiteLLM labeling paths). Full installs still use `ads-bib[all]`, which includes `topic-llm`.
 - `pipeline.ipynb` now uses explicit section dicts plus `NotebookSession`; it no longer owns config assembly, invalidation, `globals()` syncing, or `START_STAGE` / `STOP_STAGE`.
 - Stage slicing remains a CLI/YAML concern; notebook reruns are driven by executing the corresponding stage cell.
 - Notebook stage cells are now strict and no longer auto-chain earlier stages such as `translate -> export`.

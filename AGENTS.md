@@ -108,7 +108,7 @@ Seed entries:
   - BERTopic: `llm_labeling`, `llm_labeling_post_outliers`
   - Toponymy: `llm_labeling_toponymy`
 - Toponymy provides aggregated LLM cost logging identical to the BERTopic output format.
-- BERTopic OpenRouter labeling is a conscious third-party exception (LiteLLM path) unless a low-risk adapter is explicitly implemented.
+- BERTopic OpenRouter labeling is a conscious third-party exception (LiteLLM path) unless a low-risk adapter is explicitly implemented; install the optional extra `topic-llm` (provides `litellm`) for those provider paths.
 - All Toponymy hierarchical layers are preserved as `Topic_Layer_X` columns in the output DataFrame for multi-level interactive maps.
 - After `reduce_outliers`, always refresh topic representations via `update_topics`.
   - Reason: topic assignments changed, so keywords/labels/representative docs must be recomputed.
