@@ -36,6 +36,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
 
 ### Docs
+- Site configuration lives at `docs/zensical.toml`; build and preview use `zensical ... -f docs/zensical.toml` from the repository root (including GitHub Actions).
+- `Package_ToDo.md` is no longer tracked in git; maintainers may keep a private local copy or use GitHub Issues for release tasks.
 - Removed `CLAUDE.md`; repository engineering rules and conventions live in `AGENTS.md` only.
 - `README.md` now documents inline notebook section configs, the four official config roads, the local HF constraints file, and `.env` as the only secret location.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.

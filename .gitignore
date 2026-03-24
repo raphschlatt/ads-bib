@@ -28,6 +28,9 @@ runs/**
 .venv/
 .claude/
 
+# Maintainer-only backlog (optional local file; not versioned)
+Package_ToDo.md
+
 # Python
 __pycache__/
 *.py[cod]

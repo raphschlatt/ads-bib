@@ -10,14 +10,14 @@ Build and preview the site in `ADS_env`:
 
 ```bash
 python -m pip install zensical
-zensical serve
-zensical build --clean
+zensical serve -f docs/zensical.toml
+zensical build --clean -f docs/zensical.toml
 ```
 
 The docs site uses:
 
 - `docs/` for source pages,
-- `zensical.toml` for site configuration,
+- `docs/zensical.toml` for site configuration,
 - `.github/workflows/docs.yml` for build and deployment.
 
 ## Hosting model

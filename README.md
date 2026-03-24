@@ -12,7 +12,7 @@ reproducible batch runs.
 
 - Docs site: <https://raphschlatt.github.io/ADS_Pipeline/>
 - Docs sources: `docs/`
-- Site config: `zensical.toml`
+- Site config: `docs/zensical.toml`
 
 Use the docs site for setup, the pipeline guide, configuration reference,
 troubleshooting, and developer runbooks. This README is the short GitHub
@@ -106,8 +106,8 @@ for provider choices, parameter tuning, and the full configuration reference.
 
 ```bash
 python -m pip install zensical
-zensical serve
-zensical build --clean
+zensical serve -f docs/zensical.toml
+zensical build --clean -f docs/zensical.toml
 ```
 
 The site publishes from the same repository through GitHub Pages and

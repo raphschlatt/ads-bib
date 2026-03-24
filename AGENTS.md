@@ -11,7 +11,7 @@ Engineering rules and operating conventions for this repository.
 ## 1) Architecture Map
 
 - Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
-- Docs site: `docs/` + `zensical.toml` + `.github/workflows/docs.yml`
+- Docs site: `docs/` + `docs/zensical.toml` + `.github/workflows/docs.yml`
 - Official batch defaults: `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, `configs/pipeline/local_gpu.yaml`
 - Shared runner: `src/ads_bib/pipeline.py`
 - Notebook adapter: `src/ads_bib/notebook.py`
@@ -54,7 +54,7 @@ Engineering rules and operating conventions for this repository.
 - Partial progress stays `[ ]` with a status note; never close items based on intent alone.
 - `Review_ToDo.md` consolidation backlog was completed on `2026-02-25`.
   The closed backlog is intentionally retained only in git history.
-  `Package_ToDo.md` is the active release/RC backlog.
+  Release/RC backlog is tracked outside the public tree (e.g. GitHub Issues or a local-only checklist); it is not a versioned file in this repository.
   Treat recurring quality obligations as operating rules, not as permanently open one-off tasks.
 
 ## 2.2) Architecture Notes (Lightweight)
@@ -217,4 +217,4 @@ Seed entries:
 - For environment guidance in this workspace, prefer Python 3.12 and avoid Python 3.13 experiment tracks unless explicitly requested.
 - Keep environment/tooling guidance aligned to the agreed stack in user discussions: conda environment workflow plus uv-driven package operations.
 - `toponymy_evoc` was removed after clean-room proof showed no clean upstream-owned install story; do not reintroduce it without fresh proof.
-- GitHub Actions builds the docs site with Zensical from the repository root (`zensical build --clean`); placing a non-root config requires `-f` and checking that paths to assets and nav still resolve.
+- GitHub Actions builds the docs site with Zensical from the repository root using `zensical build --clean -f docs/zensical.toml`.

@@ -78,7 +78,6 @@ packages = ["src/ads_bib"]
 exclude = [
     "/.claude",
     "/AGENTS.md",
-    "/Package_ToDo.md",
 ]
 
 [tool.pytest.ini_options]
