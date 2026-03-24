@@ -7,6 +7,8 @@ import types
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.requires_topic_stack
+
 
 def _load_visualize_module(monkeypatch):
     calls: dict = {}

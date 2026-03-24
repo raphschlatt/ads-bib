@@ -24,6 +24,8 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - fallback for direct test module execution
     from provider_profiles import REQUIRED_PROVIDER_PROFILES, ProviderProfile
 
+pytestmark = pytest.mark.requires_topic_stack
+
 
 def _build_xox_raw(rows: list[list[str]]) -> str:
     return "".join("xOx".join(row) + "xOx\n" for row in rows)

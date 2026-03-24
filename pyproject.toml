@@ -83,6 +83,7 @@ exclude = [
 [tool.pytest.ini_options]
 markers = [
     "slow: slower integration or dependency-heavy tests",
+    "requires_topic_stack: needs topic/umap/hdbscan/datamapplot extras (CI heavy job)",
 ]
 addopts = "--strict-markers"
 
