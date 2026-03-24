@@ -206,13 +206,15 @@ Seed entries:
 ## Learned User Preferences
 
 - Default to analysis and concrete suggestions first when explicitly asked for "nur Analyse/Plan"; do not start implementation until the user switches to execution.
-- Prioritize "clean and lean" simplification: prefer removing duplicate UI/code paths and avoid repo-owned compatibility layers when a smaller upstream-aligned fix or version constraint will do.
+- Prioritize "clean and lean" simplification: prefer removing duplicate UI/code paths and avoid repo-owned compatibility layers when a smaller upstream-aligned fix or version constraint will do; apply the same instinct to the public GitHub tree (one agent rules file, no duplicate agent overviews, editor hook state not versioned, internal backlog not in the public root when polish matters).
 - Keep cross-backend behavior and outputs aligned (for example BERTopic vs Toponymy) and avoid parallel UX concepts for the same function.
 - When proposing tuning choices, explain all key parameters succinctly (including both clustering and visualization dimensions), not only a subset.
 - Capture major dependency or architecture decisions in repo docs when they are made, so the same reasoning does not have to be rediscovered later.
+- When changing interactive topic-map visualization, treat regressions in default visible layer, legend chrome, typography, color scheme, and auxiliary controls as review blockers unless the user explicitly wants a new look; use the prior git baseline as the comparison target.
 
 ## Learned Workspace Facts
 
 - For environment guidance in this workspace, prefer Python 3.12 and avoid Python 3.13 experiment tracks unless explicitly requested.
 - Keep environment/tooling guidance aligned to the agreed stack in user discussions: conda environment workflow plus uv-driven package operations.
 - `toponymy_evoc` was removed after clean-room proof showed no clean upstream-owned install story; do not reintroduce it without fresh proof.
+- GitHub Actions builds the docs site with Zensical from the repository root (`zensical build --clean`); placing a non-root config requires `-f` and checking that paths to assets and nav still resolve.
