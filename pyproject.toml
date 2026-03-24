@@ -68,7 +68,7 @@ hdbscan = ["hdbscan"]
 translate-local = ["openai", "huggingface-hub"]
 translate-api = ["openai", "huggingface-hub"]
 translate-nllb = ["ctranslate2", "transformers>=4.56", "sentencepiece", "huggingface-hub"]
-test = ["pytest>=7", "ruff>=0.6"]
+test = ["pytest>=7", "ruff>=0.6", "pyarrow", "networkx"]
 all = ["ads-bib[topic,translate-local,translate-api,translate-nllb,umap,hdbscan]"]
 
 [tool.hatch.build.targets.wheel]

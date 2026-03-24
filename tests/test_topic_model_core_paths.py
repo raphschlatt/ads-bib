@@ -12,6 +12,8 @@ import ads_bib.topic_model as tm
 from ads_bib.topic_model import backends as tm_backends
 from ads_bib.topic_model import reduction as tm_reduction
 
+pytestmark = pytest.mark.requires_topic_stack
+
 
 def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
     calls: list[tuple[int, str, dict, int, str]] = []

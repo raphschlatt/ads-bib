@@ -21,6 +21,8 @@ from ads_bib.topic_model import backends as tm_backends
 from ads_bib.topic_model import embeddings as tm_embeddings
 from ads_bib.topic_model import reduction as tm_reduction
 
+pytestmark = pytest.mark.requires_topic_stack
+
 
 class _FakeTopicModel:
     def __init__(self):

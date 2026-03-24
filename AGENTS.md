@@ -11,7 +11,7 @@ Engineering rules and operating conventions for this repository.
 ## 1) Architecture Map
 
 - Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
-- Docs site: `docs/` + `docs/zensical.toml` + `.github/workflows/docs.yml`
+- Docs site: `docs/` + root `zensical.toml` + `.github/workflows/docs.yml`
 - Official batch defaults: `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, `configs/pipeline/local_gpu.yaml`
 - Shared runner: `src/ads_bib/pipeline.py`
 - Notebook adapter: `src/ads_bib/notebook.py`
@@ -211,10 +211,11 @@ Seed entries:
 - When proposing tuning choices, explain all key parameters succinctly (including both clustering and visualization dimensions), not only a subset.
 - Capture major dependency or architecture decisions in repo docs when they are made, so the same reasoning does not have to be rediscovered later.
 - When changing interactive topic-map visualization, treat regressions in default visible layer, legend chrome, typography, color scheme, and auxiliary controls as review blockers unless the user explicitly wants a new look; use the prior git baseline as the comparison target.
+- Do not duplicate Cursor plan files inside the repository workspace; keep plans in the Cursor plans store only unless the user explicitly asks to version a plan in git.
 
 ## Learned Workspace Facts
 
 - For environment guidance in this workspace, prefer Python 3.12 and avoid Python 3.13 experiment tracks unless explicitly requested.
 - Keep environment/tooling guidance aligned to the agreed stack in user discussions: conda environment workflow plus uv-driven package operations.
 - `toponymy_evoc` was removed after clean-room proof showed no clean upstream-owned install story; do not reintroduce it without fresh proof.
-- GitHub Actions builds the docs site with Zensical from the repository root using `zensical build --clean -f docs/zensical.toml`.
+- Zensical site config is [`zensical.toml`](zensical.toml) at the repository root; run `zensical build --clean` (and `zensical serve`) from the root. GitHub Actions uses the same layout. Moving the config under `docs/` was tried and reverted because it broke expectations or was much slower; only relocate after re-testing CI and local workflows.
