@@ -16,6 +16,7 @@ import ads_bib.search as search
 import ads_bib.tokenize as tok
 import ads_bib.topic_model as tm
 import ads_bib.translate as tr
+from ads_bib.topic_model import backends as tm_backends
 from ads_bib.topic_model import embeddings as tm_embeddings
 from ads_bib.topic_model import reduction as tm_reduction
 
@@ -150,6 +151,18 @@ def _load_visualize_module(monkeypatch):
 
     fake_selection_handlers.SelectionHandlerBase = _SelectionHandlerBase
 
+    class _WordCloud:
+        """Minimal stand-in for datamapplot.selection_handlers.WordCloud (see test_visualize_contract)."""
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        @property
+        def javascript(self):
+            return "datamap.metaData.hover_text"
+
+    fake_selection_handlers.WordCloud = _WordCloud
+
     fake_seaborn = types.ModuleType("seaborn")
 
     def _fake_color_palette(name, n_colors=None, as_cmap=False):
@@ -175,8 +188,10 @@ def _run_offline_mocked_pipeline(
 ) -> dict[str, object]:
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Provider checks are not the concern of this E2E smoke test.
-    monkeypatch.setattr("ads_bib.config.validate_provider", lambda *a, **k: None)
+    # Provider checks are not the concern of this E2E smoke test; patch module-local
+    # bindings (imported from config) so OpenRouter paths do not require litellm.
+    monkeypatch.setattr(tm_embeddings, "validate_provider", lambda *a, **k: None)
+    monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
 
     # 1) Search
     session = _FakeSession()

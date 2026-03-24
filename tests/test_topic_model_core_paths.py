@@ -102,6 +102,7 @@ def test_cluster_documents_uses_selected_cluster_model(monkeypatch):
 
 def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     calls: dict = {}
+    monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
 
     class _FakeBERTopic:
         def __init__(self, **kwargs):
@@ -197,6 +198,7 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
 
 def test_fit_bertopic_uses_defaults_only_when_model_lists_are_none(monkeypatch):
     calls: dict = {}
+    monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
 
     class _FakeBERTopic:
         def __init__(self, **kwargs):
@@ -269,6 +271,7 @@ def test_fit_bertopic_uses_defaults_only_when_model_lists_are_none(monkeypatch):
 
 def test_fit_bertopic_preserves_explicitly_empty_model_lists(monkeypatch):
     calls: dict = {}
+    monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
 
     class _FakeBERTopic:
         def __init__(self, **kwargs):
@@ -421,6 +424,7 @@ def test_fit_bertopic_suppresses_minilm_load_report_for_keybert(monkeypatch, cap
 
 def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypatch):
     calls: dict = {}
+    monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
 
     class _FakeBERTopic:
         def __init__(self, **kwargs):

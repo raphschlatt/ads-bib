@@ -1076,6 +1076,7 @@ def test_compute_embeddings_passes_max_workers_to_openrouter(monkeypatch):
             return np.ones((len(texts), 2), dtype=np.float32)
 
     monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+    monkeypatch.setattr(tm_embeddings, "validate_provider", lambda *a, **k: None)
 
     emb = tm.compute_embeddings(
         ["d1", "d2", "d3"],
@@ -1108,6 +1109,7 @@ def test_compute_embeddings_passes_progress_callback_to_openrouter(monkeypatch):
             return np.ones((3, 2), dtype=np.float32)
 
     monkeypatch.setattr(tm_embeddings, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
+    monkeypatch.setattr(tm_embeddings, "validate_provider", lambda *a, **k: None)
 
     emb = tm.compute_embeddings(
         ["d1", "d2", "d3"],
