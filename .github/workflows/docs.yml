@@ -39,7 +39,7 @@ jobs:
           python -m pip install zensical
 
       - name: Build docs
-        run: zensical build --clean -f docs/zensical.toml
+        run: zensical build --clean
 
       - name: Skip Pages publish while repository is private
         if: ${{ github.event.repository.private }}
