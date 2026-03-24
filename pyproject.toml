@@ -52,7 +52,7 @@ topic = [
     "bertopic",
     "sentence-transformers>=5.1",
     "scikit-learn",
-    "datamapplot",
+    "datamapplot>=0.6.4,<0.7",
     "pacmap",
     "fast-hdbscan",
     "huggingface-hub",
