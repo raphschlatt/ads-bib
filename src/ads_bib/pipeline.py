@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
+import json
 import logging
 import os
 from pathlib import Path
@@ -885,10 +886,73 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
 def _save_curated_dataset(ctx: PipelineContext) -> Path:
     if ctx.curated_df is None:
         raise ValueError("curated_df is not available.")
-    curated_path = ctx.run.paths["data"] / "publications.parquet"
-    save_parquet(ctx.curated_df, curated_path)
-    logger.info("Curated dataset saved: %s records", f"{len(ctx.curated_df):,}")
-    return curated_path
+    return _write_dataset_bundle(
+        ctx,
+        publications=ctx.curated_df,
+        source_stage="curate",
+    )
+
+
+def _write_dataset_bundle(
+    ctx: PipelineContext,
+    *,
+    publications: pd.DataFrame,
+    source_stage: str,
+) -> Path:
+    if ctx.refs is None:
+        logger.info("Skipping dataset bundle export at %s: refs are not available.", source_stage)
+        return ctx.run.paths["data"] / "publications.parquet"
+
+    publications_path = ctx.run.paths["data"] / "publications.parquet"
+    references_path = ctx.run.paths["data"] / "references.parquet"
+    manifest_path = ctx.run.paths["data"] / "dataset_manifest.json"
+
+    save_parquet(publications, publications_path)
+    save_parquet(ctx.refs, references_path)
+
+    try:
+        from ads_bib import __version__ as ads_bib_version
+    except Exception:
+        ads_bib_version = "0.0.0"
+
+    coordinate_columns = [
+        column
+        for column in ("embedding_2d_x", "embedding_2d_y")
+        if column in publications.columns
+    ]
+    manifest = {
+        "schema_version": 1,
+        "producer": "ads_bib",
+        "producer_version": ads_bib_version,
+        "run_id": ctx.run.run_id,
+        "source_stage": source_stage,
+        "and_enabled": bool(ctx.config.author_disambiguation.enabled),
+        "publications_path": publications_path.name,
+        "references_path": references_path.name,
+        "coordinate_columns": coordinate_columns,
+        "counts": {
+            "publications": int(len(publications)),
+            "references": int(len(ctx.refs)),
+        },
+        "has_author_uids": bool(
+            "author_uids" in publications.columns and "author_uids" in ctx.refs.columns
+        ),
+        "has_author_display_names": bool(
+            "author_display_names" in publications.columns and "author_display_names" in ctx.refs.columns
+        ),
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    logger.info(
+        "Dataset bundle exported at %s | publications=%s | references=%s",
+        source_stage,
+        f"{len(publications):,}",
+        f"{len(ctx.refs):,}",
+    )
+    return publications_path
 
 
 def _load_curated_dataset(ctx: PipelineContext) -> pd.DataFrame:
@@ -1569,6 +1633,11 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.reduced_2d,
         embeddings=None,
         topic_info=ctx.topic_info,
+    )
+    _write_dataset_bundle(
+        ctx,
+        publications=ctx.topic_df,
+        source_stage="topic_dataframe",
     )
     return ctx
 
