@@ -157,11 +157,6 @@ _RESTORED_TOPIC_CHROME_CSS = """
     flex: 0 0 auto;
     gap: 8px;
 }
-.ads-topic-depth-spacer {
-    display: inline-block;
-    flex: 0 0 auto;
-    height: 1px;
-}
 .ads-topic-row:hover {
     background-color: rgba(127, 127, 127, 0.12);
 }
@@ -422,11 +417,7 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
 
     const prefix = document.createElement("span");
     prefix.className = "ads-topic-row-prefix";
-
-    const depthSpacer = document.createElement("span");
-    depthSpacer.className = "ads-topic-depth-spacer";
-    depthSpacer.style.width = `${row.depth * depthStep}px`;
-    prefix.appendChild(depthSpacer);
+    prefix.style.paddingLeft = `${row.depth * depthStep}px`;
 
     if (row.hasChildren) {
       const expandButton = document.createElement("button");
@@ -438,6 +429,11 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
         toggleExpanded(row.key);
       });
       prefix.appendChild(expandButton);
+    } else {
+      const emptyExpand = document.createElement("span");
+      emptyExpand.className = "ads-topic-expand";
+      emptyExpand.style.visibility = "hidden";
+      prefix.appendChild(emptyExpand);
     }
 
     const swatch = document.createElement("span");
