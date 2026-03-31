@@ -429,7 +429,7 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
         toggleExpanded(row.key);
       });
       prefix.appendChild(expandButton);
-    } else {
+    } else if (TOPIC_PANEL_PAYLOAD.mode === "hierarchical") {
       const emptyExpand = document.createElement("span");
       emptyExpand.className = "ads-topic-expand";
       emptyExpand.style.visibility = "hidden";
