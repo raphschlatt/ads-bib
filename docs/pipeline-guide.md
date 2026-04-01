@@ -84,7 +84,7 @@ languages, CPU-only. Output quality is below large chat models on scientific
 text.
 
 `llama_server` runs a local GGUF model through an external llama-server
-process. Better quality than NLLB if you have a GPU.
+process. This is the recommended path for fast, high-quality translation if you have a local GPU.
 
 `huggingface_api` calls the HF Inference API using HF-native model identifiers.
 
@@ -135,8 +135,9 @@ Two projections: 5D for clustering, 2D for visualization. Tune them
 independently via `params_5d` and `params_2d`.
 
 PaCMAP is the default -- fast, good balance of local and global structure. Use
-UMAP if you need density-preserving coordinates (`densmap=True`) or if you use
-the Toponymy backend, which benefits from UMAP's hierarchical preservation.
+UMAP if you need density-preserving coordinates (`densmap=True`). Both the 
+BERTopic and Toponymy backends are fully modular here: you can plug in any
+reduction algorithm you need.
 
 `n_neighbors` has the most impact. Higher values (50--80) produce broader,
 connected clusters. Lower values (15--30) produce tighter, separated groups.
@@ -189,25 +190,17 @@ The default backend is `fast_hdbscan`. Switch to `hdbscan` if you need
 
 ### Backends and Labeling
 
-Topic modeling has two backends:
+Topic modeling has two backends. Both are highly modular, operate on the 5D reduced vectors, and natively support outlier reduction:
 
-| Backend | Clustering input | When to use | LLM providers |
+| Backend | Scope | When to use | LLM providers |
 | --- | --- | --- | --- |
-| `bertopic` | 5D reduced vectors | Best when you want the standard BERTopic path with outlier reduction and representation models | `local`, `llama_server`, `huggingface_api`, `openrouter` |
-| `toponymy` | 5D reduced vectors | Best when you want a layered hierarchy that stays aligned with the 5D map | `local`, `llama_server`, `openrouter` |
+| `bertopic` | Flat clusters | Best when you want a flat list of isolated topics representing the corpus space. | `local`, `llama_server`, `huggingface_api`, `openrouter` |
+| `toponymy` | Hierarchies | Best when you want a semantically layered tree (from meta-topic down to micro-niche). | `local`, `llama_server`, `openrouter` |
 
-Toponymy keeps one working-layer compatibility view for `topic_id`/`Name` and stores the full
-hierarchy as `topic_layer_<n>_id`, `topic_layer_<n>_label`,
-`topic_primary_layer_index`, and `topic_layer_count`. Legacy `Topic_Layer_X`
-columns remain as compatibility aliases for older downstream code.
-`topic_id` and `Name` are therefore aliases only; the hierarchy columns are the
-canonical Toponymy output. The default `toponymy_layer_index=auto` chooses the
-coarsest available overview layer for those aliases; an explicit integer keeps
-the selected working layer fixed.
-This repo no longer supports `toponymy_evoc`; a clean-room proof showed that
-the raw-embedding EVoC path depended on undeclared upstream runtime
-dependencies and a legacy standalone `evoc` pin, so the supported hierarchy
-backend here is `toponymy` only.
+Toponymy supports injecting custom clusterers (including the EVoC clusterer directly from the upstream Toponymy library) if you need fine-grained control over hierarchical agglomeration. It keeps one working-layer compatibility view for `topic_id`/`Name` and stores the full
+hierarchy as `topic_layer_<n>_id`, `topic_layer_<n>_label`. The default `toponymy_layer_index=auto` chooses the
+coarsest available overview layer as the working layer; an explicit integer keeps
+the selected layer fixed.
 
 Topic labeling uses an LLM to name each cluster. Provider choices mirror
 translation: `openrouter`, `llama_server`, `huggingface_api` (BERTopic only),
@@ -267,11 +260,11 @@ hierarchical runs.
 
 ### Curation
 
-Inspect `topic_info` to review cluster labels, sizes, and representative
-documents. For BERTopic, keep using `clusters_to_remove` (e.g. `[3, 4]`).
+Curation is an intellectual step, not just statistical outlier removal. You explore the topic map and consciously exclude clusters that are semantically irrelevant to your specific research question, ensuring a highly targeted and uniform final dataset.
 
-For Toponymy and Toponymy+EVoC, prefer explicit hierarchy-aware removals via
-`cluster_targets`:
+Inspect `topic_info` to review cluster labels, sizes, and representative documents. For BERTopic, use `clusters_to_remove` (e.g. `[3, 4]`).
+
+For Toponymy, prefer explicit hierarchy-aware removals via `cluster_targets`:
 
 ```yaml
 curation:
@@ -311,8 +304,8 @@ so downstream network tooling can still inspect `topic_layer_<n>_*`,
 
 The `min_counts` parameter sets minimum edge weight per metric. For a small
 corpus under 500 documents, start with `direct=3`, `co_citation=10`,
-`bibliographic_coupling=10`, `author_co_citation=5`. Scale up proportionally
-for larger corpora.
+`bibliographic_coupling=10`, `author_co_citation=5`. You can scale this threshold up proportionally
+for larger corpora, and downstream tools like Gephi and CiteSpace allow you to further filter these exported networks (e.g., configuring minimum thresholds or excluding self-citations globally).
 
 The default `output_format` is `"gexf"`. The pipeline also exports
 `download_wos_export.txt` for CiteSpace and VOSviewer, plus CSV and Graphology

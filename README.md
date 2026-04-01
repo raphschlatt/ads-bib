@@ -2,11 +2,18 @@
 
 Notebook-first research pipeline for NASA ADS bibliometric analysis.
 
-`ads-bib` helps small research teams retrieve ADS records, translate and
-tokenize text, fit topic models, curate datasets, and export citation
-networks. The repository ships two frontends over one shared package runner:
-`pipeline.ipynb` for interactive work and `ads-bib run --config ...` for
-reproducible batch runs.
+[![Interactive Topic Map Demo](docs/assets/pipeline_demo.webp)](https://raphschlatt.github.io/ADS_Pipeline/)
+
+`ads-bib` takes a NASA ADS search query and produces a clean, uniform dataset and ready-to-use citation networks. The repository ships two frontends over one shared package runner: `pipeline.ipynb` for interactive work and `ads-bib run --config ...` for reproducible batch runs.
+
+## Pipeline Services
+1. **Search & Export:** Extract publications and reference lists from NASA ADS.
+2. **Translation:** Consistently translate titles and abstracts to English (Local CPU, Remote API, or **Local GPU** via llama-server).
+3. **Tokenization:** NLP/spaCy lemmatization for topic modeling.
+4. **Author Name Disambiguation (AND):** External step to formally resolve and group author entities.
+5. **Topic Modeling & Labeling:** Modular pipeline supporting flat clusters (BERTopic) or explicit hierarchies (Toponymy)—including free choice of dimensionality reduction, outlier removal, and LLM labeling.
+6. **Curation:** Intellectual step to explore topics and exclude clusters that are semantically irrelevant to your specific research question, guaranteeing a clean target dataset.
+7. **Citation Networks:** Generate diverse GEXF and WOS exports (Direct Citation, Co-Citation, Bib-Coupling, Author Co-Citation) for direct use in **Gephi** and **CiteSpace**, supporting thresholding (`min_counts`) and self-citation filtering.
 
 ## Documentation
 
