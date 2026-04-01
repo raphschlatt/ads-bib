@@ -20,24 +20,6 @@ Fix:
 - For minimal setups, install only the extras that match your chosen
   providers.
 
-## Removed `toponymy_evoc` backend
-
-Symptom: an older config, notebook cell, or command still uses
-`topic_model.backend=toponymy_evoc`.
-
-Fix:
-
-- Switch the backend to `toponymy`.
-- Remove any `toponymy_evoc_cluster_params` entries from configs or notebook
-  section dicts.
-- Rerun from `topic_fit`.
-
-Why:
-
-- A clean-room proof showed that the raw-embedding EVoC path depended on
-  undeclared upstream runtime dependencies and a legacy standalone `evoc` pin.
-- This repo now supports only `bertopic` and `toponymy`.
-
 ## Missing `llama-server`
 
 Symptom: local GGUF translation or labeling fails before generation starts.

@@ -1,7 +1,7 @@
 # Configuration
 
-This page is a reference for configuration keys and presets. For guidance on
-what to set and why, see the [Pipeline Guide](pipeline-guide.md).
+Complete reference of all configuration keys. For explanations and tuning
+guidance, see the [Pipeline Guide](pipeline-guide.md).
 
 ## Notebook Section Dicts
 
@@ -10,81 +10,243 @@ The notebook uses nine inline configuration dicts, one per pipeline phase:
 `RUN`, `SEARCH`, `TRANSLATE`, `TOKENIZE`, `AUTHOR_DISAMBIGUATION`,
 `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`, `CITATIONS`
 
-Each dict is passed to `session.set_section(...)`. The
-[Pipeline Guide](pipeline-guide.md) documents each section's parameters in
-the corresponding phase.
+Each dict is passed to `session.set_section(...)`. The keys below map directly
+to dict keys in the notebook and YAML keys in the CLI.
 
 ## YAML Batch Config
 
 The CLI uses YAML files under `configs/pipeline/`. Four official presets are
 included:
 
-- `configs/pipeline/openrouter.yaml`
-- `configs/pipeline/hf_api.yaml`
-- `configs/pipeline/local_cpu.yaml`
-- `configs/pipeline/local_gpu.yaml`
+| Preset | Translation | Embeddings | Labeling | Default Backend |
+| --- | --- | --- | --- | --- |
+| `openrouter.yaml` | OpenRouter | OpenRouter | OpenRouter | `toponymy` |
+| `hf_api.yaml` | HF API | HF API | HF API | `bertopic` |
+| `local_cpu.yaml` | NLLB | Local | llama-server | `bertopic` |
+| `local_gpu.yaml` | llama-server | Local | llama-server | `bertopic` |
 
 Completed runs save their resolved configuration to
 `runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
 
-### Topic Model Keys
+---
 
-The topic-model section is shared by the notebook and CLI. Toponymy-specific
-keys stay backend-local.
+## Run
 
-| Key | Meaning | Notes |
-| --- | --- | --- |
-| `backend` | Topic backend | `bertopic` or `toponymy` |
-| `toponymy_cluster_params` | Toponymy cluster overrides | Used only for `toponymy` |
-| `toponymy_layer_index` | Working-layer selector for compatibility aliases | `auto` selects the coarsest available layer; explicit integers override it |
-| `toponymy_local_label_max_tokens` | Local Toponymy label token cap | Default `128` to keep hierarchy labels concise |
-| `toponymy_embedding_model` | Toponymy internal embedding model | Falls back to the main embedding model if unset |
-| `toponymy_max_workers` | Toponymy worker concurrency | Applies to Toponymy labeling and embedding calls |
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `run_name` | string | `"default"` | Identifier appended to the timestamped run directory name |
+| `start_stage` | string | `"search"` | First stage to execute (CLI only) |
+| `stop_stage` | string \| null | `null` | Last stage to execute; `null` runs to the end |
+| `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
+| `openrouter_cost_mode` | string | `"hybrid"` | Cost estimation mode: `"hybrid"`, `"api"`, or `"static"` |
+| `project_root` | string \| null | `null` | Override project root; defaults to current working directory |
 
-This repo no longer supports `toponymy_evoc`. A clean-room proof showed that
-the raw-embedding EVoC path depended on undeclared upstream runtime
-dependencies and a legacy standalone `evoc` pin, so the supported topic
-backends here are `bertopic` and `toponymy`.
+## Search
 
-The shipped presets are intentionally asymmetric:
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `query` | string | — | ADS search query ([syntax reference](https://ui.adsabs.harvard.edu/help/search/search-syntax)) |
+| `ads_token` | string \| null | `null` | ADS API token; falls back to `ADS_TOKEN` env var |
+| `refresh_search` | bool | `true` | Re-run the ADS query (set `false` to reuse cached bibcodes) |
+| `refresh_export` | bool | `true` | Re-resolve bibcodes to metadata (set `false` to reuse cached export) |
 
-- `openrouter.yaml`, `local_cpu.yaml`, and `local_gpu.yaml` are Toponymy-ready
-  starting points when you also pick compatible providers.
-- `hf_api.yaml` stays BERTopic-oriented as shipped; switch providers before
-  using `toponymy`.
-
-Toponymy backends are hierarchy-first: they persist the full hierarchy as
-`topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`,
-and `topic_layer_count`. `topic_id` and `Name` remain compatibility aliases for
-the selected working layer. Legacy `Topic_Layer_<n>` label columns remain
-available as compatibility aliases for one transition cycle.
-
-### Visualization Keys
-
-| Key | Meaning | Notes |
-| --- | --- | --- |
-| `enabled` | Render the interactive topic map | Set `false` to skip HTML map generation |
-| `title` | Map title | Rendered above the datamapplot canvas |
-| `subtitle_template` | Map subtitle template | Supports `{provider}` and `{model}` placeholders |
-| `dark_mode` | Dark UI theme | `true` or `false` |
-| `font_family` | Label and title font | Default `Cinzel`; pass any Google/system font recognized by datamapplot |
-| `topic_tree` | Expert-mode topic-tree toggle | Optional (`true`/`false`), default `false`; applies only when hierarchy layers are present |
-
-### Curation Keys
-
-| Key | Meaning | Notes |
-| --- | --- | --- |
-| `cluster_targets` | Canonical hierarchy-aware removals | List of `{layer, cluster_id}` mappings; supported for `toponymy` |
-| `clusters_to_remove` | Legacy flat removals | BERTopic uses this exactly as before; Toponymy maps it to the selected working layer |
-
-For Toponymy backends, prefer `cluster_targets` because it lets you remove
-clusters explicitly from any hierarchy level:
+Example query compositions:
 
 ```yaml
+# Simple author query
+query: 'author:"Hawking, S*"'
+
+# Author + topic filter
+query: '(author:"Hawking, S*") AND abs:"black hole"'
+
+# Seed + forward citations
+query: 'author:"Hawking, S*" OR citations(author:"Hawking, S*")'
+```
+
+## Translate
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | bool | `true` | Skip translation when `false` |
+| `provider` | string | varies | `openrouter`, `nllb`, `llama_server`, or `huggingface_api` |
+| `model` | string \| null | varies | Model identifier for `openrouter`/`huggingface_api`, or local model path for `nllb` |
+| `model_repo` | string \| null | `null` | HF repo for GGUF model download (`llama_server` provider) |
+| `model_file` | string \| null | `null` | Filename within the repo (`llama_server` provider) |
+| `model_path` | string \| null | `null` | Explicit local path to a GGUF file (`llama_server` provider) |
+| `api_key` | string \| null | `null` | Provider API key; falls back to env var |
+| `max_workers` | int | `8` | Concurrent translation requests; 1--2 for local providers |
+| `max_tokens` | int | `2048` | Maximum tokens per translation request |
+| `fasttext_model` | string | `"data/models/lid.176.bin"` | Path to the fasttext language detection model |
+
+## Llama Server
+
+Shared configuration for all pipeline stages that use `llama_server` as provider.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `command` | string | `"llama-server"` | Path or name of the llama-server executable |
+| `host` | string | `"127.0.0.1"` | Bind address |
+| `port` | int \| null | `null` | Port; `null` auto-selects a free port |
+| `threads` | int \| null | `null` | CPU threads; `null` uses system default |
+| `ctx_size` | int | `4096` | Context window size in tokens |
+| `gpu_layers` | int | `-1` | GPU layers to offload; `-1` = all, `0` = CPU only |
+| `startup_timeout_s` | float | `120.0` | Seconds to wait for the server to become ready |
+| `reasoning` | string | `"off"` | Reasoning mode; `"off"` for standard inference |
+
+## Tokenize
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | bool | `true` | Skip tokenization when `false` |
+| `spacy_model` | string | `"en_core_web_md"` | spaCy model for lemmatization |
+| `batch_size` | int | `512` | Documents per spaCy batch |
+| `n_process` | int | `1` | Parallel spaCy processes (auto-scales to CPU count, capped at 8) |
+| `disable` | list | `["ner", "parser", "textcat"]` | spaCy pipeline components to skip |
+| `fallback_model` | string | `"en_core_web_md"` | Fallback if primary model is unavailable |
+| `auto_download` | bool | `true` | Auto-download the spaCy model if missing |
+
+## Author Disambiguation
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | bool | `false` | Enable the external AND step |
+| `model_bundle` | string \| null | `null` | Path to the disambiguation model bundle |
+| `dataset_id` | string \| null | `null` | Dataset identifier for the AND package |
+| `force_refresh` | bool | `false` | Re-run disambiguation even if cached results exist |
+| `infer_stage` | string | `"full"` | Inference stage: `"full"` or `"incremental"` |
+
+## Topic Model
+
+### Core
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sample_size` | int \| null | `null` | Random subset size for exploration; `null` uses all documents |
+| `backend` | string | varies | `bertopic` or `toponymy` |
+| `clustering_method` | string | `"fast_hdbscan"` | HDBSCAN implementation; `"hdbscan"` for hierarchy analysis |
+| `outlier_threshold` | float | `0.5` | Probability threshold for outlier reassignment (BERTopic) |
+| `min_df` | int | `3` | Minimum document frequency for topic terms; auto-scaled as `max(1, min(5, n_docs // 100))` |
+
+### Embeddings
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `embedding_provider` | string | varies | `local`, `openrouter`, or `huggingface_api` |
+| `embedding_model` | string | varies | Model identifier (HF name or OpenRouter name) |
+| `embedding_api_key` | string \| null | `null` | API key override for embedding provider |
+| `embedding_batch_size` | int | `32` | Documents per embedding batch |
+| `embedding_max_workers` | int | `8` | Concurrent embedding requests |
+
+### Dimensionality Reduction
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `reduction_method` | string | `"pacmap"` | `pacmap` or `umap` |
+| `params_5d` | dict | see below | Parameters for the 5D clustering reduction |
+| `params_2d` | dict | see below | Parameters for the 2D visualization reduction |
+
+Default `params_5d` and `params_2d`:
+```yaml
+params_5d:
+  n_neighbors: 30
+  metric: angular
+  random_state: 42
+params_2d:
+  n_neighbors: 30
+  metric: angular
+  random_state: 42
+```
+
+### LLM Labeling
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `llm_provider` | string | varies | `openrouter`, `llama_server`, `huggingface_api`, or `local` |
+| `llm_model` | string \| null | varies | Model identifier for `openrouter`/`huggingface_api` |
+| `llm_model_repo` | string \| null | `null` | HF repo for GGUF download (`llama_server`) |
+| `llm_model_file` | string \| null | `null` | Filename within the repo (`llama_server`) |
+| `llm_model_path` | string \| null | `null` | Explicit local GGUF path (`llama_server`) |
+| `llm_api_key` | string \| null | `null` | API key override for LLM provider |
+| `llm_prompt_name` | string | `"physics"` | Named prompt: `physics` or `generic` |
+| `llm_prompt` | string \| null | `null` | Custom prompt override |
+| `bertopic_label_max_tokens` | int | `64` | Max tokens for BERTopic topic labels |
+
+### BERTopic-Specific
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `cluster_params` | dict | see below | HDBSCAN parameters |
+| `pipeline_models` | list | `["POS", "KeyBERT", "MMR"]` | Sequential representation refinement pipeline |
+| `parallel_models` | list | `["MMR", "POS", "KeyBERT"]` | Parallel comparison representations |
+
+Default `cluster_params`:
+```yaml
+cluster_params:
+  min_cluster_size: 15
+  min_samples: 3
+  cluster_selection_method: eom
+  cluster_selection_epsilon: 0.05
+```
+
+### Toponymy-Specific
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `toponymy_cluster_params` | dict | `{}` | Toponymy clusterer overrides (`min_clusters`, `base_min_cluster_size`, etc.) |
+| `toponymy_layer_index` | string \| int | `"auto"` | Working-layer selector; `auto` picks the coarsest layer |
+| `toponymy_local_label_max_tokens` | int | `128` | Max tokens for local Toponymy labels |
+| `toponymy_embedding_model` | string \| null | `null` | Toponymy-internal embedding model; falls back to main embedding model |
+| `toponymy_max_workers` | int | `10` | Concurrent labeling/embedding requests |
+
+## Visualization
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | bool | `true` | Set `false` to skip HTML map generation |
+| `title` | string | — | Map title rendered above the canvas |
+| `subtitle_template` | string | — | Subtitle with `{provider}` and `{model}` placeholders |
+| `dark_mode` | bool | `true` | Dark or light UI theme |
+| `font_family` | string | `"Cinzel"` | Google/system font for labels and titles |
+| `topic_tree` | bool | `false` | Expert-mode toggle for an extra hierarchy tree panel (Toponymy only) |
+
+## Curation
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `cluster_targets` | list | `[]` | Hierarchy-aware removals: `[{layer: <int>, cluster_id: <int>}]` (Toponymy) |
+| `clusters_to_remove` | list | `[]` | Flat cluster IDs to discard (BERTopic; also works for Toponymy working layer) |
+
+Example:
+```yaml
+# BERTopic: remove clusters 3 and 4
+curation:
+  clusters_to_remove: [3, 4]
+
+# Toponymy: remove noise from layer 1 and cluster 12 from layer 0
 curation:
   cluster_targets:
     - layer: 1
       cluster_id: -1
+    - layer: 0
+      cluster_id: 12
+```
+
+## Citations
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `metrics` | list | `["direct", "co_citation", "bibliographic_coupling", "author_co_citation"]` | Network types to build |
+| `min_counts` | dict | see below | Minimum edge weight per metric |
+| `authors_filter` | string \| null | `null` | Filter for specific authors in author co-citation |
+| `output_format` | string | `"gexf"` | Primary export format |
+
+Default `min_counts`:
+```yaml
+min_counts:
+  direct: 3
+  co_citation: 6
+  bibliographic_coupling: 3
+  author_co_citation: 5
 ```
 
 ## CLI Overrides
@@ -98,7 +260,8 @@ ads-bib run --config <file> --set key.subkey=value
 ## Scaling Formulas
 
 These formulas auto-scale parameters based on corpus size. See the
-[Pipeline Guide](pipeline-guide.md) for when and why to override them.
+[Pipeline Guide](pipeline-guide.md#clustering) for when and why to override
+them.
 
 | Parameter | Formula | Notes |
 | --- | --- | --- |

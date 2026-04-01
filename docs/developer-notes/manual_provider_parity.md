@@ -30,10 +30,7 @@ If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local 
 pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
 ```
 
-`toponymy_evoc` is no longer part of the supported surface. A clean-room proof
-showed that the raw-embedding EVoC path depended on undeclared upstream runtime
-dependencies and a legacy standalone `evoc` pin, so parity runs cover only
-`bertopic` and `toponymy`.
+Parity runs cover `bertopic` and `toponymy`.
 
 ## Profile A: OpenRouter + BERTopic
 
@@ -132,8 +129,7 @@ TOPIC_MODEL = { ..., "backend": "toponymy" }
 
 Run notebook top-to-bottom and record the same checks.
 
-Do not add a `toponymy_evoc` parity run here; that backend is intentionally
-unsupported in this repo.
+
 
 ## Profile E: Local GPU + BERTopic
 

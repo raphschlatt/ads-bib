@@ -1,3 +1,11 @@
+# ADS Pipeline
+
+`ads-bib` is a Python pipeline for bibliometric analysis of NASA ADS data.
+It takes an ADS search query through search, translation, topic modeling,
+and citation-network construction and writes all results to a single run
+directory. The interactive topic map below was generated from Stephen
+Hawking's ADS publications:
+
 <div style="width: 100%; height: 650px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
     <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
 </div>
@@ -13,11 +21,6 @@
 </div>
 
 ## Overview
-
-`ads-bib` takes a NASA ADS search query through a sequence of processing steps
--- retrieving records, translating non-English metadata, fitting a topic model,
-and constructing citation networks -- and writes the results to a single run
-directory.
 
 A raw ADS export gives you metadata in mixed languages, without thematic
 structure and without network files. Before you can do bibliometric analysis in
@@ -43,18 +46,21 @@ graph LR
 1. **Search & Export:** Query NASA ADS and resolve bibcodes to full metadata and reference lists.
 2. **Translation:** Detect languages with fasttext and translate non-English text to English (supports Local CPU, Local **GPU**, and Remote API).
 3. **Tokenization:** Lemmatize with spaCy for topic modeling.
-4. **Author Name Disambiguation (AND):** External step for resolving author entities.
-5. **Topic Modeling & Labeling:** Build flat (BERTopic) or hierarchical (Toponymy) topic structures using any dimensionality reduction algorithm and LLM representation.
-6. **Curation:** Intellectually filter your dataset by discarding topics irrelevant to your research question.
-7. **Citation Networks:** Export direct, co-citation, bibliographic coupling, and author co-citation networks directly for **Gephi** and **CiteSpace**. Supports thresholding (`min_counts`) and self-citation filtering.
+4. **Author Name Disambiguation (AND):** Optional external step for resolving author entities.
+5. **Topic Modeling & Labeling:** Build flat (BERTopic) or hierarchical (Toponymy) topic structures using configurable dimensionality reduction, clustering, and LLM labeling.
+6. **Curation:** Filter your dataset by discarding topics irrelevant to your research question.
+7. **Citation Networks:** Export direct, co-citation, bibliographic coupling, and author co-citation networks for **Gephi** and **CiteSpace**.
 
 ## Run Output
 
-A completed run directory:
+A completed run produces:
 
 ```
-runs/run_20260305_123644/
-├── config_used.yaml
+runs/run_20260305_123644_hawking_openrouter/
+├── config_used.yaml          # exact config, reusable as CLI input
+├── run_summary.yaml          # run metadata, counts, costs
+├── logs/
+│   └── runtime.log           # full model output and diagnostics
 ├── data/
 │   ├── curated_dataset.parquet
 │   ├── direct.gexf
@@ -73,3 +79,4 @@ VOSviewer, and the topic map is a self-contained interactive HTML page.
 
 [Get Started](get-started.md) covers installation and your first run.
 The [Pipeline Guide](pipeline-guide.md) explains each phase and its parameters.
+The [Configuration](configuration.md) page is a complete reference of all config keys.

@@ -6,46 +6,23 @@ Notebook-first research pipeline for NASA ADS bibliometric analysis.
 
 `ads-bib` takes a NASA ADS search query and produces a clean, uniform dataset and ready-to-use citation networks. The repository ships two frontends over one shared package runner: `pipeline.ipynb` for interactive work and `ads-bib run --config ...` for reproducible batch runs.
 
-## Pipeline Services
-1. **Search & Export:** Extract publications and reference lists from NASA ADS.
-2. **Translation:** Consistently translate titles and abstracts to English (Local CPU, Remote API, or **Local GPU** via llama-server).
-3. **Tokenization:** NLP/spaCy lemmatization for topic modeling.
-4. **Author Name Disambiguation (AND):** External step to formally resolve and group author entities.
-5. **Topic Modeling & Labeling:** Modular pipeline supporting flat clusters (BERTopic) or explicit hierarchies (Toponymy)—including free choice of dimensionality reduction, outlier removal, and LLM labeling.
-6. **Curation:** Intellectual step to explore topics and exclude clusters that are semantically irrelevant to your specific research question, guaranteeing a clean target dataset.
-7. **Citation Networks:** Generate diverse GEXF and WOS exports (Direct Citation, Co-Citation, Bib-Coupling, Author Co-Citation) for direct use in **Gephi** and **CiteSpace**, supporting thresholding (`min_counts`) and self-citation filtering.
-
 ## Documentation
 
-- Docs site: <https://raphschlatt.github.io/ADS_Pipeline/>
-- Docs sources: `docs/`
-- Site config: `docs/zensical.toml`
+Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
 
-Use the docs site for setup, the pipeline guide, configuration reference,
-troubleshooting, and developer runbooks. This README is the short GitHub
-landing page.
+- [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) — installation and your first run
+- [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/) — each phase, its parameters, and tuning advice
+- [Configuration](https://raphschlatt.github.io/ADS_Pipeline/configuration/) — complete reference of all config keys
+- [Troubleshooting](https://raphschlatt.github.io/ADS_Pipeline/troubleshooting/) — common issues and fixes
 
 ## Quickstart
 
-1. Activate the environment:
-
 ```bash
 conda activate ADS_env
-```
-
-2. Install the package and notebook tooling:
-
-```bash
 uv pip install -e ".[all,test]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
-uv pip install jupyterlab ipykernel
-python -m ipykernel install --user --name ADS_env --display-name "ADS_env"
 ```
 
-3. If you use local GGUF translation or labeling, install a current external
-   `llama-server`. On Windows, the tested reference is the Winget
-   `ggml.llamacpp` package.
-
-4. Create `.env` in the project root:
+Create `.env` in the project root:
 
 ```env
 ADS_TOKEN=...
@@ -53,20 +30,7 @@ OPENROUTER_API_KEY=...  # optional unless OpenRouter backends are used
 HF_TOKEN=...            # optional unless huggingface_api backends are used
 ```
 
-## Notebook Quickstart
-
-1. Open `pipeline.ipynb`.
-2. Edit the inline section dicts:
-   `RUN`, `SEARCH`, `TRANSLATE`, `TOKENIZE`, `AUTHOR_DISAMBIGUATION`,
-   `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`, `CITATIONS`.
-3. Run the stage cells you need.
-
-The notebook is explicit and stage-oriented. It does not auto-chain earlier
-stages for you.
-
-## CLI Quickstart
-
-Use one of the official presets:
+Run with one of the four official presets:
 
 ```bash
 ads-bib run --config configs/pipeline/openrouter.yaml
@@ -75,64 +39,20 @@ ads-bib run --config configs/pipeline/local_cpu.yaml
 ads-bib run --config configs/pipeline/local_gpu.yaml
 ```
 
-Useful CLI variants:
-
-```bash
-ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
-ads-bib run --config configs/pipeline/openrouter.yaml --run-name my_run
-ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
-ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy --set topic_model.toponymy_layer_index=auto
-```
-
-The CLI is dependency-aware and batch-oriented. Both frontends persist
-`runs/<run_id>/config_used.yaml`, `runs/<run_id>/run_summary.yaml`, and
-`runs/<run_id>/logs/runtime.log`.
-
-## Official Config Roads
-
-- `configs/pipeline/openrouter.yaml`: managed remote OpenRouter road
-- `configs/pipeline/hf_api.yaml`: managed remote Hugging Face API road
-- `configs/pipeline/local_cpu.yaml`: lowest recurring-cost local CPU road
-- `configs/pipeline/local_gpu.yaml`: current local NVIDIA GPU road
-
-For topic modeling, use the Pipeline Guide to choose between `bertopic` and
-`toponymy`. `hf_api.yaml` is BERTopic-oriented as shipped; switch the backend
-and provider settings explicitly before using Toponymy. The earlier
-`toponymy_evoc` raw-embedding path was removed after a clean-room proof showed
-that it depended on undeclared upstream runtime dependencies and a legacy
-standalone `evoc` pin, so the supported hierarchy-first backend here is
-`toponymy` only. Toponymy is hierarchy-first: the canonical output is
-the full `topic_layer_<n>_*` hierarchy, while `topic_id` and `Name` remain
-working-layer compatibility aliases. The default map keeps one right-side
-`Topics` panel; `topic_tree` stays an optional expert view.
-
-See the [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/)
-for provider choices, parameter tuning, and the full configuration reference.
+Or open `pipeline.ipynb` for interactive work.
 
 ## Build the Docs Locally
 
 ```bash
 python -m pip install zensical
-zensical serve -f docs/zensical.toml
-zensical build --clean -f docs/zensical.toml
+zensical serve
+zensical build --clean
 ```
-
-The site publishes from the same repository through GitHub Pages and
-`.github/workflows/docs.yml`.
 
 ## Quality Checks
 
-Run both checks in `ADS_env`:
-
 ```bash
 ads-bib check
-```
-
-Equivalent explicit commands:
-
-```bash
-python -m ruff check src tests scripts
-python -m pytest -q
 ```
 
 ## Citation

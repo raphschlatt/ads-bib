@@ -72,39 +72,18 @@ Pick one of the four official presets:
 ads-bib run --config configs/pipeline/openrouter.yaml
 ```
 
-- `openrouter.yaml` -- remote API via OpenRouter, lowest setup friction
-- `hf_api.yaml` -- Hugging Face hosted inference, BERTopic-oriented as shipped
-- `local_cpu.yaml` -- fully offline, CPU-only (NLLB + llama-server)
-- `local_gpu.yaml` -- local NVIDIA GPU (llama-server + local embeddings)
+| Preset | Translation | Embeddings | Topic Labeling | Default Backend |
+| --- | --- | --- | --- | --- |
+| `openrouter.yaml` | OpenRouter (Gemini Flash Lite) | OpenRouter (Qwen3-Embedding) | OpenRouter | `toponymy` |
+| `hf_api.yaml` | HF API (Qwen2.5-72B) | HF API (Qwen3-Embedding) | HF API | `bertopic` |
+| `local_cpu.yaml` | NLLB (offline) | Local (EmbeddingGemma) | llama-server (Qwen3.5 GGUF) | `bertopic` |
+| `local_gpu.yaml` | llama-server (TranslateGemma) | Local (EmbeddingGemma) | llama-server (Gemma-3 GGUF) | `bertopic` |
 
 Constrain stages or override settings:
 
 ```bash
 ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
 ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
-ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy --set topic_model.toponymy_layer_index=auto
-```
-
-For Toponymy, also override the provider fields so they match the selected
-road. `toponymy` uses 5D reduced vectors and keeps the downstream hierarchy
-outputs. The canonical Toponymy output is the full `topic_layer_<n>_id` /
-`topic_layer_<n>_label` hierarchy. `topic_id` and `Name` are kept as
-working-layer compatibility aliases. This repo no longer supports
-`toponymy_evoc`; a clean-room proof showed that the raw-embedding EVoC path
-depended on undeclared upstream runtime dependencies and a legacy standalone
-`evoc` pin.
-
-Keep `visualization.topic_tree: false` for the default map UI with one
-right-side `Topics` panel. BERTopic stays flat there; Toponymy uses indented
-rows in the same panel. Turn `topic_tree` on only when you explicitly want the
-extra hierarchy tree panel. For Toponymy curation, prefer explicit hierarchy-aware
-targets:
-
-```python
-CURATION = {
-    "cluster_targets": [{"layer": 1, "cluster_id": -1}],
-    "clusters_to_remove": [],
-}
 ```
 
 ## See Your Outputs
@@ -112,8 +91,9 @@ CURATION = {
 After a successful run, your outputs are under `runs/<run_id>/`:
 
 ```
-runs/run_20260305_123644_ADS_Curation_Run/
+runs/run_20260305_123644_hawking_openrouter/
 ├── config_used.yaml              # rerun this exact config anytime
+├── run_summary.yaml              # run metadata, counts, costs
 ├── logs/
 │   └── runtime.log               # full model output and cost tracking
 ├── data/
@@ -132,4 +112,5 @@ Open `topic_map.html` in a browser, load the `.gexf` files in Gephi, or import
 directly as a CLI config for future runs.
 
 To customize the pipeline beyond the defaults, read the
-[Pipeline Guide](pipeline-guide.md).
+[Pipeline Guide](pipeline-guide.md). For a complete reference of all
+configuration keys, see [Configuration](configuration.md).
