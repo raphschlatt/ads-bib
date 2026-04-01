@@ -1,4 +1,16 @@
-<iframe src="assets/topic_map.html" width="100%" height="700px" style="border:1px solid #ddd; border-radius: 8px; margin-bottom: 2rem;"></iframe>
+<div style="width: 100%; height: 650px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
+    <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em><strong>Map Controls:</strong> 
+  Hover points for metadata &nbsp;•&nbsp;
+  <kbd>Shift</kbd> + Drag on map to lasso word clouds &nbsp;•&nbsp;
+  <kbd>Shift</kbd> + Drag on timeline to filter years &nbsp;•&nbsp;
+  <kbd>Ctrl/Cmd</kbd> + Drag to rotate &nbsp;•&nbsp;
+  Scroll to zoom &nbsp;•&nbsp;
+  Click topics to isolate &nbsp;•&nbsp;
+  Use the Search tool 🔍</em>
+</div>
 
 ## Overview
 
