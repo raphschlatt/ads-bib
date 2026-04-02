@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager, nullcontext
 import hashlib
 import logging
 import os
 from pathlib import Path
+import sys
 from typing import Any
 
 import numpy as np
@@ -20,7 +22,12 @@ from ads_bib._utils.huggingface_api import (
     resolve_huggingface_api_key,
 )
 from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
-from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
+from ads_bib._utils.logging import (
+    capture_external_output,
+    get_console_stream,
+    get_runtime_log_path,
+    temporarily_raise_logger_level,
+)
 from ads_bib._utils.openrouter_costs import (
     extract_generation_id,
     extract_response_cost,
@@ -43,6 +50,39 @@ _EMBEDDING_MEMORY_OVERHEAD_FACTOR = 1.5
 _EMBEDDING_MEMORY_BUDGET_FRACTION = 0.70
 _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
 _MAX_OPENROUTER_WORKERS = 20
+
+
+@contextmanager
+def _suppress_local_embedding_runtime_noise():
+    """Reduce TensorFlow/absl import noise for local sentence-transformer loads."""
+    previous_tf_cpp = os.environ.get("TF_CPP_MIN_LOG_LEVEL")
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    try:
+        with temporarily_raise_logger_level("tensorflow", level=logging.ERROR):
+            with temporarily_raise_logger_level("absl", level=logging.ERROR):
+                yield
+    finally:
+        if previous_tf_cpp is None:
+            os.environ.pop("TF_CPP_MIN_LOG_LEVEL", None)
+        else:
+            os.environ["TF_CPP_MIN_LOG_LEVEL"] = previous_tf_cpp
+
+
+def _local_progress_bar(*, total: int, show_progress: bool):
+    """Return a repo-owned local embedding progress bar or a no-op context."""
+    if not show_progress or total <= 0:
+        return nullcontext(None)
+
+    console_stream = get_console_stream() or getattr(sys, "__stderr__", sys.stderr)
+    return tqdm(
+        total=total,
+        desc="Embedding (local)",
+        leave=True,
+        file=console_stream,
+        dynamic_ncols=False,
+        ncols=78,
+        bar_format="{desc:<18}{percentage:3.0f}%|{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+    )
 
 
 def _documents_fingerprint(documents: list[str]) -> str:
@@ -241,7 +281,14 @@ def compute_embeddings(
 
     if provider == "local":
         logger.info("  Local embedding runtime hint | cpu_count=%s", max(1, int(os.cpu_count() or 1)))
-        emb = _embed_local(documents, model, batch_size, target_dtype)
+        emb = _embed_local(
+            documents,
+            model,
+            batch_size,
+            target_dtype,
+            show_progress=internal_show_progress,
+            progress_callback=progress_callback,
+        )
     elif provider == "huggingface_api":
         emb = _embed_huggingface_api(
             documents,
@@ -312,15 +359,51 @@ def _embed_local(
     model: str,
     batch_size: int,
     dtype: Any,
+    *,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> np.ndarray:
     """Embed documents with a local SentenceTransformer model."""
-    from sentence_transformers import SentenceTransformer
-
     logger.info("  Loading local model: %s", model)
+    chunk_size = max(1, int(batch_size))
+    total_documents = len(documents)
+    if total_documents == 0:
+        return np.array([], dtype=dtype)
+
     try:
-        with capture_external_output(get_runtime_log_path()):
-            st = SentenceTransformer(model)
-        emb = st.encode(documents, show_progress_bar=True, batch_size=batch_size)
+        with _local_progress_bar(
+            total=total_documents,
+            show_progress=bool(show_progress) and progress_callback is None,
+        ) as pbar:
+            with _suppress_local_embedding_runtime_noise():
+                with capture_external_output(get_runtime_log_path()):
+                    from sentence_transformers import SentenceTransformer
+
+                    st = SentenceTransformer(model)
+                    batches: list[np.ndarray] = []
+                    for start in range(0, total_documents, chunk_size):
+                        batch = documents[start : start + chunk_size]
+                        batch_embeddings = np.asarray(
+                            st.encode(
+                                batch,
+                                show_progress_bar=False,
+                                batch_size=chunk_size,
+                            ),
+                            dtype=dtype,
+                        )
+                        if batch_embeddings.ndim != 2:
+                            raise RuntimeError("Local embedding batch must be a 2D array.")
+                        if batch_embeddings.shape[0] != len(batch):
+                            raise RuntimeError(
+                                "Local embedding batch size mismatch: "
+                                f"expected {len(batch)}, got {batch_embeddings.shape[0]}."
+                            )
+                        batches.append(batch_embeddings)
+                        if progress_callback is not None:
+                            progress_callback(len(batch))
+                        elif pbar is not None:
+                            pbar.update(len(batch))
+        emb = np.concatenate(batches, axis=0)
     except Exception as exc:
         raise_with_local_hf_compat_hint(model=model, use_case="embeddings", exc=exc)
     return emb.astype(dtype)

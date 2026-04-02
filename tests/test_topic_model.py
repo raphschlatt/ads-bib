@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from contextlib import contextmanager
+import io
 import logging
 import sys
 import time
@@ -1195,6 +1196,102 @@ def test_embed_local_raises_actionable_error_for_torch_runtime_requirement(monke
         )
 
 
+def test_embed_local_batches_progress_and_disables_native_progress(monkeypatch):
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    calls: dict[str, Any] = {"encode": []}
+
+    class _FakeSentenceTransformer:
+        def __init__(self, model):
+            calls["model"] = model
+
+        def encode(self, documents, show_progress_bar=None, batch_size=64):
+            calls["encode"].append(
+                {
+                    "documents": list(documents),
+                    "show_progress_bar": show_progress_bar,
+                    "batch_size": batch_size,
+                }
+            )
+            return np.asarray(
+                [[float(index), float(index) + 0.5] for index, _ in enumerate(documents)],
+                dtype=np.float32,
+            )
+
+    fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    updates: list[int] = []
+    emb = tm_embeddings._embed_local(
+        ["doc-a", "doc-b", "doc-c", "doc-d", "doc-e"],
+        model="google/embeddinggemma-300m",
+        batch_size=2,
+        dtype=np.float32,
+        show_progress=False,
+        progress_callback=updates.append,
+    )
+
+    assert calls["model"] == "google/embeddinggemma-300m"
+    assert [call["documents"] for call in calls["encode"]] == [
+        ["doc-a", "doc-b"],
+        ["doc-c", "doc-d"],
+        ["doc-e"],
+    ]
+    assert all(call["show_progress_bar"] is False for call in calls["encode"])
+    assert all(call["batch_size"] == 2 for call in calls["encode"])
+    assert updates == [2, 2, 1]
+    assert emb.shape == (5, 2)
+    assert emb.dtype == np.float32
+
+
+def test_embed_local_captures_provider_output_but_keeps_repo_progress_visible(tmp_path, monkeypatch):
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+
+    class _FakeSentenceTransformer:
+        def __init__(self, model):
+            del model
+
+        def encode(self, documents, show_progress_bar=None, batch_size=64):
+            del show_progress_bar, batch_size
+            print("provider stdout noise")
+            print("provider stderr noise", file=sys.stderr)
+            return np.asarray([[float(i)] for i, _ in enumerate(documents)], dtype=np.float32)
+
+    fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+
+    log_path = tmp_path / "runtime.log"
+    logging_utils.configure_runtime_logging(output_mode="cli", log_file=log_path)
+    console_logger = logging_utils.get_console_logger()
+    console_handler = next(
+        handler for handler in console_logger.handlers
+        if getattr(handler, "_ads_bib_handler_name", None) == "ads_bib_console"
+    )
+    stream = io.StringIO()
+    previous_stream = console_handler.setStream(stream)
+
+    try:
+        emb = tm_embeddings._embed_local(
+            ["doc-a", "doc-b"],
+            model="google/embeddinggemma-300m",
+            batch_size=1,
+            dtype=np.float32,
+            show_progress=True,
+        )
+    finally:
+        console_handler.setStream(previous_stream)
+
+    console_text = stream.getvalue()
+    log_text = log_path.read_text(encoding="utf-8")
+
+    assert emb.shape == (2, 1)
+    assert "Embedding (local)" in console_text
+    assert "2/2" in console_text
+    assert "provider stdout noise" not in console_text
+    assert "provider stderr noise" not in console_text
+    assert "provider stdout noise" in log_text
+    assert "provider stderr noise" in log_text
+
+
 def test_openrouter_embedder_parallel_keeps_document_order(monkeypatch):
     fake_litellm = types.ModuleType("litellm")
 
@@ -1355,8 +1452,8 @@ def test_embed_huggingface_api_prealloc_keeps_order(monkeypatch):
 def test_compute_embeddings_defaults_to_float16(monkeypatch):
     calls: dict[str, Any] = {}
 
-    def _fake_embed_local(documents, model_name, batch_size, dtype):
-        del model_name, batch_size
+    def _fake_embed_local(documents, model_name, batch_size, dtype, **kwargs):
+        del model_name, batch_size, kwargs
         calls["dtype"] = np.dtype(dtype)
         return np.ones((len(documents), 2), dtype=np.dtype(dtype))
 
@@ -1370,6 +1467,37 @@ def test_compute_embeddings_defaults_to_float16(monkeypatch):
 
     assert calls["dtype"] == np.dtype(np.float16)
     assert emb.dtype == np.float16
+
+
+def test_compute_embeddings_passes_progress_callback_to_local(monkeypatch):
+    calls: dict[str, Any] = {}
+    callback_updates: list[int] = []
+    callback = callback_updates.append
+
+    def _fake_embed_local(documents, model_name, batch_size, dtype, **kwargs):
+        del model_name, batch_size, dtype
+        calls["documents"] = list(documents)
+        calls["kwargs"] = kwargs
+        kwargs["progress_callback"](1)
+        kwargs["progress_callback"](1)
+        return np.ones((len(documents), 2), dtype=np.float32)
+
+    monkeypatch.setattr(tm_embeddings, "validate_provider", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
+
+    emb = tm_embeddings.compute_embeddings(
+        ["doc-a", "doc-b"],
+        provider="local",
+        model="local/test-model",
+        show_progress=False,
+        progress_callback=callback,
+    )
+
+    assert calls["documents"] == ["doc-a", "doc-b"]
+    assert calls["kwargs"]["show_progress"] is False
+    assert calls["kwargs"]["progress_callback"] is callback
+    assert callback_updates == [1, 1]
+    assert emb.shape == (2, 2)
 
 
 def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp_path, caplog):
@@ -1386,8 +1514,8 @@ def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp
     )
     calls = {"n": 0}
 
-    def _fake_embed_local(documents, model_name, batch_size, dtype):
-        del model_name, batch_size, dtype
+    def _fake_embed_local(documents, model_name, batch_size, dtype, **kwargs):
+        del model_name, batch_size, dtype, kwargs
         calls["n"] += 1
         return np.ones((len(documents), 3), dtype=np.float32)
 
@@ -1418,8 +1546,8 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
     )
     calls = {"n": 0}
 
-    def _fake_embed_local(documents, model_name, batch_size, dtype):
-        del model_name, batch_size, dtype
+    def _fake_embed_local(documents, model_name, batch_size, dtype, **kwargs):
+        del model_name, batch_size, dtype, kwargs
         calls["n"] += 1
         return np.full((len(documents), 2), fill_value=7.0, dtype=np.float32)
 
@@ -1593,8 +1721,8 @@ def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, cap
     caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
     calls = {"n": 0}
 
-    def _fake_embed_local(documents, model_name, batch_size, dtype):
-        del model_name, batch_size, dtype
+    def _fake_embed_local(documents, model_name, batch_size, dtype, **kwargs):
+        del model_name, batch_size, dtype, kwargs
         calls["n"] += 1
         return np.arange(len(documents) * 2, dtype=np.float32).reshape(len(documents), 2)
 
@@ -1622,8 +1750,8 @@ def test_compute_embeddings_uses_cache_on_second_call(monkeypatch, tmp_path, cap
 def test_compute_embeddings_cache_hit_reports_document_progress(monkeypatch, tmp_path):
     calls = {"n": 0}
 
-    def _fake_embed_local(documents, model_name, batch_size, dtype):
-        del model_name, batch_size, dtype
+    def _fake_embed_local(documents, model_name, batch_size, dtype, **kwargs):
+        del model_name, batch_size, dtype, kwargs
         calls["n"] += 1
         return np.arange(len(documents) * 2, dtype=np.float32).reshape(len(documents), 2)
 
