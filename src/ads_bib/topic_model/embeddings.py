@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 import hashlib
 import logging
 import os
@@ -26,7 +26,6 @@ from ads_bib._utils.logging import (
     capture_external_output,
     get_console_stream,
     get_runtime_log_path,
-    temporarily_raise_logger_level,
 )
 from ads_bib._utils.openrouter_costs import (
     extract_generation_id,
@@ -51,21 +50,6 @@ _EMBEDDING_MEMORY_BUDGET_FRACTION = 0.70
 _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
 _MAX_OPENROUTER_WORKERS = 20
 
-
-@contextmanager
-def _suppress_local_embedding_runtime_noise():
-    """Reduce TensorFlow/absl import noise for local sentence-transformer loads."""
-    previous_tf_cpp = os.environ.get("TF_CPP_MIN_LOG_LEVEL")
-    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-    try:
-        with temporarily_raise_logger_level("tensorflow", level=logging.ERROR):
-            with temporarily_raise_logger_level("absl", level=logging.ERROR):
-                yield
-    finally:
-        if previous_tf_cpp is None:
-            os.environ.pop("TF_CPP_MIN_LOG_LEVEL", None)
-        else:
-            os.environ["TF_CPP_MIN_LOG_LEVEL"] = previous_tf_cpp
 
 
 def _local_progress_bar(*, total: int, show_progress: bool):
@@ -375,8 +359,7 @@ def _embed_local(
             total=total_documents,
             show_progress=bool(show_progress) and progress_callback is None,
         ) as pbar:
-            with _suppress_local_embedding_runtime_noise():
-                with capture_external_output(get_runtime_log_path()):
+            with capture_external_output(get_runtime_log_path()):
                     from sentence_transformers import SentenceTransformer
 
                     st = SentenceTransformer(model)

@@ -10,6 +10,14 @@ from typing import Literal
 
 from tqdm.auto import tqdm
 
+# Suppress TensorFlow/oneDNN C++ warnings that bypass Python logging.
+# These env vars must be set before any transitive TF import (e.g. via
+# BERTopic → UMAP → parametric_umap, or thinc, or transformers).
+# TF's C++ runtime reads them once at initialization; setting them later
+# or restoring them per-scope has no effect.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+
 OutputMode = Literal["cli", "notebook"]
 
 _CONSOLE_HANDLER_NAME = "ads_bib_console"
@@ -228,6 +236,11 @@ def suppress_noisy_third_party_logs() -> None:
             "bertopic",
         ):
             logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
+
+        # TF/absl emit deprecation warnings at WARNING level during import;
+        # suppress them more aggressively since they are never actionable.
+        for tf_logger_name in ("tensorflow", "absl"):
+            logging.getLogger(tf_logger_name).setLevel(logging.ERROR)
 
         os.environ.setdefault("LITELLM_LOG", "WARNING")
         os.environ.setdefault("LITELLM_VERBOSE", "False")
