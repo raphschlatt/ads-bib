@@ -157,6 +157,10 @@ _RESTORED_TOPIC_CHROME_CSS = """
     flex: 0 0 auto;
     gap: 8px;
 }
+.ads-topic-depth-spacer {
+    display: inline-block;
+    flex: 0 0 auto;
+}
 .ads-topic-row:hover {
     background-color: rgba(127, 127, 127, 0.12);
 }
@@ -417,7 +421,11 @@ const TOPIC_PANEL_PAYLOAD = __TOPIC_PANEL_PAYLOAD__;
 
     const prefix = document.createElement("span");
     prefix.className = "ads-topic-row-prefix";
-    prefix.style.paddingLeft = `${row.depth * depthStep}px`;
+
+    const depthSpacer = document.createElement("span");
+    depthSpacer.className = "ads-topic-depth-spacer";
+    depthSpacer.style.width = `${row.depth * depthStep}px`;
+    prefix.appendChild(depthSpacer);
 
     if (row.hasChildren) {
       const expandButton = document.createElement("button");

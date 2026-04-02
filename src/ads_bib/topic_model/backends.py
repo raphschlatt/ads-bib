@@ -491,7 +491,7 @@ def _create_openrouter_bertopic_representation(
     api_key: str | None,
 ) -> Any:
     """Create a BERTopic representation model that calls OpenRouter directly."""
-    from bertopic.representation._base import BaseRepresentation
+    from bertopic.representation import BaseRepresentation
 
     class _OpenRouterBERTopicRepresentation(BaseRepresentation):
         def __init__(self) -> None:
@@ -632,10 +632,15 @@ def _create_llm(
     runtime_log_path: Path | None,
 ) -> Any:
     """Create configured BERTopic LLM representation backend."""
+    validate_provider(
+        provider,
+        valid=set(BERTOPIC_LLM_PROVIDERS),
+        requires_import=BERTOPIC_LLM_PROVIDER_IMPORTS,
+    )
     llm_max_new_tokens = max(1, int(llm_max_new_tokens))
 
     if provider == "local":
-        from bertopic.representation._textgeneration import TextGeneration
+        from bertopic.representation import TextGeneration
         from transformers import pipeline as hf_pipeline
 
         logger.info("  Loading local LLM: %s", model)
@@ -668,7 +673,7 @@ def _create_llm(
         )
 
     if provider == "llama_server":
-        from bertopic.representation._openai import OpenAI as BERTopicOpenAI
+        from bertopic.representation import OpenAI as BERTopicOpenAI
 
         if model_spec is None:
             raise ValueError("llama_server provider requires a resolved ModelSpec.")
@@ -698,7 +703,7 @@ def _create_llm(
         )
 
     if provider == "huggingface_api":
-        from bertopic.representation._litellm import LiteLLM
+        from bertopic.representation import LiteLLM
 
         resolved_model = model
         resolved_api_key = api_key
@@ -744,8 +749,8 @@ def _build_representation_model(
     runtime_log_path: Path | None,
 ) -> dict[str, Any]:
     """Build BERTopic representation models for sequential and parallel use."""
-    from bertopic.representation._mmr import MaximalMarginalRelevance
-    from bertopic.representation._pos import PartOfSpeech
+    from bertopic.representation import MaximalMarginalRelevance
+    from bertopic.representation import PartOfSpeech
 
     prompt = llm_prompt or BERTOPIC_LABELING_GENERIC
 
@@ -757,7 +762,7 @@ def _build_representation_model(
         if name == "POS":
             pipe.append(PartOfSpeech(pos_spacy_model))
         elif name == "KeyBERT":
-            from bertopic.representation._keybert import KeyBERTInspired
+            from bertopic.representation import KeyBERTInspired
 
             pipe.append(KeyBERTInspired())
         elif name == "MMR":
@@ -787,7 +792,7 @@ def _build_representation_model(
         elif name == "POS":
             result["POS"] = PartOfSpeech(pos_spacy_model)
         elif name == "KeyBERT":
-            from bertopic.representation._keybert import KeyBERTInspired
+            from bertopic.representation import KeyBERTInspired
 
             result["KeyBERT"] = KeyBERTInspired()
 
@@ -1527,7 +1532,6 @@ def fit_bertopic(
         valid=set(BERTOPIC_LLM_PROVIDERS),
         api_key=api_key,
         requires_key={"openrouter", "huggingface_api"},
-        requires_import=BERTOPIC_LLM_PROVIDER_IMPORTS,
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
 
