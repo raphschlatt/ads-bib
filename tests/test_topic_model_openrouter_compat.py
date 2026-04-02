@@ -15,15 +15,17 @@ from ads_bib.topic_model import backends as tm_backends
 def _install_fake_bertopic_base(monkeypatch):
     fake_bertopic = types.ModuleType("bertopic")
     fake_representation = types.ModuleType("bertopic.representation")
-    fake_base = types.ModuleType("bertopic.representation._base")
 
     class _FakeBaseRepresentation:
         pass
 
-    fake_base.BaseRepresentation = _FakeBaseRepresentation
+    fake_representation.BaseRepresentation = _FakeBaseRepresentation
     monkeypatch.setitem(sys.modules, "bertopic", fake_bertopic)
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
-    monkeypatch.setitem(sys.modules, "bertopic.representation._base", fake_base)
+
+    fake_litellm = types.ModuleType("litellm")
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+
     return _FakeBaseRepresentation
 
 

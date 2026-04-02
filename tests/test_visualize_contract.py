@@ -180,7 +180,8 @@ def test_create_topic_map_hierarchical_panel_uses_collapsed_tree_layout_and_rows
 
     assert '"defaultExpandedKeys":[]' in js
     assert "ads-topic-panel" in js
-    assert "depthSpacer" in js
+    assert "depthStep" in js
+    assert "paddingLeft" in js
     assert "panel.style.display = \"flex\"" in js
     assert "event.stopPropagation()" in js
     assert "is-placeholder" not in js
@@ -189,7 +190,6 @@ def test_create_topic_map_hierarchical_panel_uses_collapsed_tree_layout_and_rows
     assert "min-height: 0;" in css
     assert "overscroll-behavior: contain;" in css
     assert "touch-action: pan-y;" in css
-    assert ".ads-topic-depth-spacer" in css
     assert "padding: 4px 8px;" in css
     assert "width: 16px;" in css
     assert "margin-top: 1px;" in css

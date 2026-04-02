@@ -442,7 +442,7 @@ def _run_offline_mocked_pipeline(
     monkeypatch.setattr(
         tm_embeddings,
         "_embed_local",
-        lambda documents, model, batch_size, dtype: np.arange(
+        lambda documents, model, batch_size, dtype, **kwargs: np.arange(
             len(documents) * 3,
             dtype=np.float32,
         ).reshape(len(documents), 3),

@@ -222,6 +222,7 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
     fake_transformers = types.ModuleType("transformers")
+    fake_transformers.__spec__ = types.SimpleNamespace(name="transformers", submodule_search_locations=[])
 
     class _FakeGenerationConfig:
         def __init__(self):
@@ -290,6 +291,7 @@ def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
     fake_transformers = types.ModuleType("transformers")
+    fake_transformers.__spec__ = types.SimpleNamespace(name="transformers", submodule_search_locations=[])
 
     def _fake_pipeline(*args, **kwargs):
         del args, kwargs
@@ -327,6 +329,9 @@ def test_create_llm_huggingface_api_normalizes_model_and_passes_api_key(monkeypa
     fake_representation = types.ModuleType("bertopic.representation")
     fake_representation.LiteLLM = _FakeLiteLLM
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
+
+    fake_litellm = types.ModuleType("litellm")
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
 
     llm = tm_backends._create_llm(
         provider="huggingface_api",
