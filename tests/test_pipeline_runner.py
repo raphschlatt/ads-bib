@@ -216,6 +216,26 @@ def test_official_pipeline_config_templates_load(
     }
 
 
+def test_pipeline_context_create_sets_transformers_runtime_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("USE_TORCH", raising=False)
+    monkeypatch.delenv("USE_TF", raising=False)
+    monkeypatch.delenv("TF_CPP_MIN_LOG_LEVEL", raising=False)
+
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+        }
+    )
+
+    pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+
+    assert pipeline.os.environ["USE_TORCH"] == "1"
+    assert pipeline.os.environ["USE_TF"] == "0"
+    assert pipeline.os.environ["TF_CPP_MIN_LOG_LEVEL"] == "3"
+
+
 def test_run_topic_fit_stage_uses_implicit_keybert_default(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {

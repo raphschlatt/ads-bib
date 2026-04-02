@@ -907,6 +907,8 @@ def _translate_rows_nllb(
                 )
                 skipped_langs.add(src_lang_str)
             failed.append((idx, f"Unsupported source language: {src_lang_str}"))
+            if progress_callback is not None:
+                progress_callback(1)
             continue
         tokens = _encode_nllb(str(row[source_col]), src_code, tokenizer)
         indices.append(idx)

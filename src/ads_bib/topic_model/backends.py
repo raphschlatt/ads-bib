@@ -9,8 +9,10 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
+import sys
 import time
 from typing import Any, Literal, TypeAlias, cast
+import types
 import warnings
 
 import numpy as np
@@ -90,6 +92,100 @@ def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
         "with `uv pip install -e \".[all,test]\"`."
     )
     raise ImportError(message) from exc
+
+@contextmanager
+def _stub_bertopic_import_noise() -> Iterator[None]:
+    """Stub BERTopic optional modules that trigger noisy imports we do not use."""
+    installed_modules: list[str] = []
+
+    def _install_module(
+        module_name: str,
+        *,
+        missing_message: str,
+        exported_name: str | None = None,
+    ) -> None:
+        if module_name in sys.modules:
+            return
+
+        shim = types.ModuleType(module_name)
+        shim.__file__ = f"<ads_bib {module_name} shim>"
+        shim.__package__ = module_name.rpartition(".")[0]
+
+        if exported_name is None:
+            def _missing_attr(name: str) -> Any:
+                raise RuntimeError(f"{missing_message} ({name})")
+
+            shim.__getattr__ = _missing_attr  # type: ignore[attr-defined]
+        else:
+            class _MissingFeature:
+                def __init__(self, *args: Any, **kwargs: Any) -> None:
+                    del args, kwargs
+                    raise RuntimeError(missing_message)
+
+            _MissingFeature.__name__ = exported_name
+            setattr(shim, exported_name, _MissingFeature)
+
+        sys.modules[module_name] = shim
+        installed_modules.append(module_name)
+
+    _install_module(
+        "bertopic.plotting",
+        missing_message="BERTopic plotting helpers are unavailable in the ads_bib runtime shim",
+    )
+    _install_module(
+        "bertopic.backend._multimodal",
+        missing_message="BERTopic multimodal backend is unavailable in the ads_bib runtime shim",
+        exported_name="MultiModalBackend",
+    )
+    _install_module(
+        "bertopic.representation._textgeneration",
+        missing_message="BERTopic text-generation representation is unavailable in the ads_bib runtime shim",
+        exported_name="TextGeneration",
+    )
+    _install_module(
+        "bertopic.representation._zeroshot",
+        missing_message="BERTopic zero-shot representation is unavailable in the ads_bib runtime shim",
+        exported_name="ZeroShotClassification",
+    )
+    _install_module(
+        "bertopic.representation._pos",
+        missing_message="BERTopic POS representation is unavailable in the ads_bib runtime shim",
+        exported_name="PartOfSpeech",
+    )
+    _install_module(
+        "bertopic.representation._visual",
+        missing_message="BERTopic visual representation is unavailable in the ads_bib runtime shim",
+        exported_name="VisualRepresentation",
+    )
+    try:
+        yield
+    finally:
+        for module_name in reversed(installed_modules):
+            sys.modules.pop(module_name, None)
+
+
+def _load_local_sentence_transformer(
+    *,
+    model: str,
+    use_case: str,
+    missing_dependency_message: str,
+    runtime_log_path: Path | None,
+) -> Any:
+    """Load a local sentence-transformer under the runtime-log capture contract."""
+    try:
+        with capture_external_output(runtime_log_path or get_runtime_log_path()):
+            with temporarily_raise_logger_level("transformers.modeling_utils", level=logging.ERROR):
+                with temporarily_raise_logger_level(
+                    "transformers.integrations.tensor_parallel",
+                    level=logging.ERROR,
+                ):
+                    from sentence_transformers import SentenceTransformer
+
+                    return SentenceTransformer(model)
+    except ImportError as exc:
+        raise ImportError(missing_dependency_message) from exc
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=model, use_case=use_case, exc=exc)
 
 # ---------------------------------------------------------------------------
 # Clustering
@@ -612,7 +708,7 @@ def _create_llm(
     llm_max_new_tokens = max(1, int(llm_max_new_tokens))
 
     if provider == "local":
-        from bertopic.representation import TextGeneration
+        from bertopic.representation._textgeneration import TextGeneration
         from transformers import pipeline as hf_pipeline
 
         logger.info("  Loading local LLM: %s", model)
@@ -645,7 +741,7 @@ def _create_llm(
         )
 
     if provider == "llama_server":
-        from bertopic.representation import OpenAI as BERTopicOpenAI
+        from bertopic.representation._openai import OpenAI as BERTopicOpenAI
 
         if model_spec is None:
             raise ValueError("llama_server provider requires a resolved ModelSpec.")
@@ -675,7 +771,7 @@ def _create_llm(
         )
 
     if provider == "huggingface_api":
-        from bertopic.representation import LiteLLM
+        from bertopic.representation._litellm import LiteLLM
 
         resolved_model = model
         resolved_api_key = api_key
@@ -721,7 +817,8 @@ def _build_representation_model(
     runtime_log_path: Path | None,
 ) -> dict[str, Any]:
     """Build BERTopic representation models for sequential and parallel use."""
-    from bertopic.representation import MaximalMarginalRelevance, PartOfSpeech
+    from bertopic.representation._mmr import MaximalMarginalRelevance
+    from bertopic.representation._pos import PartOfSpeech
 
     prompt = llm_prompt or BERTOPIC_LABELING_GENERIC
 
@@ -733,7 +830,7 @@ def _build_representation_model(
         if name == "POS":
             pipe.append(PartOfSpeech(pos_spacy_model))
         elif name == "KeyBERT":
-            from bertopic.representation import KeyBERTInspired
+            from bertopic.representation._keybert import KeyBERTInspired
 
             pipe.append(KeyBERTInspired())
         elif name == "MMR":
@@ -763,7 +860,7 @@ def _build_representation_model(
         elif name == "POS":
             result["POS"] = PartOfSpeech(pos_spacy_model)
         elif name == "KeyBERT":
-            from bertopic.representation import KeyBERTInspired
+            from bertopic.representation._keybert import KeyBERTInspired
 
             result["KeyBERT"] = KeyBERTInspired()
 
@@ -1293,16 +1390,14 @@ def _build_toponymy_models(
             max_workers=max_workers,
         )
     else:
-        try:
-            from sentence_transformers import SentenceTransformer
-        except Exception as exc:
-            raise ImportError(
+        text_embedding_model = _load_local_sentence_transformer(
+            model=embedding_model,
+            use_case="toponymy embeddings",
+            missing_dependency_message=(
                 "embedding_provider='local' requires optional dependency 'sentence-transformers'."
-            ) from exc
-        try:
-            text_embedding_model = SentenceTransformer(embedding_model)
-        except Exception as exc:
-            raise_with_local_hf_compat_hint(model=embedding_model, use_case="toponymy embeddings", exc=exc)
+            ),
+            runtime_log_path=runtime_log_path,
+        )
 
     return llm_wrapper, llm_usage, text_embedding_model
 
@@ -1509,9 +1604,11 @@ def fit_bertopic(
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
 
-    from bertopic import BERTopic
-    from bertopic.dimensionality import BaseDimensionalityReduction
-    from bertopic.vectorizers import ClassTfidfTransformer
+    with _stub_bertopic_import_noise():
+        with capture_external_output(runtime_log_path or get_runtime_log_path()):
+            from bertopic import BERTopic
+            from bertopic.dimensionality import BaseDimensionalityReduction
+            from bertopic.vectorizers import ClassTfidfTransformer
     from sklearn.feature_extraction.text import CountVectorizer
 
     if pipeline_models is None:
@@ -1551,23 +1648,23 @@ def fit_bertopic(
 
     emb_model = None
     if "KeyBERT" in pipeline_models or "KeyBERT" in parallel_models:
-        from sentence_transformers import SentenceTransformer
-
-        with capture_external_output(get_runtime_log_path()):
-            if keybert_model == DEFAULT_KEYBERT_MODEL:
-                with temporarily_raise_logger_level("transformers.modeling_utils", level=logging.ERROR):
-                    with temporarily_raise_logger_level(
-                        "transformers.integrations.tensor_parallel",
-                        level=logging.ERROR,
-                    ):
-                        emb_model = SentenceTransformer(keybert_model)
-            else:
-                emb_model = SentenceTransformer(keybert_model)
+        emb_model = _load_local_sentence_transformer(
+            model=keybert_model,
+            use_case="bertopic keybert embeddings",
+            missing_dependency_message=(
+                "BERTopic keyword helpers require optional dependency 'sentence-transformers'."
+            ),
+            runtime_log_path=runtime_log_path,
+        )
     elif embedding_model_name:
-        from sentence_transformers import SentenceTransformer
-
-        with capture_external_output(get_runtime_log_path()):
-            emb_model = SentenceTransformer(embedding_model_name)
+        emb_model = _load_local_sentence_transformer(
+            model=embedding_model_name,
+            use_case="bertopic embeddings",
+            missing_dependency_message=(
+                "BERTopic embeddings require optional dependency 'sentence-transformers'."
+            ),
+            runtime_log_path=runtime_log_path,
+        )
 
     cluster_model = _create_cluster_model(clustering_method, clustering_params)
 

@@ -680,3 +680,44 @@ def test_translate_dataframe_nllb_requires_ctranslate2(monkeypatch):
             provider="nllb",
             model="some-nllb-model",
         )
+
+
+def test_translate_rows_nllb_counts_skipped_languages_in_progress(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "Title": ["bonjour", "kumusta", "maayong buntag"],
+            "Title_lang": ["fr", "ceb", "ceb"],
+            "Title_en": [None, None, None],
+        }
+    )
+
+    class _FakeResult:
+        def __init__(self, text: str):
+            self.hypotheses = [["eng_Latn", text.upper()]]
+
+    class _FakeTranslator:
+        def translate_batch(self, token_batches, **kwargs):
+            del kwargs
+            return [_FakeResult(tokens[-1]) for tokens in token_batches]
+
+    monkeypatch.setattr(tr, "_ensure_nllb_model", lambda model, cache_dir=None: (_FakeTranslator(), object()))
+    monkeypatch.setattr(tr, "_encode_nllb", lambda text, src_code, tokenizer: [src_code, text])
+    monkeypatch.setattr(tr, "_decode_nllb", lambda tokens, tokenizer: str(tokens[-1]))
+
+    updates: list[int] = []
+    failed, _ = tr._translate_rows_nllb(
+        df,
+        source_col="Title",
+        target_col="Title_en",
+        to_translate=df,
+        target_lang="en",
+        model="fake-nllb",
+        show_progress=False,
+        progress_callback=updates.append,
+    )
+
+    assert df["Title_en"].tolist() == ["BONJOUR", None, None]
+    assert len(failed) == 2
+    assert failed[0][1] == "Unsupported source language: ceb"
+    assert failed[1][1] == "Unsupported source language: ceb"
+    assert sum(updates) == 3
