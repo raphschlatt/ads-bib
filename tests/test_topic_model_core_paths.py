@@ -15,43 +15,6 @@ from ads_bib.topic_model import reduction as tm_reduction
 pytestmark = pytest.mark.requires_topic_stack
 
 
-def test_stub_bertopic_import_noise_installs_temporary_modules(monkeypatch):
-    monkeypatch.delitem(sys.modules, "bertopic.plotting", raising=False)
-    monkeypatch.delitem(sys.modules, "bertopic.backend._multimodal", raising=False)
-    monkeypatch.delitem(sys.modules, "bertopic.representation._textgeneration", raising=False)
-    monkeypatch.delitem(sys.modules, "bertopic.representation._zeroshot", raising=False)
-    monkeypatch.delitem(sys.modules, "bertopic.representation._pos", raising=False)
-    monkeypatch.delitem(sys.modules, "bertopic.representation._visual", raising=False)
-
-    with tm_backends._stub_bertopic_import_noise():
-        plotting = sys.modules["bertopic.plotting"]
-        multimodal = sys.modules["bertopic.backend._multimodal"]
-        text_generation = sys.modules["bertopic.representation._textgeneration"]
-        zero_shot = sys.modules["bertopic.representation._zeroshot"]
-        part_of_speech = sys.modules["bertopic.representation._pos"]
-        visual = sys.modules["bertopic.representation._visual"]
-
-        with pytest.raises(RuntimeError, match="BERTopic plotting helpers"):
-            plotting.visualize_topics
-        with pytest.raises(RuntimeError, match="BERTopic multimodal backend"):
-            multimodal.MultiModalBackend()
-        with pytest.raises(RuntimeError, match="BERTopic text-generation representation"):
-            text_generation.TextGeneration()
-        with pytest.raises(RuntimeError, match="BERTopic zero-shot representation"):
-            zero_shot.ZeroShotClassification()
-        with pytest.raises(RuntimeError, match="BERTopic POS representation"):
-            part_of_speech.PartOfSpeech()
-        with pytest.raises(RuntimeError, match="BERTopic visual representation"):
-            visual.VisualRepresentation()
-
-    assert "bertopic.plotting" not in sys.modules
-    assert "bertopic.backend._multimodal" not in sys.modules
-    assert "bertopic.representation._textgeneration" not in sys.modules
-    assert "bertopic.representation._zeroshot" not in sys.modules
-    assert "bertopic.representation._pos" not in sys.modules
-    assert "bertopic.representation._visual" not in sys.modules
-
-
 def test_reduce_dimensions_calls_reduce_for_5d_and_2d(monkeypatch):
     calls: list[tuple[int, str, dict, int, str]] = []
 

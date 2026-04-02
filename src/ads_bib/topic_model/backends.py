@@ -9,10 +9,8 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
-import sys
 import time
 from typing import Any, Literal, TypeAlias, cast
-import types
 import warnings
 
 import numpy as np
@@ -92,77 +90,6 @@ def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
         "with `uv pip install -e \".[all,test]\"`."
     )
     raise ImportError(message) from exc
-
-@contextmanager
-def _stub_bertopic_import_noise() -> Iterator[None]:
-    """Stub BERTopic optional modules that trigger noisy imports we do not use."""
-    installed_modules: list[str] = []
-
-    def _install_module(
-        module_name: str,
-        *,
-        missing_message: str,
-        exported_name: str | None = None,
-    ) -> None:
-        if module_name in sys.modules:
-            return
-
-        shim = types.ModuleType(module_name)
-        shim.__file__ = f"<ads_bib {module_name} shim>"
-        shim.__package__ = module_name.rpartition(".")[0]
-
-        if exported_name is None:
-            def _missing_attr(name: str) -> Any:
-                raise RuntimeError(f"{missing_message} ({name})")
-
-            shim.__getattr__ = _missing_attr  # type: ignore[attr-defined]
-        else:
-            class _MissingFeature:
-                def __init__(self, *args: Any, **kwargs: Any) -> None:
-                    del args, kwargs
-                    raise RuntimeError(missing_message)
-
-            _MissingFeature.__name__ = exported_name
-            setattr(shim, exported_name, _MissingFeature)
-
-        sys.modules[module_name] = shim
-        installed_modules.append(module_name)
-
-    _install_module(
-        "bertopic.plotting",
-        missing_message="BERTopic plotting helpers are unavailable in the ads_bib runtime shim",
-    )
-    _install_module(
-        "bertopic.backend._multimodal",
-        missing_message="BERTopic multimodal backend is unavailable in the ads_bib runtime shim",
-        exported_name="MultiModalBackend",
-    )
-    _install_module(
-        "bertopic.representation._textgeneration",
-        missing_message="BERTopic text-generation representation is unavailable in the ads_bib runtime shim",
-        exported_name="TextGeneration",
-    )
-    _install_module(
-        "bertopic.representation._zeroshot",
-        missing_message="BERTopic zero-shot representation is unavailable in the ads_bib runtime shim",
-        exported_name="ZeroShotClassification",
-    )
-    _install_module(
-        "bertopic.representation._pos",
-        missing_message="BERTopic POS representation is unavailable in the ads_bib runtime shim",
-        exported_name="PartOfSpeech",
-    )
-    _install_module(
-        "bertopic.representation._visual",
-        missing_message="BERTopic visual representation is unavailable in the ads_bib runtime shim",
-        exported_name="VisualRepresentation",
-    )
-    try:
-        yield
-    finally:
-        for module_name in reversed(installed_modules):
-            sys.modules.pop(module_name, None)
-
 
 def _load_local_sentence_transformer(
     *,
@@ -1604,11 +1531,10 @@ def fit_bertopic(
     )
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
 
-    with _stub_bertopic_import_noise():
-        with capture_external_output(runtime_log_path or get_runtime_log_path()):
-            from bertopic import BERTopic
-            from bertopic.dimensionality import BaseDimensionalityReduction
-            from bertopic.vectorizers import ClassTfidfTransformer
+    with capture_external_output(runtime_log_path or get_runtime_log_path()):
+        from bertopic import BERTopic
+        from bertopic.dimensionality import BaseDimensionalityReduction
+        from bertopic.vectorizers import ClassTfidfTransformer
     from sklearn.feature_extraction.text import CountVectorizer
 
     if pipeline_models is None:

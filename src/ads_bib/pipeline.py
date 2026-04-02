@@ -102,15 +102,6 @@ STAGE_ORDER: tuple[StageName, ...] = (
     "curate",
     "citations",
 )
-
-
-def _configure_transformers_runtime_env() -> None:
-    """Prefer the PyTorch-only Transformers path unless the user overrides it."""
-    os.environ.setdefault("USE_TORCH", "1")
-    os.environ.setdefault("USE_TF", "0")
-    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-
-
 class StagePrerequisiteError(RuntimeError):
     """Raised when a strict stage is missing its required upstream state."""
 
@@ -447,7 +438,6 @@ class PipelineContext:
         root = Path(project_root or config.run.project_root or Path.cwd())
         if load_environment:
             load_env(project_root=root)
-        _configure_transformers_runtime_env()
         resolved_paths = paths or init_paths(project_root=root)
         resolved_run = run or RunManager(run_name=run_name or config.run.run_name, project_root=root)
         resolved_tracker = tracker or CostTracker()
