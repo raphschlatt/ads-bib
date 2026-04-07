@@ -9,13 +9,17 @@ The primary runtime path is the CLI. `ads-bib` ships four official packaged
 starter presets:
 
 ```bash
+ads-bib bootstrap --preset openrouter --config ads-bib.yaml --env-file .env
 ads-bib preset list
+ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ads-bib preset write openrouter --output ads-bib.yaml
 ```
 
 Each preset defines one runtime road. They are generic starter configs, so you
-must set `search.query` before running.
+must set `search.query` before running. `bootstrap` is the high-level onboarding
+path; `preset write` remains the low-level export command when you only want the
+YAML file.
 
 | Preset | Translation | Embeddings | Labeling | Default Backend | Intended Use |
 | --- | --- | --- | --- | --- | --- |
@@ -289,4 +293,4 @@ configs.
 | --- | --- |
 | `ADS_TOKEN` | Always |
 | `OPENROUTER_API_KEY` | Using `openrouter` providers |
-| `HF_TOKEN` | Using `huggingface_api` providers |
+| `HF_TOKEN` | Using `huggingface_api` providers (`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted) |

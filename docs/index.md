@@ -1,8 +1,8 @@
 # ADS Pipeline
 
 `ads-bib` is a Python package and CLI for bibliometric analysis of NASA ADS
-data. Install the package, run `ads-bib run` from your working directory, and
-use the official packaged presets as your starting point. The GitHub repository
+data. Install the package, bootstrap a working directory, validate it with
+`ads-bib doctor`, and then run the pipeline from the CLI. The GitHub repository
 also includes `pipeline.ipynb` as an optional interactive companion. The
 interactive topic map below was generated from Stephen Hawking's ADS
 publications:
@@ -78,6 +78,6 @@ VOSviewer, and the topic map is a self-contained interactive HTML page.
 
 ## Next
 
-[Get Started](get-started.md) covers installation and your first run.
+[Get Started](get-started.md) covers installation, `bootstrap`, `doctor`, and your first run.
 The [Pipeline Guide](pipeline-guide.md) explains each phase and its parameters.
 The [Configuration](configuration.md) page is a complete reference of all config keys.

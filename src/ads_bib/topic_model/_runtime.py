@@ -19,3 +19,13 @@ BERTOPIC_LLM_PROVIDER_IMPORTS = {
     "openrouter": "litellm",
     "huggingface_api": "litellm",
 }
+
+TOPONYMY_LLM_PROVIDER_IMPORTS = {
+    "local": "transformers",
+    "llama_server": "openai",
+}
+
+TOPONYMY_EMBEDDING_PROVIDER_IMPORTS = {
+    "local": "sentence_transformers",
+    "openrouter": "litellm",
+}

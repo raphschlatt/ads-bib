@@ -181,3 +181,18 @@ def test_translate_dataframe_llama_server_rejects_legacy_repo_file_string():
             provider="llama_server",
             model="mradermacher/translategemma-4b-it-GGUF:translategemma-4b-it.Q4_K_M.gguf",
         )
+
+
+def test_translate_dataframe_openrouter_requires_openai(monkeypatch):
+    df = pd.DataFrame({"Title": ["bonjour"], "Title_lang": ["fr"]})
+    monkeypatch.delitem(sys.modules, "openai", raising=False)
+    monkeypatch.setattr(cfg, "find_spec", lambda module: None if module == "openai" else True)
+
+    with pytest.raises(ImportError, match="requires optional dependency 'openai'"):
+        tr.translate_dataframe(
+            df,
+            columns=["Title"],
+            provider="openrouter",
+            model="google/gemini-2.5-flash",
+            api_key="token",
+        )

@@ -6,8 +6,11 @@ import argparse
 import os
 import subprocess
 import sys
+from pathlib import Path
 from collections.abc import Callable, Sequence
 
+from ads_bib.bootstrap import bootstrap_workspace
+from ads_bib.doctor import collect_doctor_report, format_doctor_report
 from ads_bib.pipeline import PipelineConfig, run_pipeline
 from ads_bib.presets import (
     get_preset_names,
@@ -69,18 +72,22 @@ def _apply_override(data: dict[str, object], key: str, value: object) -> None:
     current[parts[-1]] = value
 
 
-def _handle_run(args: argparse.Namespace) -> int:
-    if args.config is not None:
+def _load_config_from_args(args: argparse.Namespace) -> PipelineConfig:
+    if getattr(args, "config", None) is not None:
         config = PipelineConfig.from_yaml(args.config)
     else:
         config = load_preset_config(args.preset)
     config_data = config.to_dict()
 
-    for raw in args.set_values or []:
+    for raw in getattr(args, "set_values", []) or []:
         key, value = _parse_override(raw)
         _apply_override(config_data, key, value)
 
-    config = PipelineConfig.from_dict(config_data)
+    return PipelineConfig.from_dict(config_data)
+
+
+def _handle_run(args: argparse.Namespace) -> int:
+    config = _load_config_from_args(args)
     if not str(config.search.query).strip():
         raise ValueError(
             "search.query is required. Set it in your YAML config or pass "
@@ -92,6 +99,32 @@ def _handle_run(args: argparse.Namespace) -> int:
         stop_stage=args.to_stage,
         run_name=args.run_name,
     )
+    return 0
+
+
+def _handle_doctor(args: argparse.Namespace) -> int:
+    config = _load_config_from_args(args)
+    report = collect_doctor_report(
+        config,
+        start_stage=args.from_stage,
+        stop_stage=args.to_stage,
+    )
+    sys.stdout.write(format_doctor_report(report))
+    return 1 if report.has_failures() else 0
+
+
+def _handle_bootstrap(args: argparse.Namespace) -> int:
+    if bool(args.preset) != bool(args.config):
+        raise ValueError("bootstrap requires --preset and --config together, or neither of them.")
+    lines = bootstrap_workspace(
+        project_root=Path(args.project_root),
+        preset_name=args.preset,
+        config_output=args.config,
+        env_file=args.env_file,
+        download_fasttext=args.download_fasttext,
+        force=args.force,
+    )
+    sys.stdout.write("\n".join(lines) + "\n")
     return 0
 
 
@@ -120,6 +153,41 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_parser.set_defaults(handler=_handle_check)
 
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap",
+        help="Initialize a working directory for packaged CLI runs.",
+    )
+    bootstrap_parser.add_argument(
+        "--project-root",
+        default=".",
+        help="Working directory root that should contain data/ and runs/.",
+    )
+    bootstrap_parser.add_argument(
+        "--preset",
+        choices=get_preset_names(),
+        help="Optional packaged preset to materialize as YAML.",
+    )
+    bootstrap_parser.add_argument(
+        "--config",
+        help="Destination YAML path for the preset when --preset is used.",
+    )
+    bootstrap_parser.add_argument(
+        "--env-file",
+        default=".env.example",
+        help="Env template path relative to --project-root.",
+    )
+    bootstrap_parser.add_argument(
+        "--download-fasttext",
+        action="store_true",
+        help="Download lid.176.bin into data/models/ under --project-root.",
+    )
+    bootstrap_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite generated files when they already exist.",
+    )
+    bootstrap_parser.set_defaults(handler=_handle_bootstrap)
+
     run_parser = subparsers.add_parser(
         "run",
         help="Run the ADS pipeline from a packaged preset or YAML config file.",
@@ -142,6 +210,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override config values via dotted key=value pairs.",
     )
     run_parser.set_defaults(handler=_handle_run)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Validate runtime prerequisites for a preset or YAML config.",
+    )
+    doctor_source = doctor_parser.add_mutually_exclusive_group(required=True)
+    doctor_source.add_argument("--config", help="Path to YAML pipeline config.")
+    doctor_source.add_argument(
+        "--preset",
+        choices=get_preset_names(),
+        help="Official packaged preset name.",
+    )
+    doctor_parser.add_argument("--from", dest="from_stage", help="Optional stage to start from.")
+    doctor_parser.add_argument("--to", dest="to_stage", help="Optional stage to stop after.")
+    doctor_parser.add_argument(
+        "--set",
+        dest="set_values",
+        action="append",
+        default=[],
+        help="Override config values via dotted key=value pairs.",
+    )
+    doctor_parser.set_defaults(handler=_handle_doctor)
 
     preset_parser = subparsers.add_parser(
         "preset",

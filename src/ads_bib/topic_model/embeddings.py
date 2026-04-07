@@ -57,7 +57,9 @@ def _local_progress_bar(*, total: int, show_progress: bool):
     if not show_progress or total <= 0:
         return nullcontext(None)
 
-    console_stream = get_console_stream() or getattr(sys, "__stderr__", sys.stderr)
+    console_stream = get_console_stream()
+    if console_stream is None:
+        return nullcontext(None)
     return tqdm(
         total=total,
         desc="Embedding (local)",

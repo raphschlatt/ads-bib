@@ -1100,6 +1100,7 @@ def translate_dataframe(
         api_key=api_key,
         requires_key={"openrouter", "huggingface_api"},
         requires_import={
+            "openrouter": "openai",
             "huggingface_api": "huggingface_hub",
             "llama_server": "openai",
             "nllb": "ctranslate2",

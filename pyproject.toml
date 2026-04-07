@@ -27,8 +27,10 @@ classifiers = [
 ]
 dependencies = [
     "PyYAML",
+    "networkx",
     "pandas>=2.0",
     "numpy>=1.24",
+    "pyarrow",
     "requests",
     "python-dotenv",
     "fasttext-wheel",
@@ -68,7 +70,7 @@ hdbscan = ["hdbscan"]
 translate-local = ["openai", "huggingface-hub"]
 translate-api = ["openai", "huggingface-hub"]
 translate-nllb = ["ctranslate2", "transformers>=4.56", "sentencepiece", "huggingface-hub"]
-test = ["pytest>=7", "ruff>=0.6", "pyarrow", "networkx"]
+test = ["pytest>=7", "ruff>=0.6"]
 all = ["ads-bib[topic,topic-llm,translate-local,translate-api,translate-nllb,umap,hdbscan]"]
 
 [tool.hatch.build.targets.wheel]

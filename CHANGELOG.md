@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Notebook adapter in `ads_bib.notebook` with `NotebookSession` and package-side config invalidation.
 - Native `huggingface_api` translation path via `huggingface_hub.AsyncInferenceClient`.
 - Official packaged runtime presets exposed via `ads-bib run --preset ...` and `ads-bib preset write ...`.
+- Workspace bootstrap and stage-aware doctor commands for first-run setup and preflight validation.
 - Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
@@ -37,6 +38,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Stable local presets now pin only GGUF model families that are validated against the baseline `ADS_env` runtime; the CPU labeling preset uses `Qwen/Qwen2.5-0.5B-Instruct-GGUF` instead of unsupported `qwen35` variants.
 - Local BERTopic/KeyBERT runs now document `constraints/local-hf.txt` as the tested runtime guardrail for the current HF stack.
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
+- Hugging Face API key resolution now accepts `HF_TOKEN`, `HF_API_KEY`, and `HUGGINGFACE_API_KEY`.
+- Core runtime dependencies now include `pyarrow` and `networkx`, and translation now validates the `openai` dependency for OpenRouter before execution.
 
 ### Docs
 - Site configuration lives at `docs/zensical.toml`; build and preview use `zensical ... -f docs/zensical.toml` from the repository root (including GitHub Actions).
@@ -44,4 +47,4 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Removed `CLAUDE.md`; repository engineering rules and conventions live in `AGENTS.md` only.
 - Public docs and metadata now position the installed package and CLI as the primary runtime path, with `pipeline.ipynb` documented as an optional GitHub companion.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
-- README/runtime templates now document `HF_TOKEN`, the packaged preset model, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).
+- README/runtime templates now document the `bootstrap -> doctor -> run` flow, `HF_TOKEN`, the packaged preset model, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).

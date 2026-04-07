@@ -1178,6 +1178,18 @@ def test_embed_local_raises_actionable_error_for_unknown_arch(monkeypatch):
         )
 
 
+def test_local_progress_bar_skips_without_configured_console_stream(monkeypatch):
+    monkeypatch.setattr(tm_embeddings, "get_console_stream", lambda: None)
+    monkeypatch.setattr(
+        tm_embeddings,
+        "tqdm",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("tqdm should not be created")),
+    )
+
+    with tm_embeddings._local_progress_bar(total=1, show_progress=True) as pbar:
+        assert pbar is None
+
+
 def test_embed_local_raises_actionable_error_for_torch_runtime_requirement(monkeypatch):
     fake_sentence_transformers = types.ModuleType("sentence_transformers")
 

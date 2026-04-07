@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import ads_bib.cli as cli
+import ads_bib.doctor as doctor
 import pytest
 
 
@@ -135,6 +136,55 @@ def test_preset_write_writes_yaml(tmp_path, capsys):
     assert output_path.exists()
     assert "ads_bib_openrouter" in output_path.read_text(encoding="utf-8")
     assert "Wrote preset 'openrouter'" in capsys.readouterr().out
+
+
+def test_main_dispatches_bootstrap(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "bootstrap_workspace", lambda **_: ["line one", "line two"])
+
+    rc = cli.main(["bootstrap"])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "line one\nline two\n"
+
+
+def test_main_dispatches_doctor(monkeypatch, capsys):
+    report = doctor.DoctorReport(
+        checks=(doctor.DoctorCheck(name="search.query", status="ok", detail="configured"),),
+        active_stages=("search",),
+    )
+    monkeypatch.setattr(cli, "collect_doctor_report", lambda *args, **kwargs: report)
+    monkeypatch.setattr(cli, "format_doctor_report", lambda report: "doctor ok\n")
+
+    rc = cli.main([
+        "doctor",
+        "--preset",
+        "openrouter",
+        "--set",
+        "search.query=author:test",
+    ])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "doctor ok\n"
+
+
+def test_main_doctor_returns_nonzero_on_failures(monkeypatch, capsys):
+    report = doctor.DoctorReport(
+        checks=(doctor.DoctorCheck(name="search.ads_token", status="fail", detail="missing"),),
+        active_stages=("search",),
+    )
+    monkeypatch.setattr(cli, "collect_doctor_report", lambda *args, **kwargs: report)
+    monkeypatch.setattr(cli, "format_doctor_report", lambda report: "doctor failed\n")
+
+    rc = cli.main([
+        "doctor",
+        "--preset",
+        "openrouter",
+        "--set",
+        "search.query=author:test",
+    ])
+
+    assert rc == 1
+    assert capsys.readouterr().out == "doctor failed\n"
 
 
 def test_parse_override_requires_equals():

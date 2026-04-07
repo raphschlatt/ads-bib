@@ -22,12 +22,12 @@ From a Git checkout:
 ```bash
 conda activate ADS_env
 uv pip install -e ".[all]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
-python -m spacy download en_core_web_md
-ads-bib preset list
-ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
+ads-bib bootstrap --preset openrouter --config ads-bib.yaml --env-file .env --download-fasttext
+ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
+ads-bib run --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
 ```
 
-Before running, create a `.env` file in your working directory with `ADS_TOKEN` and any optional provider keys you need. The remote and local presets also expect `data/models/lid.176.bin`; see [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) for the complete setup and runtime prerequisites.
+Before `doctor` and `run`, fill `.env` in your working directory with `ADS_TOKEN` and any optional provider keys you need. `bootstrap` scaffolds the workspace, writes an editable preset YAML, and can download `data/models/lid.176.bin`; see [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) for the complete setup and runtime prerequisites.
 
 ## Build the Docs Locally
 

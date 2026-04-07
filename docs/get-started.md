@@ -9,15 +9,12 @@ Activate the conda environment and install the package:
 ```bash
 conda activate ADS_env
 uv pip install -e ".[all]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
-python -m spacy download en_core_web_md
 ```
 
-You also need the fastText language-identification model at
-`data/models/lid.176.bin`, or you need to point `translate.fasttext_model` to a
-different location. If you plan to use local GGUF models for translation or
-topic labeling, you also need an external `llama-server` binary. On Windows,
-the tested path is the Winget `ggml.llamacpp` package. This is only required
-for the `local_cpu` and `local_gpu` presets.
+If you plan to use local GGUF models for translation or topic labeling, you
+also need an external `llama-server` binary. On Windows, the tested path is the
+Winget `ggml.llamacpp` package. This is only required for the `local_cpu` and
+`local_gpu` presets.
 
 ## Set Up Your Working Directory
 
@@ -25,35 +22,63 @@ Run the CLI from the directory that should hold your `data/` and `runs/`
 folders. By default, that current working directory becomes the pipeline
 `project_root`.
 
-Create a `.env` file there. The ADS token is always required. The other keys are
-only needed if you choose remote providers for translation or topic labeling.
+Bootstrap the workspace, write an editable preset, and download the default
+fastText language-identification model:
+
+```bash
+ads-bib bootstrap --preset openrouter --config ads-bib.yaml --env-file .env --download-fasttext
+```
+
+This creates the expected `data/` and `runs/` directories, writes a local `.env`
+template, materializes the packaged preset to `ads-bib.yaml`, and downloads
+`data/models/lid.176.bin`.
+
+If you want to stay fully preset-driven, you can skip the editable YAML and run
+directly with `ads-bib run --preset ...`. The command above is the recommended
+first-run path because it gives you one local config file that `doctor` and
+`run` can both validate.
+
+## Fill in Secrets
+
+Edit `.env` in that working directory. The ADS token is always required. The
+other keys are only needed if you choose remote providers for translation or
+topic labeling.
 
 ```env
 ADS_TOKEN=...
 OPENROUTER_API_KEY=...  # only for openrouter providers
-HF_TOKEN=...            # only for huggingface_api providers
+HF_TOKEN=...            # canonical key for huggingface_api providers
 ```
+
+`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted, but `HF_TOKEN` is the
+canonical variable documented throughout the package.
+
+## Validate Before Running
+
+Run the stage-aware preflight on the same config you plan to execute:
+
+```bash
+ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
+```
+
+`doctor` checks the effective config after env loading and `--set` overrides. It
+reports missing API keys, missing optional Python modules, unresolved
+`llama-server` executables, absent `lid.176.bin`, and other runtime blockers
+before a long pipeline run starts.
 
 ## Run the CLI
 
-List the official packaged presets:
+Run from the validated YAML file:
+
+```bash
+ads-bib run --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
+```
+
+You can still list or use the packaged presets directly:
 
 ```bash
 ads-bib preset list
-```
-
-Run directly from a preset by setting your ADS query on the command line:
-
-```bash
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
-```
-
-If you want an editable YAML file first, write the preset out, edit it, then
-run from that file:
-
-```bash
-ads-bib preset write openrouter --output ads-bib.yaml
-ads-bib run --config ads-bib.yaml
 ```
 
 Use `--from`, `--to`, and additional `--set key=value` overrides to constrain
