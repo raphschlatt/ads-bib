@@ -60,13 +60,14 @@ def _module_is_available(module_name: str) -> bool:
     populated ``__spec__``. ``find_spec`` raises ``ValueError`` for those stubs,
     even though the runtime import path is intentionally satisfied.
     """
-    if sys.modules.get(module_name) is not None:
+    loaded_module = sys.modules.get(module_name)
+    if loaded_module is not None and getattr(loaded_module, "__spec__", None) is None:
         return True
 
     try:
         return find_spec(module_name) is not None
     except ValueError:
-        return sys.modules.get(module_name) is not None
+        return loaded_module is not None and getattr(loaded_module, "__spec__", None) is None
 
 
 def validate_provider(

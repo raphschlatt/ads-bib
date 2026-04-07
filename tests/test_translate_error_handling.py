@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import pandas as pd
 import pytest
@@ -158,6 +159,7 @@ def test_translate_dataframe_llama_server_requires_openai(tmp_path, monkeypatch)
     df = pd.DataFrame({"Title": ["bonjour"], "Title_lang": ["fr"]})
     fake_model = tmp_path / "model.gguf"
     fake_model.write_text("fake", encoding="utf-8")
+    monkeypatch.delitem(sys.modules, "openai", raising=False)
     monkeypatch.setattr(cfg, "find_spec", lambda module: None)
 
     with pytest.raises(ImportError, match="requires optional dependency 'openai'"):
