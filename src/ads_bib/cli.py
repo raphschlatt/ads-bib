@@ -72,9 +72,29 @@ def _apply_override(data: dict[str, object], key: str, value: object) -> None:
     current[parts[-1]] = value
 
 
+def _maybe_raise_legacy_config_hint(raw_path: str, exc: FileNotFoundError) -> None:
+    config_path = Path(raw_path)
+    preset_names = set(get_preset_names())
+    stem = config_path.stem
+    legacy_parent = tuple(part.lower() for part in config_path.parent.parts[-2:])
+    looks_like_legacy_preset = stem in preset_names and legacy_parent == ("configs", "pipeline")
+
+    if looks_like_legacy_preset:
+        raise FileNotFoundError(
+            f"Legacy preset file '{raw_path}' no longer exists. "
+            f"Use 'ads-bib run --preset {stem} ...' directly, or write it first via "
+            f"'ads-bib preset write {stem} --output {stem}.yaml'."
+        ) from exc
+
+    raise exc
+
+
 def _load_config_from_args(args: argparse.Namespace) -> PipelineConfig:
     if getattr(args, "config", None) is not None:
-        config = PipelineConfig.from_yaml(args.config)
+        try:
+            config = PipelineConfig.from_yaml(args.config)
+        except FileNotFoundError as exc:
+            _maybe_raise_legacy_config_hint(args.config, exc)
     else:
         config = load_preset_config(args.preset)
     config_data = config.to_dict()

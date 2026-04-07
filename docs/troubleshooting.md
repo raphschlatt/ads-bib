@@ -25,9 +25,10 @@ visualization.
 
 Fix:
 
-- Install the required extras: `uv pip install -e ".[all]"`.
-- For minimal setups, install only the extras that match your chosen
-  providers.
+- Reinstall with the smallest preset-matching profile from `Get Started` or
+  `Configuration`.
+- Use `uv pip install -e ".[all]"` only as the convenience fallback when you
+  explicitly want every supported runtime path.
 - Use `ads-bib doctor ...` to see which optional module is currently missing.
 
 ## Missing `lid.176.bin`
@@ -87,8 +88,9 @@ Symptom: provider validation, authentication, or cost resolution failures.
 Fix:
 
 - Ensure `OPENROUTER_API_KEY` is set.
-- Ensure the `openai` Python package is installed (`ads-bib[translate-api]` or
-  `ads-bib[all]`).
+- Ensure the `openai` Python package is installed. For package-managed installs,
+  the documented preset profiles already cover this; otherwise install `openai`
+  directly.
 - Use supported provider names and model identifiers.
 
 ## Toponymy first-layer error
@@ -120,6 +122,8 @@ Fix:
 
 - Ensure `HF_TOKEN` is set. `HF_API_KEY` and `HUGGINGFACE_API_KEY` are also
   accepted.
+- Ensure the `huggingface-hub` Python package is installed. The documented
+  preset profiles already include it.
 - Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or
   `unsloth/Qwen2.5-72B-Instruct:featherless-ai`.
 

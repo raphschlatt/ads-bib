@@ -116,6 +116,18 @@ def test_main_run_requires_search_query(monkeypatch, tmp_path):
         cli.main(["run", "--config", str(config_path)])
 
 
+def test_main_run_missing_legacy_config_path_shows_preset_migration_hint():
+    with pytest.raises(FileNotFoundError, match="Legacy preset file") as exc_info:
+        cli.main(["run", "--config", "configs/pipeline/local_cpu.yaml"])
+
+    assert "--preset local_cpu" in str(exc_info.value)
+
+
+def test_main_run_missing_arbitrary_config_path_keeps_normal_file_not_found():
+    with pytest.raises(FileNotFoundError, match="missing.yaml"):
+        cli.main(["run", "--config", "missing.yaml"])
+
+
 def test_preset_list_prints_all_names(capsys):
     rc = cli.main(["preset", "list"])
 

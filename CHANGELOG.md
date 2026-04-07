@@ -40,6 +40,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
 - Hugging Face API key resolution now accepts `HF_TOKEN`, `HF_API_KEY`, and `HUGGINGFACE_API_KEY`.
 - Core runtime dependencies now include `pyarrow` and `networkx`, and translation now validates the `openai` dependency for OpenRouter before execution.
+- Packaging extras no longer expose the obsolete `translate-local` / `translate-api` names; the lightweight provider clients moved into the `test` extra, and `ads-bib[all]` now only aggregates active extras.
 
 ### Docs
 - Site configuration lives at `docs/zensical.toml`; build and preview use `zensical ... -f docs/zensical.toml` from the repository root (including GitHub Actions).
