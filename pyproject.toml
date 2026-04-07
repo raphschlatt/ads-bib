@@ -80,6 +80,7 @@ exclude = [
     "/.github",
     "/_test_run_dir",
     "/AGENTS.md",
+    "/Package_ToDo.md",
     "/configs",
     "/data",
     "/docs",

@@ -35,6 +35,7 @@ Package_ToDo.md
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 .ruff_cache/
 .coverage
 .coverage.*
@@ -43,10 +44,15 @@ htmlcov/
 dist/
 build/
 site/
+.cache/
 *.egg
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local test/debug artifacts
+_test_run_dir/
+tmp_native_capture*.log
 
 # OS
 .DS_Store

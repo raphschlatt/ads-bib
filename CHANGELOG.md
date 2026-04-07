@@ -36,14 +36,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - OpenRouter and Hugging Face chat translation now share the same centralized scientific translation prompt contract.
 - Official runtime roads now ship as four packaged generic presets accessed via CLI rather than repo-root YAML files.
 - Stable local presets now pin only GGUF model families that are validated against the baseline `ADS_env` runtime; the CPU labeling preset uses `Qwen/Qwen2.5-0.5B-Instruct-GGUF` instead of unsupported `qwen35` variants.
-- Local BERTopic/KeyBERT runs now document `constraints/local-hf.txt` as the tested runtime guardrail for the current HF stack.
-- Packaging extras now install `huggingface-hub` for topic and API translation paths.
+- Packaging extras now install `huggingface-hub` for topic and NLLB translation paths.
 - Hugging Face API key resolution now accepts `HF_TOKEN`, `HF_API_KEY`, and `HUGGINGFACE_API_KEY`.
 - Core runtime dependencies now include `pyarrow` and `networkx`, and translation now validates the `openai` dependency for OpenRouter before execution.
 - Packaging extras no longer expose the obsolete `translate-local` / `translate-api` names; the lightweight provider clients moved into the `test` extra, and `ads-bib[all]` now only aggregates active extras.
 
 ### Docs
-- Site configuration lives at `docs/zensical.toml`; build and preview use `zensical ... -f docs/zensical.toml` from the repository root (including GitHub Actions).
+- Site configuration lives at `zensical.toml` in the repository root; build and preview use `zensical ...` from the root (including GitHub Actions).
 - `Package_ToDo.md` is no longer tracked in git; maintainers may keep a private local copy or use GitHub Issues for release tasks.
 - Removed `CLAUDE.md`; repository engineering rules and conventions live in `AGENTS.md` only.
 - Public docs and metadata now position the installed package and CLI as the primary runtime path, with `pipeline.ipynb` documented as an optional GitHub companion.

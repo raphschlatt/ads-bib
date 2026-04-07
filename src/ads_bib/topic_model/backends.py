@@ -1668,7 +1668,7 @@ def fit_toponymy(
     llama_server_config: LlamaServerConfig | None = None,
     runtime_log_path: Path | None = None,
 ) -> tuple[Any, np.ndarray, pd.DataFrame]:
-    """Fit Toponymy (or Toponymy+EVoC) and return topic assignments.
+    """Fit Toponymy and return topic assignments.
 
     Parameters
     ----------
