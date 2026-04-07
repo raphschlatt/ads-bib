@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
 
 import ads_bib.config as cfg
 import pytest
@@ -64,6 +66,7 @@ def test_validate_provider_requires_api_key():
 
 
 def test_validate_provider_checks_optional_dependency(monkeypatch):
+    monkeypatch.delitem(sys.modules, "litellm", raising=False)
     monkeypatch.setattr(cfg, "find_spec", lambda module: None)
     with pytest.raises(ImportError, match="requires optional dependency 'litellm'"):
         cfg.validate_provider(
@@ -74,7 +77,18 @@ def test_validate_provider_checks_optional_dependency(monkeypatch):
 
 
 def test_validate_provider_dependency_present(monkeypatch):
+    monkeypatch.delitem(sys.modules, "litellm", raising=False)
     monkeypatch.setattr(cfg, "find_spec", lambda module: object())
+    cfg.validate_provider(
+        "openrouter",
+        valid={"openrouter", "local"},
+        requires_import={"openrouter": "litellm"},
+    )
+
+
+def test_validate_provider_accepts_loaded_stub_module_without_spec(monkeypatch):
+    monkeypatch.setitem(sys.modules, "litellm", types.ModuleType("litellm"))
+
     cfg.validate_provider(
         "openrouter",
         valid={"openrouter", "local"},

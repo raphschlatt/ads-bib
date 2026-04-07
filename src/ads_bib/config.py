@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 from pathlib import Path
+import sys
 from dotenv import load_dotenv
 
 
@@ -52,6 +53,22 @@ def load_env(project_root: Path | str | None = None) -> None:
     load_dotenv(root / ".env")
 
 
+def _module_is_available(module_name: str) -> bool:
+    """Return whether an optional dependency can be imported.
+
+    Some tests inject lightweight stub modules into ``sys.modules`` without a
+    populated ``__spec__``. ``find_spec`` raises ``ValueError`` for those stubs,
+    even though the runtime import path is intentionally satisfied.
+    """
+    if sys.modules.get(module_name) is not None:
+        return True
+
+    try:
+        return find_spec(module_name) is not None
+    except ValueError:
+        return sys.modules.get(module_name) is not None
+
+
 def validate_provider(
     provider: str,
     *,
@@ -85,7 +102,7 @@ def validate_provider(
 
     requires_import = requires_import or {}
     module_name = requires_import.get(provider)
-    if module_name and find_spec(module_name) is None:
+    if module_name and not _module_is_available(module_name):
         raise ImportError(
             f"Provider '{provider}' requires optional dependency '{module_name}'."
         )
