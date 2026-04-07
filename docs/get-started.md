@@ -4,12 +4,51 @@ This guide takes you from a fresh environment to a completed CLI run.
 
 ## Install
 
-Activate the conda environment and install the package:
+Activate the conda environment first:
 
 ```bash
 conda activate ADS_env
-uv pip install -e ".[all]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
+
+`uv pip` is the recommended installer. It uses the same Python environment but
+resolves and downloads this dependency stack much faster than plain `pip`. If a
+user wants to use it, `uv` must be installed once first, for example via
+`python -m pip install uv`, `pipx install uv`, or the platform-specific Astral
+installer.
+
+For an installed package from an index, use `ads-bib[...]`. For a repository
+checkout, replace `ads-bib[...]` with the editable form `-e ".[...]"`.
+
+### Recommended Install Profiles
+
+| Preset / Road | Recommended `uv pip` install | Plain `pip` fallback | Notes |
+| --- | --- | --- | --- |
+| `openrouter` | `uv pip install -e ".[topic,topic-llm]"` | `python -m pip install -e ".[topic,topic-llm]"` | Remote translation, embeddings, and labeling |
+| `hf_api` | `uv pip install -e ".[topic,topic-llm]"` | `python -m pip install -e ".[topic,topic-llm]"` | HF API translation/embeddings + LiteLLM BERTopic labeling |
+| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `python -m pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | NLLB translation + local embeddings + llama-server labeling |
+| `local_gpu` | `uv pip install -e ".[topic]" <your CUDA-matched torch>` | `python -m pip install -e ".[topic]" <your CUDA-matched torch>` | Translation/labeling run through external `llama-server`; install the torch build that matches your CUDA stack |
+| Any road / convenience install | `uv pip install -e ".[all]"` | `python -m pip install -e ".[all]"` | Largest and slowest option; useful when you want every supported runtime path |
+
+Current extras are still somewhat conservative supersets. For example,
+`openrouter` does not use every package inside `topic`, but today that is the
+smallest supported extra set that covers the full preset contract cleanly.
+
+### Minimal Example Commands
+
+For the lightest remote preset path from a checkout:
+
+```bash
+uv pip install -e ".[topic,topic-llm]"
+```
+
+For the current `local_cpu` road from a checkout:
+
+```bash
+uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+```
+
+Plain `pip` remains fully supported, but especially on Windows the heavier
+topic stacks can take several minutes to resolve and install.
 
 If you plan to use local GGUF models for translation or topic labeling, you
 also need an external `llama-server` binary. On Windows, the tested path is the

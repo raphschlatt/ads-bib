@@ -17,11 +17,13 @@ Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
 
 ## Quickstart
 
-From a Git checkout:
+From a Git checkout. `uv pip` is the recommended installer because it resolves
+this stack much faster than plain `pip`; the full fallback commands are on the
+[Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) page.
 
 ```bash
 conda activate ADS_env
-uv pip install -e ".[all]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install -e ".[topic,topic-llm]"
 ads-bib bootstrap --preset openrouter --config ads-bib.yaml --env-file .env --download-fasttext
 ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
 ads-bib run --config ads-bib.yaml --set search.query='author:"Hawking, S*"'

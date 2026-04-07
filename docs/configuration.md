@@ -21,12 +21,30 @@ must set `search.query` before running. `bootstrap` is the high-level onboarding
 path; `preset write` remains the low-level export command when you only want the
 YAML file.
 
+`uv pip` is the recommended installer for these preset roads. Plain `pip`
+remains supported, but expect substantially longer installs on heavy topic
+stacks, especially on Windows.
+
 | Preset | Translation | Embeddings | Labeling | Default Backend | Intended Use |
 | --- | --- | --- | --- | --- | --- |
 | `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Fully remote setup with the smallest local footprint |
 | `hf_api` | HF API | HF API | HF API | `bertopic` | Hugging Face API users who want one provider family |
 | `local_cpu` | NLLB | Local | llama-server | `bertopic` | Offline-friendly CPU path once local models are available |
 | `local_gpu` | llama-server | Local | llama-server | `bertopic` | Local GPU path for faster translation and labeling |
+
+## Install Profiles
+
+These are the current supported extra sets for each official runtime road. They
+are not perfectly minimal by internal implementation path, but they are the
+smallest documented commands that cleanly satisfy the preset contracts today.
+
+| Preset | Recommended install from a checkout | Installed-package equivalent | Notes |
+| --- | --- | --- | --- |
+| `openrouter` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | Needs Toponymy, visualization stack, `openai`, and `litellm` |
+| `hf_api` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | HF API translation/embeddings plus BERTopic LiteLLM labeling |
+| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Adds NLLB translation and a tested CPU torch wheel |
+| `local_gpu` | `uv pip install -e ".[topic]" <your CUDA-matched torch>` | `uv pip install "ads-bib[topic]" <your CUDA-matched torch>` | Use the torch build that matches your CUDA runtime |
+| Everything | `uv pip install -e ".[all]"` | `uv pip install "ads-bib[all]"` | Convenience superset, not the lightest option |
 
 Completed runs save their resolved configuration to
 `runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
