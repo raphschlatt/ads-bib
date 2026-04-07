@@ -1,6 +1,6 @@
 # Get Started
 
-This guide takes you from a fresh clone to a completed pipeline run.
+This guide takes you from a fresh environment to a completed CLI run.
 
 ## Install
 
@@ -8,22 +8,25 @@ Activate the conda environment and install the package:
 
 ```bash
 conda activate ADS_env
-uv pip install -e ".[all,test]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
-uv pip install jupyterlab ipykernel
-python -m ipykernel install --user --name ADS_env --display-name "ADS_env"
+uv pip install -e ".[all]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
 python -m spacy download en_core_web_md
 ```
 
-If you plan to use local GGUF models for translation or topic labeling, you
-also need an external `llama-server` binary. On Windows, the tested path is the
-Winget `ggml.llamacpp` package. This is only required for the `local_cpu` and
-`local_gpu` configurations.
+You also need the fastText language-identification model at
+`data/models/lid.176.bin`, or you need to point `translate.fasttext_model` to a
+different location. If you plan to use local GGUF models for translation or
+topic labeling, you also need an external `llama-server` binary. On Windows,
+the tested path is the Winget `ggml.llamacpp` package. This is only required
+for the `local_cpu` and `local_gpu` presets.
 
-## Set Up Your API Keys
+## Set Up Your Working Directory
 
-Create a `.env` file in the repository root. The ADS token is always required.
-The other keys are only needed if you choose remote providers for translation
-or topic labeling.
+Run the CLI from the directory that should hold your `data/` and `runs/`
+folders. By default, that current working directory becomes the pipeline
+`project_root`.
+
+Create a `.env` file there. The ADS token is always required. The other keys are
+only needed if you choose remote providers for translation or topic labeling.
 
 ```env
 ADS_TOKEN=...
@@ -31,59 +34,44 @@ OPENROUTER_API_KEY=...  # only for openrouter providers
 HF_TOKEN=...            # only for huggingface_api providers
 ```
 
-## Choose Your Frontend
+## Run the CLI
 
-The notebook (`pipeline.ipynb`) is the primary interface. Open it, edit the
-configuration dicts at the top of each phase, and run cells for the stages you
-need. You can inspect intermediate DataFrames, adjust parameters, and rerun
-individual stages without starting over. This is how most users work with the
-pipeline.
-
-The CLI (`ads-bib run --config ...`) is for reproducible batch runs. Point it
-at a config preset and it runs the full pipeline, saving everything to a
-timestamped run directory. Use `--from` and `--to` to run a subset of stages.
-This is useful for scheduled runs or for saving a known-good configuration as a
-reusable template.
-
-## Run the Pipeline
-
-### Notebook
-
-Open `pipeline.ipynb` and run cells from top to bottom. The first cells
-initialize the session and configure each phase through inline dicts:
-
-```python
-SEARCH = {
-    "query": 'author:"Hawking, S*"',
-    "refresh_search": True,
-    "refresh_export": True,
-}
-session.set_section("search", SEARCH)
-```
-
-Each stage cell calls `session.run_stage(...)` and prints a summary when it
-finishes. Inspect the output, adjust parameters if needed, and rerun.
-
-### CLI
-
-Pick one of the four official presets:
+List the official packaged presets:
 
 ```bash
-ads-bib run --config configs/pipeline/openrouter.yaml
+ads-bib preset list
 ```
 
-| Preset | Translation | Embeddings | Topic Labeling | Default Backend |
-| --- | --- | --- | --- | --- |
-| `openrouter.yaml` | OpenRouter (Gemini Flash Lite) | OpenRouter (Qwen3-Embedding) | OpenRouter | `toponymy` |
-| `hf_api.yaml` | HF API (Qwen2.5-72B) | HF API (Qwen3-Embedding) | HF API | `bertopic` |
-| `local_cpu.yaml` | NLLB (offline) | Local (EmbeddingGemma) | llama-server (Qwen3.5 GGUF) | `bertopic` |
-| `local_gpu.yaml` | llama-server (TranslateGemma) | Local (EmbeddingGemma) | llama-server (Gemma-3 GGUF) | `bertopic` |
-
-Constrain stages or override settings:
+Run directly from a preset by setting your ADS query on the command line:
 
 ```bash
-ads-bib run --config configs/pipeline/openrouter.yaml --from topic_fit --to citations
-ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=toponymy
+ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
+```
+
+If you want an editable YAML file first, write the preset out, edit it, then
+run from that file:
+
+```bash
+ads-bib preset write openrouter --output ads-bib.yaml
+ads-bib run --config ads-bib.yaml
+```
+
+Use `--from`, `--to`, and additional `--set key=value` overrides to constrain
+stages or tweak a preset. The [Configuration](configuration.md) page is the
+single detailed reference for the four runtime roads and all config keys.
+
+## Optional Notebook Workflow
+
+`pipeline.ipynb` is not part of the installed runtime contract. If you want the
+interactive notebook workflow, use it from a GitHub checkout of the repository.
+The notebook stays aligned with the same config keys documented on the
+[Configuration](configuration.md) page.
+
+For notebook work only, also install Jupyter:
+
+```bash
+uv pip install jupyterlab ipykernel
+python -m ipykernel install --user --name ADS_env --display-name "ADS_env"
 ```
 
 ## See Your Outputs
@@ -91,7 +79,7 @@ ads-bib run --config configs/pipeline/openrouter.yaml --set topic_model.backend=
 After a successful run, your outputs are under `runs/<run_id>/`:
 
 ```
-runs/run_20260305_123644_hawking_openrouter/
+runs/run_20260407_120000_ads_bib_openrouter/
 ├── config_used.yaml              # rerun this exact config anytime
 ├── run_summary.yaml              # run metadata, counts, costs
 ├── logs/

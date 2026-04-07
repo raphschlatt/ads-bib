@@ -96,6 +96,10 @@ jobs:
           python -m pip install "$WHEEL"
           python -c "import ads_bib; print(ads_bib.__version__)"
           python -c "import ads_bib.search, ads_bib.export, ads_bib.tokenize, ads_bib.translate, ads_bib.citations"
+          ads-bib preset list
+          ads-bib preset write openrouter --output /tmp/openrouter.yaml
+          test -f /tmp/openrouter.yaml
+          grep -q "run_name: ads_bib_openrouter" /tmp/openrouter.yaml
 
       - name: Wheel smoke (topic extras)
         run: |

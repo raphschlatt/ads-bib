@@ -1,10 +1,11 @@
 # ADS Pipeline
 
-`ads-bib` is a Python pipeline for bibliometric analysis of NASA ADS data.
-It takes an ADS search query through search, translation, topic modeling,
-and citation-network construction and writes all results to a single run
-directory. The interactive topic map below was generated from Stephen
-Hawking's ADS publications:
+`ads-bib` is a Python package and CLI for bibliometric analysis of NASA ADS
+data. Install the package, run `ads-bib run` from your working directory, and
+use the official packaged presets as your starting point. The GitHub repository
+also includes `pipeline.ipynb` as an optional interactive companion. The
+interactive topic map below was generated from Stephen Hawking's ADS
+publications:
 
 <div style="width: 100%; height: 650px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
     <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
@@ -56,7 +57,7 @@ graph LR
 A completed run produces:
 
 ```
-runs/run_20260305_123644_hawking_openrouter/
+runs/run_20260407_120000_ads_bib_openrouter/
 ├── config_used.yaml          # exact config, reusable as CLI input
 ├── run_summary.yaml          # run metadata, counts, costs
 ├── logs/

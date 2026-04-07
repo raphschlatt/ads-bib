@@ -10,9 +10,10 @@ Engineering rules and operating conventions for this repository.
 
 ## 1) Architecture Map
 
-- Frontends: `pipeline.ipynb`, `ads-bib run --config ...`
+- Primary frontend: `ads-bib run --preset ...` / `ads-bib run --config ...`
+- Optional GitHub companion frontend: `pipeline.ipynb`
 - Docs site: `docs/` + root `zensical.toml` + `.github/workflows/docs.yml`
-- Official batch defaults: `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, `configs/pipeline/local_gpu.yaml`
+- Official runtime presets: bundled package presets exposed via `ads-bib preset ...`
 - Shared runner: `src/ads_bib/pipeline.py`
 - Notebook adapter: `src/ads_bib/notebook.py`
 - Package root: `src/ads_bib/`
@@ -35,7 +36,7 @@ Engineering rules and operating conventions for this repository.
 - Consolidation-first: when behavior changes, first prefer simplifying/replacing existing code over adding new layers on top.
 - Net-complexity check: avoid additive wrappers/duplicate paths by default; if code size/complexity must grow, document why removal or unification was not viable.
 - Fit-for-purpose over enterprise patterns:
-  - This project is notebook-first research software for small teams.
+  - This project is package-first research software with a CLI-first runtime path.
   - Prefer clean, lean, understandable solutions over production-platform complexity.
   - Introduce "production-grade" mechanisms only when a concrete recurring problem requires them.
 - Uniformity-first: prefer one shared implementation path for equivalent provider operations (especially OpenRouter calls) unless a documented exception is justified.
@@ -71,16 +72,17 @@ Seed entries:
 - `2026-03-09 | AND as optional external source step | external package is now integrated through one source-based adapter path | no mention-based placeholder path remains in notebook/runtime modules | keep only source-level contract in ads_bib`
 - `2026-03-18 | Remove toponymy_evoc backend after clean-room proof | blank-canvas verification showed the Toponymy EVoC path depended on undeclared upstream runtime dependencies and a legacy standalone evoc pin rather than one clean upstream-owned install story | supported topic backends are bertopic and toponymy only | remove repo pins, guards, docs, configs, and tests for the dropped path`
 - `2026-03-09 | Shared package runner with named stages | notebook-only orchestration drifted from CLI/testing needs | notebook and CLI now call the same pipeline functions with stage-based resume | remove numeric phase logic and duplicate orchestration paths`
-- `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; batch config lives under configs/pipeline/ | no notebook-local helpers or secret wiring to maintain`
+- `2026-03-09 | NotebookSession + inline section configs | notebook bootstrap cell had become a state machine with globals/config assembly/invalidation | notebook stays UI-only while session state, config diffs, and env fallback resolution live in package code; packaged presets own the supported CLI defaults | no notebook-local helpers or secret wiring to maintain`
 - `2026-03-09 | Notebook explicit, CLI orchestrated | shared stage functions had started mixing work, hidden prerequisite chaining, and snapshot resume | notebook stages run only their named work or same-stage resume; run_pipeline remains the only auto-chaining batch path | remove recursive stage calls and any tests/docs that depend on them`
 - `2026-03-09 | Curated frontend output with runtime log sink | raw tqdm/library/model-load output had made CLI and notebook hard to read | console output is now stage-first, frontend-specific, and raw third-party output is redirected to runs/<run_id>/logs/runtime.log | remove free-form stage banners and redundant nested progress bars`
 - `2026-03-12 | Shared run_summary across CLI and notebook | run artifacts had drifted between frontends and CLI lacked the final summary artifact | both frontends now persist run_summary.yaml with the same schema and status metadata | remove notebook-only summary handling`
-- `2026-03-13 | Four official Hawking config roads | package entrypoint now ships one aligned preset per runtime road for one small author corpus | configs/pipeline/openrouter.yaml, hf_api.yaml, local_cpu.yaml, and local_gpu.yaml define the supported OpenRouter/HF/local CPU/local GPU roads | remove old generic and Treder-specific config files`
+- `2026-03-13 | Four official runtime roads | initial package release aligned one preset per OpenRouter/HF/local CPU/local GPU road | road-based defaults replaced old generic and Treder-specific config files | superseded by package-bundled generic presets on 2026-04-07`
 - `2026-03-13 | Runtime guidance follows workload type, not one universal stack | translation, embeddings, and topic labeling have different CPU/GPU cost-speed-quality tradeoffs and local model availability constrains what is actually shippable today | README documents the decision guide while official presets stay aligned to the current package surface and locally present models | avoid notebook-only lore and avoid reintroducing GGUF as the default encoder path`
 - `2026-03-12 | Shared chat translation prompt contract | OpenRouter and HF translation prompts had drifted after native HF client work | chat-based translation providers now use one centralized scientific prompt contract while nllb stays provider-native | remove provider-specific prompt duplication`
 - `2026-03-12 | No archive tree on default branch | closed notebooks/backlogs added repository noise without runtime value | the default branch stays lean and historical material remains recoverable via git history | remove archive files and stale archive references`
 - `2026-03-16 | Server-only GGUF generation via external llama_server | local GGUF compatibility now depends on the llama.cpp runtime version more than on the Python env; Qwen3.5 is the reference local CPU label model proven in the dedicated MWE notebook | ADS_env is the Python env only, while translation and local topic labeling use one shared external llama.cpp server path with explicit model_repo/model_file/model_path config | remove env-local llama.cpp shadowing and stale llama-cpp-python install signals`
 - `2026-03-16 | Hybrid README landing page + Zensical docs site | README scope had grown beyond a clean GitHub landing page and long-form guidance needed stable URLs plus GitHub-native hosting | README.md stays short for repo orientation while docs/ ships the structured documentation site through GitHub Pages | avoid duplicating long-form guidance across README and docs`
+- `2026-04-07 | Package-bundled generic presets with CLI-first public contract | installed users must be able to start from one supported runtime road without a repo checkout while notebook work remains available from GitHub | official presets now live inside the package and are exposed via ads-bib preset/write + run --preset, while public docs position the CLI as primary | remove repo-root preset files and notebook-first wording from public metadata`
 
 ## 3) DataFrame Schema Conventions
 
@@ -156,8 +158,9 @@ Seed entries:
 
 ## 8) Notebook Policy
 
-- `pipeline.ipynb` is a first-class entrypoint and must stay synchronized with package APIs.
+- `pipeline.ipynb` is an optional GitHub-distributed companion frontend and must stay synchronized with package APIs.
 - `pipeline.ipynb` and the CLI are frontends over the same package runner; orchestration rules live in `src/ads_bib/pipeline.py`.
+- The installed runtime contract is CLI-first; notebook usage requires a repository checkout.
 - Notebook and CLI summaries are finalized through the shared package path; do not keep notebook-only summary logic.
 - When API contracts change, update notebook cells in the same change set.
 - Clear stale outputs when they encode outdated schema names or misleading historical logs.

@@ -83,8 +83,8 @@ Written at the end of each run:
 ```yaml
 schema_version: 2
 run:
-  run_id: run_20260305_123644_hawking_openrouter
-  run_name: hawking_openrouter
+  run_id: run_20260407_120000_ads_bib_openrouter
+  run_name: ads_bib_openrouter
   started_at_utc: "2026-03-05T12:36:44+00:00"
   ended_at_utc: "2026-03-05T12:52:11+00:00"
   duration_seconds: 927.34

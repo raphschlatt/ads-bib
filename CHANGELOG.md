@@ -11,7 +11,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Thin CLI batch entrypoint: `ads-bib run --config ...` with optional `--from`, `--to`, `--run-name`, and `--set` overrides.
 - Notebook adapter in `ads_bib.notebook` with `NotebookSession` and package-side config invalidation.
 - Native `huggingface_api` translation path via `huggingface_hub.AsyncInferenceClient`.
-- Official batch templates at `configs/pipeline/openrouter.yaml`, `configs/pipeline/hf_api.yaml`, `configs/pipeline/local_cpu.yaml`, and `configs/pipeline/local_gpu.yaml`.
+- Official packaged runtime presets exposed via `ads-bib run --preset ...` and `ads-bib preset write ...`.
 - Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
@@ -33,7 +33,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Pipeline config preparation now injects `HF_TOKEN` into translation, embedding, and BERTopic labeling configs when `huggingface_api` is selected.
 - CLI runs now persist `run_summary.yaml` just like notebook runs, including partial/failure status metadata.
 - OpenRouter and Hugging Face chat translation now share the same centralized scientific translation prompt contract.
-- Official config roads now ship as four aligned Hawking presets instead of the earlier generic trio: `openrouter.yaml`, `hf_api.yaml`, `local_cpu.yaml`, and `local_gpu.yaml`.
+- Official runtime roads now ship as four packaged generic presets accessed via CLI rather than repo-root YAML files.
 - Stable local presets now pin only GGUF model families that are validated against the baseline `ADS_env` runtime; the CPU labeling preset uses `Qwen/Qwen2.5-0.5B-Instruct-GGUF` instead of unsupported `qwen35` variants.
 - Local BERTopic/KeyBERT runs now document `constraints/local-hf.txt` as the tested runtime guardrail for the current HF stack.
 - Packaging extras now install `huggingface-hub` for topic and API translation paths.
@@ -42,6 +42,6 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Site configuration lives at `docs/zensical.toml`; build and preview use `zensical ... -f docs/zensical.toml` from the repository root (including GitHub Actions).
 - `Package_ToDo.md` is no longer tracked in git; maintainers may keep a private local copy or use GitHub Issues for release tasks.
 - Removed `CLAUDE.md`; repository engineering rules and conventions live in `AGENTS.md` only.
-- `README.md` now documents inline notebook section configs, the four official config roads, the local HF constraints file, and `.env` as the only secret location.
+- Public docs and metadata now position the installed package and CLI as the primary runtime path, with `pipeline.ipynb` documented as an optional GitHub companion.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
-- README/runtime templates now document `HF_TOKEN`, the four official config roads, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).
+- README/runtime templates now document `HF_TOKEN`, the packaged preset model, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).

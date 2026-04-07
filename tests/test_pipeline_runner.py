@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import ads_bib.pipeline as pipeline
+from ads_bib.presets import get_preset_names, load_preset_config
 from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS
 
 
@@ -46,26 +47,24 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert "keybert_model" not in data["topic_model"]
 
 
-def test_official_pipeline_config_directory_contains_four_presets():
-    config_dir = Path(__file__).resolve().parents[1] / "configs" / "pipeline"
-    assert sorted(path.name for path in config_dir.glob("*.yaml")) == [
-        "hf_api.yaml",
-        "local_cpu.yaml",
-        "local_gpu.yaml",
-        "openrouter.yaml",
-    ]
-
-
-
-def test_openrouter_pipeline_config_template_loads():
-    config = pipeline.PipelineConfig.from_yaml(
-        Path(__file__).resolve().parents[1] / "configs" / "pipeline" / "openrouter.yaml"
+def test_package_preset_registry_contains_four_presets():
+    assert get_preset_names() == (
+        "openrouter",
+        "hf_api",
+        "local_cpu",
+        "local_gpu",
     )
+
+
+
+def test_openrouter_package_preset_loads():
+    config = load_preset_config("openrouter")
     data = config.to_dict()
 
     assert data["run"]["start_stage"] == "search"
     assert data["run"]["stop_stage"] is None
-    assert data["search"]["query"] == 'author:"Hawking, S*"'
+    assert data["run"]["run_name"] == "ads_bib_openrouter"
+    assert data["search"]["query"] == ""
     assert data["topic_model"]["llm_prompt_name"] == "physics"
     assert data["author_disambiguation"]["enabled"] is False
     assert data["tokenize"]["spacy_model"] == "en_core_web_md"
@@ -84,6 +83,7 @@ def test_openrouter_pipeline_config_template_loads():
     assert data["topic_model"]["toponymy_layer_index"] == "auto"
     assert data["topic_model"]["toponymy_local_label_max_tokens"] == 128
     assert data["visualization"]["font_family"] == "Cinzel"
+    assert data["visualization"]["title"] == "ADS Bibliometric Map"
     assert data["visualization"]["topic_tree"] is False
     assert data["curation"]["cluster_targets"] == []
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
@@ -163,16 +163,14 @@ def test_official_pipeline_config_templates_load(
     llm_model_file,
     llm_model_path,
 ):
-    config = pipeline.PipelineConfig.from_yaml(
-        Path(__file__).resolve().parents[1] / "configs" / "pipeline" / config_name
-    )
+    config = load_preset_config(config_name.removesuffix(".yaml"))
 
     assert config.translate.provider == translate_provider
     assert config.translate.model == translate_model
     assert config.translate.model_repo == translate_model_repo
     assert config.translate.model_file == translate_model_file
     assert config.translate.model_path is None
-    assert config.search.query == 'author:"Hawking, S*"'
+    assert config.search.query == ""
     assert config.translate.fasttext_model == "data/models/lid.176.bin"
     assert config.translate.max_workers == 8
     assert config.llama_server.command == "llama-server"

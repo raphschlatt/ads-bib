@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import ads_bib.cli as cli
+import pytest
 
 
 def test_run_quality_checks_runs_ruff_then_pytest_with_pythonpath():
@@ -75,6 +76,65 @@ def test_main_dispatches_run(monkeypatch, tmp_path):
         "stop_stage": "citations",
         "run_name": "cli-test",
     }
+
+
+def test_main_dispatches_run_with_preset(monkeypatch):
+    calls: dict[str, object] = {}
+
+    def _fake_run_pipeline(config, **kwargs):
+        calls["config"] = config
+        calls["kwargs"] = kwargs
+
+    monkeypatch.setattr(cli, "run_pipeline", _fake_run_pipeline)
+    rc = cli.main(
+        [
+            "run",
+            "--preset",
+            "openrouter",
+            "--set",
+            "search.query=author:test",
+        ]
+    )
+
+    assert rc == 0
+    assert calls["config"].search.query == "author:test"
+    assert calls["config"].run.run_name == "ads_bib_openrouter"
+    assert calls["kwargs"] == {
+        "start_stage": None,
+        "stop_stage": None,
+        "run_name": None,
+    }
+
+
+def test_main_run_requires_search_query(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("run:\n  run_name: test\nsearch:\n  query: ''\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "run_pipeline", lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError, match="search.query"):
+        cli.main(["run", "--config", str(config_path)])
+
+
+def test_preset_list_prints_all_names(capsys):
+    rc = cli.main(["preset", "list"])
+
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert "openrouter" in output
+    assert "hf_api" in output
+    assert "local_cpu" in output
+    assert "local_gpu" in output
+
+
+def test_preset_write_writes_yaml(tmp_path, capsys):
+    output_path = tmp_path / "openrouter.yaml"
+
+    rc = cli.main(["preset", "write", "openrouter", "--output", str(output_path)])
+
+    assert rc == 0
+    assert output_path.exists()
+    assert "ads_bib_openrouter" in output_path.read_text(encoding="utf-8")
+    assert "Wrote preset 'openrouter'" in capsys.readouterr().out
 
 
 def test_parse_override_requires_equals():

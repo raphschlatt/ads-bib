@@ -1,5 +1,9 @@
+# Starter preset for the Hugging Face API runtime road.
+# Required before running: set search.query to your ADS query,
+# either by editing this file or by passing --set search.query='...'.
+
 run:
-  run_name: hawking_hf_api
+  run_name: ads_bib_hf_api
   start_stage: search
   stop_stage: null
   random_seed: 42
@@ -7,7 +11,7 @@ run:
   project_root: null
 
 search:
-  query: 'author:"Hawking, S*"'
+  query: ""
   ads_token: null
   refresh_search: true
   refresh_export: true
@@ -103,7 +107,7 @@ topic_model:
 
 visualization:
   enabled: true
-  title: Hawking ADS Bibliometric Map
+  title: ADS Bibliometric Map
   subtitle_template: "Topics labeled with {provider}/{model}"
   dark_mode: true
   font_family: Cinzel

@@ -9,6 +9,12 @@ import sys
 from collections.abc import Callable, Sequence
 
 from ads_bib.pipeline import PipelineConfig, run_pipeline
+from ads_bib.presets import (
+    get_preset_names,
+    get_preset_summary,
+    load_preset_config,
+    write_preset,
+)
 
 CommandRunner = Callable[[Sequence[str], dict[str, str] | None], int]
 
@@ -64,7 +70,10 @@ def _apply_override(data: dict[str, object], key: str, value: object) -> None:
 
 
 def _handle_run(args: argparse.Namespace) -> int:
-    config = PipelineConfig.from_yaml(args.config)
+    if args.config is not None:
+        config = PipelineConfig.from_yaml(args.config)
+    else:
+        config = load_preset_config(args.preset)
     config_data = config.to_dict()
 
     for raw in args.set_values or []:
@@ -72,6 +81,11 @@ def _handle_run(args: argparse.Namespace) -> int:
         _apply_override(config_data, key, value)
 
     config = PipelineConfig.from_dict(config_data)
+    if not str(config.search.query).strip():
+        raise ValueError(
+            "search.query is required. Set it in your YAML config or pass "
+            "--set search.query='...' when using a preset."
+        )
     run_pipeline(
         config,
         start_stage=args.from_stage,
@@ -81,10 +95,22 @@ def _handle_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_preset_list(_args: argparse.Namespace) -> int:
+    lines = [f"{name:<12} {get_preset_summary(name)}" for name in get_preset_names()]
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
+def _handle_preset_write(args: argparse.Namespace) -> int:
+    path = write_preset(args.name, args.output, overwrite=args.force)
+    sys.stdout.write(f"Wrote preset '{args.name}' to {path}\n")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ads-bib",
-        description="Notebook-first ADS pipeline helper commands.",
+        description="CLI for quality checks, preset management, and ADS pipeline runs.",
     )
     subparsers = parser.add_subparsers(required=True)
 
@@ -96,9 +122,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="Run the ADS pipeline from a structured config file.",
+        help="Run the ADS pipeline from a packaged preset or YAML config file.",
     )
-    run_parser.add_argument("--config", required=True, help="Path to YAML pipeline config.")
+    run_source = run_parser.add_mutually_exclusive_group(required=True)
+    run_source.add_argument("--config", help="Path to YAML pipeline config.")
+    run_source.add_argument(
+        "--preset",
+        choices=get_preset_names(),
+        help="Official packaged preset name.",
+    )
     run_parser.add_argument("--from", dest="from_stage", help="Optional stage to start from.")
     run_parser.add_argument("--to", dest="to_stage", help="Optional stage to stop after.")
     run_parser.add_argument("--run-name", help="Optional run name override.")
@@ -110,6 +142,31 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override config values via dotted key=value pairs.",
     )
     run_parser.set_defaults(handler=_handle_run)
+
+    preset_parser = subparsers.add_parser(
+        "preset",
+        help="List or write the official packaged starter presets.",
+    )
+    preset_subparsers = preset_parser.add_subparsers(required=True)
+
+    preset_list_parser = preset_subparsers.add_parser(
+        "list",
+        help="List the official preset names.",
+    )
+    preset_list_parser.set_defaults(handler=_handle_preset_list)
+
+    preset_write_parser = preset_subparsers.add_parser(
+        "write",
+        help="Write a packaged preset to a YAML file you can edit.",
+    )
+    preset_write_parser.add_argument("name", choices=get_preset_names(), help="Preset name.")
+    preset_write_parser.add_argument("--output", required=True, help="Destination YAML path.")
+    preset_write_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite the destination file if it already exists.",
+    )
+    preset_write_parser.set_defaults(handler=_handle_preset_write)
     return parser
 
 

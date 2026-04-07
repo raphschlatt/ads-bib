@@ -3,30 +3,40 @@
 Complete reference of all configuration keys. For explanations and tuning
 guidance, see the [Pipeline Guide](pipeline-guide.md).
 
+## CLI Presets
+
+The primary runtime path is the CLI. `ads-bib` ships four official packaged
+starter presets:
+
+```bash
+ads-bib preset list
+ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
+ads-bib preset write openrouter --output ads-bib.yaml
+```
+
+Each preset defines one runtime road. They are generic starter configs, so you
+must set `search.query` before running.
+
+| Preset | Translation | Embeddings | Labeling | Default Backend | Intended Use |
+| --- | --- | --- | --- | --- | --- |
+| `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Fully remote setup with the smallest local footprint |
+| `hf_api` | HF API | HF API | HF API | `bertopic` | Hugging Face API users who want one provider family |
+| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Offline-friendly CPU path once local models are available |
+| `local_gpu` | llama-server | Local | llama-server | `bertopic` | Local GPU path for faster translation and labeling |
+
+Completed runs save their resolved configuration to
+`runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
+
 ## Notebook Section Dicts
 
-The notebook uses nine inline configuration dicts, one per pipeline phase:
+The GitHub notebook uses nine inline configuration dicts, one per pipeline
+phase:
 
 `RUN`, `SEARCH`, `TRANSLATE`, `TOKENIZE`, `AUTHOR_DISAMBIGUATION`,
 `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`, `CITATIONS`
 
 Each dict is passed to `session.set_section(...)`. The keys below map directly
-to dict keys in the notebook and YAML keys in the CLI.
-
-## YAML Batch Config
-
-The CLI uses YAML files under `configs/pipeline/`. Four official presets are
-included:
-
-| Preset | Translation | Embeddings | Labeling | Default Backend |
-| --- | --- | --- | --- | --- |
-| `openrouter.yaml` | OpenRouter | OpenRouter | OpenRouter | `toponymy` |
-| `hf_api.yaml` | HF API | HF API | HF API | `bertopic` |
-| `local_cpu.yaml` | NLLB | Local | llama-server | `bertopic` |
-| `local_gpu.yaml` | llama-server | Local | llama-server | `bertopic` |
-
-Completed runs save their resolved configuration to
-`runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
+to notebook dict keys and YAML config keys.
 
 ---
 

@@ -1,6 +1,6 @@
 [project]
 site_name = "ADS Pipeline"
-site_description = "Notebook-first documentation for the ads-bib NASA ADS bibliometric analysis pipeline."
+site_description = "Documentation for the ads-bib package and CLI for NASA ADS bibliometric analysis."
 site_author = "Raphael Schlattmann"
 site_url = "https://raphschlatt.github.io/ADS_Pipeline/"
 repo_url = "https://github.com/raphschlatt/ADS_Pipeline"
