@@ -9,17 +9,16 @@ The primary runtime path is the CLI. `ads-bib` ships four official packaged
 starter presets:
 
 ```bash
-ads-bib bootstrap --preset openrouter --config ads-bib.yaml --env-file .env
-ads-bib preset list
-ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ads-bib preset write openrouter --output ads-bib.yaml
+ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
 Each preset defines one runtime road. They are generic starter configs, so you
-must set `search.query` before running. `bootstrap` is the high-level onboarding
-path; `preset write` remains the low-level export command when you only want the
-YAML file.
+must set `search.query` before running. `ads-bib run` is the primary public
+entrypoint. `preset write` is optional when you want one editable YAML file, and
+`doctor` is the support command for printing the full preflight report without
+starting a run.
 
 `uv pip` is the recommended installer for these preset roads. Plain `pip`
 remains supported, but expect substantially longer installs on heavy topic
@@ -27,10 +26,10 @@ stacks, especially on Windows.
 
 | Preset | Translation | Embeddings | Labeling | Default Backend | Intended Use |
 | --- | --- | --- | --- | --- | --- |
-| `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Fully remote setup with the smallest local footprint |
-| `hf_api` | HF API | HF API | HF API | `bertopic` | Hugging Face API users who want one provider family |
-| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Offline-friendly CPU path once local models are available |
-| `local_gpu` | llama-server | Local | llama-server | `bertopic` | Local GPU path for faster translation and labeling |
+| `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Official default remote setup with the smallest local footprint |
+| `hf_api` | HF API | HF API | HF API | `bertopic` | Alternative remote road for Hugging Face API users |
+| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Advanced local CPU road; auto-downloads supported model assets where possible |
+| `local_gpu` | llama-server | Local | llama-server | `bertopic` | Advanced local GPU road with external `llama-server` runtime |
 
 ## Install Profiles
 
@@ -42,20 +41,25 @@ smallest documented commands that cleanly satisfy the preset contracts today.
 | --- | --- | --- | --- |
 | `openrouter` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | Needs Toponymy, visualization stack, `openai`, and `litellm` |
 | `hf_api` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | HF API translation/embeddings plus BERTopic LiteLLM labeling |
-| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Adds NLLB translation and a tested CPU torch wheel |
-| `local_gpu` | `uv pip install -e ".[topic]" <your CUDA-matched torch>` | `uv pip install "ads-bib[topic]" <your CUDA-matched torch>` | Use the torch build that matches your CUDA runtime |
+| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Adds NLLB translation and a tested CPU torch wheel; topic labeling still depends on external `llama-server` |
+| `local_gpu` | `uv pip install -e ".[topic]" <your CUDA-matched torch>` | `uv pip install "ads-bib[topic]" <your CUDA-matched torch>` | Use the torch build that matches your CUDA runtime; translation and labeling still depend on external `llama-server` |
 | Everything | `uv pip install -e ".[all]"` | `uv pip install "ads-bib[all]"` | Convenience superset, not the lightest option |
 
 Completed runs save their resolved configuration to
 `runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
 
+Unless stated otherwise, the tables below describe the raw config schema and
+code defaults. Packaged presets override many of these values, so inspect the
+preset table above or write one locally with `ads-bib preset write ...` when
+you need road-specific starter values.
+
 ## Notebook Section Dicts
 
-The GitHub notebook uses nine inline configuration dicts, one per pipeline
-phase:
+The GitHub notebook uses ten inline configuration dicts:
 
-`RUN`, `SEARCH`, `TRANSLATE`, `TOKENIZE`, `AUTHOR_DISAMBIGUATION`,
-`TOPIC_MODEL`, `VISUALIZATION`, `CURATION`, `CITATIONS`
+`RUN`, `SEARCH`, `TRANSLATE`, `LLAMA_SERVER`, `TOKENIZE`,
+`AUTHOR_DISAMBIGUATION`, `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`,
+`CITATIONS`
 
 Each dict is passed to `session.set_section(...)`. The keys below map directly
 to notebook dict keys and YAML config keys.
@@ -66,11 +70,11 @@ to notebook dict keys and YAML config keys.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `run_name` | string | `"default"` | Identifier appended to the timestamped run directory name |
+| `run_name` | string | `"ADS_Curation_Run"` | Identifier appended to the timestamped run directory name |
 | `start_stage` | string | `"search"` | First stage to execute (CLI only) |
 | `stop_stage` | string \| null | `null` | Last stage to execute; `null` runs to the end |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
-| `openrouter_cost_mode` | string | `"hybrid"` | Cost estimation mode: `"hybrid"`, `"api"`, or `"static"` |
+| `openrouter_cost_mode` | string | `"hybrid"` | Cost estimation mode: `"hybrid"`, `"strict"`, or `"fast"` |
 | `project_root` | string \| null | `null` | Override project root; defaults to current working directory |
 
 ## Search
@@ -101,14 +105,14 @@ query: 'author:"Hawking, S*" OR citations(author:"Hawking, S*")'
 | --- | --- | --- | --- |
 | `enabled` | bool | `true` | Skip translation when `false` |
 | `provider` | string | varies | `openrouter`, `nllb`, `llama_server`, or `huggingface_api` |
-| `model` | string \| null | varies | Model identifier for `openrouter`/`huggingface_api`, or local model path for `nllb` |
+| `model` | string \| null | varies | Model identifier for `openrouter`/`huggingface_api`, or an HF repo id / local path for `nllb` |
 | `model_repo` | string \| null | `null` | HF repo for GGUF model download (`llama_server` provider) |
 | `model_file` | string \| null | `null` | Filename within the repo (`llama_server` provider) |
 | `model_path` | string \| null | `null` | Explicit local path to a GGUF file (`llama_server` provider) |
 | `api_key` | string \| null | `null` | Provider API key; falls back to env var |
-| `max_workers` | int | `8` | Concurrent translation requests; 1--2 for local providers |
+| `max_workers` | int | `10` | Concurrent translation requests; 1--2 for local providers |
 | `max_tokens` | int | `2048` | Maximum tokens per translation request |
-| `fasttext_model` | string | `"data/models/lid.176.bin"` | Path to the fasttext language detection model |
+| `fasttext_model` | string \| null | `null` | Path to the fasttext language detection model; packaged presets set `data/models/lid.176.bin` |
 
 ## Llama Server
 
@@ -132,7 +136,7 @@ Shared configuration for all pipeline stages that use `llama_server` as provider
 | `enabled` | bool | `true` | Skip tokenization when `false` |
 | `spacy_model` | string | `"en_core_web_md"` | spaCy model for lemmatization |
 | `batch_size` | int | `512` | Documents per spaCy batch |
-| `n_process` | int | `1` | Parallel spaCy processes (auto-scales to CPU count, capped at 8) |
+| `n_process` | int | `1` | Parallel spaCy processes |
 | `disable` | list | `["ner", "parser", "textcat"]` | spaCy pipeline components to skip |
 | `fallback_model` | string | `"en_core_web_md"` | Fallback if primary model is unavailable |
 | `auto_download` | bool | `true` | Auto-download the spaCy model if missing |
@@ -157,7 +161,7 @@ Shared configuration for all pipeline stages that use `llama_server` as provider
 | `backend` | string | varies | `bertopic` or `toponymy` |
 | `clustering_method` | string | `"fast_hdbscan"` | HDBSCAN implementation; `"hdbscan"` for hierarchy analysis |
 | `outlier_threshold` | float | `0.5` | Probability threshold for outlier reassignment (BERTopic) |
-| `min_df` | int | `3` | Minimum document frequency for topic terms; auto-scaled as `max(1, min(5, n_docs // 100))` |
+| `min_df` | int \| null | `null` | Minimum document frequency for topic terms; `null` enables auto-scaling as `max(1, min(5, n_docs // 100))` |
 
 ### Embeddings
 
@@ -166,8 +170,8 @@ Shared configuration for all pipeline stages that use `llama_server` as provider
 | `embedding_provider` | string | varies | `local`, `openrouter`, or `huggingface_api` |
 | `embedding_model` | string | varies | Model identifier (HF name or OpenRouter name) |
 | `embedding_api_key` | string \| null | `null` | API key override for embedding provider |
-| `embedding_batch_size` | int | `32` | Documents per embedding batch |
-| `embedding_max_workers` | int | `8` | Concurrent embedding requests |
+| `embedding_batch_size` | int | `64` | Documents per embedding batch |
+| `embedding_max_workers` | int | `20` | Concurrent embedding requests |
 
 ### Dimensionality Reduction
 
@@ -201,7 +205,7 @@ params_2d:
 | `llm_api_key` | string \| null | `null` | API key override for LLM provider |
 | `llm_prompt_name` | string | `"physics"` | Named prompt: `physics` or `generic` |
 | `llm_prompt` | string \| null | `null` | Custom prompt override |
-| `bertopic_label_max_tokens` | int | `64` | Max tokens for BERTopic topic labels |
+| `bertopic_label_max_tokens` | int | `128` | Max tokens for BERTopic topic labels |
 
 ### BERTopic-Specific
 
@@ -269,8 +273,8 @@ curation:
 | --- | --- | --- | --- |
 | `metrics` | list | `["direct", "co_citation", "bibliographic_coupling", "author_co_citation"]` | Network types to build |
 | `min_counts` | dict | see below | Minimum edge weight per metric |
-| `authors_filter` | string \| null | `null` | Filter for specific authors in author co-citation |
-| `output_format` | string | `"gexf"` | Primary export format |
+| `authors_filter` | list[string] \| null | `null` | Optional author-name filters for author co-citation exports |
+| `output_format` | string | `"gexf"` | Export format: `gexf`, `graphology`, `csv`, or `all` |
 
 Default `min_counts`:
 ```yaml

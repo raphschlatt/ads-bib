@@ -16,10 +16,10 @@ PRESET_ORDER: Final[tuple[str, ...]] = (
 )
 
 PRESET_SUMMARIES: Final[dict[str, str]] = {
-    "openrouter": "OpenRouter for translation, embeddings, and topic labeling.",
-    "hf_api": "Hugging Face API for translation, embeddings, and topic labeling.",
-    "local_cpu": "Offline-friendly local CPU road with NLLB and llama-server labeling.",
-    "local_gpu": "Local GPU road with llama-server for translation and topic labeling.",
+    "openrouter": "Official default remote road using OpenRouter for translation, embeddings, and labeling.",
+    "hf_api": "Alternative remote road using Hugging Face API for translation, embeddings, and labeling.",
+    "local_cpu": "Advanced local CPU road with NLLB, local embeddings, and llama-server labeling.",
+    "local_gpu": "Advanced local GPU road with llama-server for translation and labeling.",
 }
 
 

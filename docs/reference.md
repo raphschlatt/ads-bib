@@ -58,7 +58,7 @@ Columns added by each stage:
 | Stage | Columns |
 | --- | --- |
 | Export | `Bibcode`, `Author`, `Title`, `Year`, `Journal`, `Abstract`, `Citation Count`, `DOI`, `Affiliation`, ... |
-| Translation | `Title_en`, `Abstract_en`, `detected_language` |
+| Translation | `Title_lang`, `Abstract_lang`, `Title_en`, `Abstract_en` |
 | Tokenization | `full_text`, `tokens` |
 | AND (optional) | `author_uids`, `author_display_names` |
 | Embeddings | (cached separately, not in DataFrame) |
@@ -197,7 +197,7 @@ Equivalent explicit commands:
 
 ```bash
 python -m ruff check src tests scripts
-python -m pytest -q
+PYTHONPATH=src python -m pytest -q
 ```
 
 ## How to Cite

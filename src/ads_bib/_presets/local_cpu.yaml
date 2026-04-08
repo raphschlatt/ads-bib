@@ -19,7 +19,7 @@ search:
 translate:
   enabled: true
   provider: nllb
-  model: data/models/nllb-200-distilled-600M-ct2-int8
+  model: JustFrederik/nllb-200-distilled-600M-ct2-int8
   model_repo: null
   model_file: null
   model_path: null
@@ -86,9 +86,9 @@ topic_model:
   llm_prompt: null
   llm_provider: llama_server
   llm_model: null
-  llm_model_repo: null
-  llm_model_file: null
-  llm_model_path: data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf
+  llm_model_repo: mradermacher/Qwen3.5-0.8B-GGUF
+  llm_model_file: Qwen3.5-0.8B.Q4_K_M.gguf
+  llm_model_path: null
   llm_api_key: null
   bertopic_label_max_tokens: 64
   toponymy_local_label_max_tokens: 128

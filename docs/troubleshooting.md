@@ -1,11 +1,13 @@
 # Troubleshooting
 
-Start with the doctor command against the same config or preset you want to
-run. It catches most missing-key and missing-dependency problems before the
-pipeline starts:
+Start with the same `ads-bib run ...` command you actually want to execute.
+`run` now performs a stage-aware preflight before the pipeline starts and stops
+early when required keys, optional dependencies, or runtime files are missing.
+
+If you want the full report without starting a run, use:
 
 ```bash
-ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
+ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
 ## Missing ADS token
@@ -15,7 +17,7 @@ Symptom: ADS API auth or request errors.
 Fix:
 
 - Ensure `.env` contains `ADS_TOKEN`.
-- Re-run `ads-bib doctor ...` after editing `.env`.
+- Re-run `ads-bib run ...` after editing `.env`.
 - Reload the environment in the notebook session or restart the kernel.
 
 ## Missing optional dependency
@@ -27,9 +29,9 @@ Fix:
 
 - Reinstall with the smallest preset-matching profile from `Get Started` or
   `Configuration`.
-- Use `uv pip install -e ".[all]"` only as the convenience fallback when you
+- Use `uv pip install "ads-bib[all]"` only as the convenience fallback when you
   explicitly want every supported runtime path.
-- Use `ads-bib doctor ...` to see which optional module is currently missing.
+- Use `ads-bib doctor ...` if you want the full stage-aware report without starting a run.
 
 ## Missing `lid.176.bin`
 
@@ -37,7 +39,9 @@ Symptom: translation fails before API or local model calls start.
 
 Fix:
 
-- Download the default model with `ads-bib bootstrap --download-fasttext`.
+- Download `lid.176.bin` into the configured path, usually `data/models/lid.176.bin`.
+- For the packaged starter presets, `ads-bib run` downloads that default file
+  automatically if it is missing.
 - Or point `translate.fasttext_model` at an existing `lid.176.bin` location.
 
 ## Missing `llama-server`
@@ -48,12 +52,13 @@ Fix:
 
 - Ensure a current external `llama-server` executable is installed and
   reachable on `PATH`.
-- `ads-bib doctor ...` checks the resolved command before the run starts.
+- `ads-bib run ...` checks the resolved command before the pipeline starts.
 - On Windows, check `where llama-server` and `llama-server --version`.
 - If `Qwen3.5` fails with `unknown model architecture: 'qwen35'`, your active
   binary is too old.
-- If `ADS_env` resolves `llama-server` to an env-local path, remove the old
-  env-local `llama.cpp` packages or set `llama_server.command` explicitly.
+- If an outdated env-local `llama-server` shadows the intended binary, remove
+  the old env-local `llama.cpp` packages or set `llama_server.command`
+  explicitly.
 - Restart the notebook session or CLI run after changing the executable path.
 
 ## Unsupported local HF architecture
@@ -76,9 +81,7 @@ Symptom: `OMP: Error #15`.
 Fix:
 
 ```bash
-conda env config vars set KMP_DUPLICATE_LIB_OK=TRUE -n ADS_env
-conda deactivate
-conda activate ADS_env
+set KMP_DUPLICATE_LIB_OK=TRUE
 ```
 
 ## OpenRouter provider errors

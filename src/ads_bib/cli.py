@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from collections.abc import Callable, Sequence
 
-from ads_bib.bootstrap import bootstrap_workspace
+from ads_bib.bootstrap import bootstrap_workspace, ensure_default_fasttext_model
 from ads_bib.doctor import collect_doctor_report, format_doctor_report
 from ads_bib.pipeline import PipelineConfig, run_pipeline
 from ads_bib.presets import (
@@ -106,13 +106,42 @@ def _load_config_from_args(args: argparse.Namespace) -> PipelineConfig:
     return PipelineConfig.from_dict(config_data)
 
 
+def _format_run_preflight_report(report) -> str:
+    start_stage = report.active_stages[0]
+    end_stage = report.active_stages[-1]
+    lines = [f"Run blocked by preflight checks for stages {start_stage} -> {end_stage}"]
+    for check in report.failing_checks():
+        lines.append(f"[FAIL] {check.name}: {check.detail}")
+    lines.append(
+        "Summary: "
+        f"{report.ok_count} ok, {report.warn_count} warn, {report.fail_count} fail"
+    )
+    lines.append("Tip: run 'ads-bib doctor ...' for the full stage-aware report.")
+    return "\n".join(lines) + "\n"
+
+
 def _handle_run(args: argparse.Namespace) -> int:
     config = _load_config_from_args(args)
-    if not str(config.search.query).strip():
-        raise ValueError(
-            "search.query is required. Set it in your YAML config or pass "
-            "--set search.query='...' when using a preset."
-        )
+    if config.translate.enabled:
+        try:
+            downloaded_fasttext = ensure_default_fasttext_model(
+                project_root=config.run.project_root,
+                configured_path=config.translate.fasttext_model,
+            )
+        except Exception as exc:
+            sys.stderr.write(f"Run blocked while preparing translate.fasttext_model: {exc}\n")
+            return 1
+        if downloaded_fasttext is not None:
+            sys.stdout.write(f"Prepared translate.fasttext_model at {downloaded_fasttext}\n")
+
+    report = collect_doctor_report(
+        config,
+        start_stage=args.from_stage,
+        stop_stage=args.to_stage,
+    )
+    if report.has_failures():
+        sys.stderr.write(_format_run_preflight_report(report))
+        return 1
     run_pipeline(
         config,
         start_stage=args.from_stage,
@@ -163,7 +192,7 @@ def _handle_preset_write(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ads-bib",
-        description="CLI for quality checks, preset management, and ADS pipeline runs.",
+        description="CLI for ADS pipeline runs, optional preset scaffolding, and support checks.",
     )
     subparsers = parser.add_subparsers(required=True)
 
@@ -175,7 +204,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap",
-        help="Initialize a working directory for packaged CLI runs.",
+        help="Optional convenience command to scaffold a working directory for packaged CLI runs.",
     )
     bootstrap_parser.add_argument(
         "--project-root",
@@ -193,7 +222,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     bootstrap_parser.add_argument(
         "--env-file",
-        default=".env.example",
+        default=".env",
         help="Env template path relative to --project-root.",
     )
     bootstrap_parser.add_argument(
@@ -210,7 +239,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="Run the ADS pipeline from a packaged preset or YAML config file.",
+        help=(
+            "Run the ADS pipeline from a packaged preset or YAML config file; "
+            "performs required preflight checks first."
+        ),
     )
     run_source = run_parser.add_mutually_exclusive_group(required=True)
     run_source.add_argument("--config", help="Path to YAML pipeline config.")
@@ -233,7 +265,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Validate runtime prerequisites for a preset or YAML config.",
+        help="Optional support command to inspect stage-aware runtime prerequisites.",
     )
     doctor_source = doctor_parser.add_mutually_exclusive_group(required=True)
     doctor_source.add_argument("--config", help="Path to YAML pipeline config.")

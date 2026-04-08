@@ -17,19 +17,28 @@ Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
 
 ## Quickstart
 
-From a Git checkout. `uv pip` is the recommended installer because it resolves
-this stack much faster than plain `pip`; the full fallback commands are on the
+Install into your preferred Python environment. `uv pip` is the recommended
+installer because it resolves this stack much faster than plain `pip`; the full
+fallback commands and local-road notes are on the
 [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) page.
 
 ```bash
-conda activate ADS_env
-uv pip install -e ".[topic,topic-llm]"
-ads-bib bootstrap --preset openrouter --config ads-bib.yaml --env-file .env --download-fasttext
-ads-bib doctor --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
-ads-bib run --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
+uv pip install "ads-bib[topic,topic-llm]"
+ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
-Before `doctor` and `run`, fill `.env` in your working directory with `ADS_TOKEN` and any optional provider keys you need. `bootstrap` scaffolds the workspace, writes an editable preset YAML, and can download `data/models/lid.176.bin`; see [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) for the complete setup and runtime prerequisites.
+Before `ads-bib run`, create `.env` in your working directory and add
+`ADS_TOKEN` plus any provider keys your preset needs, for example
+`OPENROUTER_API_KEY` for the default `openrouter` road. `ads-bib run` now does
+its own stage-aware preflight, creates `data/` and `runs/` on demand, and
+auto-downloads the default `data/models/lid.176.bin` when a packaged starter
+preset needs it.
+
+Optional support commands:
+
+- `ads-bib doctor ...` prints the full preflight report without starting a run.
+- `ads-bib preset write openrouter --output ads-bib.yaml` writes an editable preset YAML.
+- `ads-bib bootstrap --download-fasttext` is a convenience helper when you want the default `lid.176.bin` downloaded ahead of time.
 
 ## Build the Docs Locally
 

@@ -86,7 +86,7 @@ def _raise_with_toponymy_import_hint(exc: ImportError, *, backend: str) -> None:
     if missing_module == "dask":
         message += " Toponymy imports 'vectorizers', which requires 'dask'."
     message += (
-        " Install the missing package in ADS_env, or reinstall the topic extras "
+        " Install the missing package in your active Python environment, or reinstall the topic extras "
         "with `uv pip install -e \".[all,test]\"`."
     )
     raise ImportError(message) from exc

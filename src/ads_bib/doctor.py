@@ -11,6 +11,7 @@ import spacy.util
 from ads_bib._utils.huggingface_api import HUGGINGFACE_API_KEY_ENV_VARS
 from ads_bib._utils.llama_server import resolve_llama_server_command
 from ads_bib._utils.model_specs import ModelSpec
+from ads_bib.bootstrap import DEFAULT_FASTTEXT_MODEL_RELATIVE_PATH
 from ads_bib.config import _module_is_available
 from ads_bib.pipeline import PipelineConfig, STAGE_ORDER, StageName, prepare_pipeline_config, validate_stage_name
 from ads_bib.topic_model._runtime import (
@@ -137,11 +138,18 @@ def _collect_translate_checks(config: PipelineConfig, project_root: Path) -> lis
         checks.append(_fail("translate.fasttext_model", "translate.fasttext_model is required"))
     elif model_path.is_file():
         checks.append(_ok("translate.fasttext_model", f"found at {model_path}"))
+    elif model_path == _resolve_config_path(project_root, DEFAULT_FASTTEXT_MODEL_RELATIVE_PATH):
+        checks.append(
+            _warn(
+                "translate.fasttext_model",
+                f"missing at {model_path}; ads-bib run will download the default model automatically",
+            )
+        )
     else:
         checks.append(
             _fail(
                 "translate.fasttext_model",
-                f"missing at {model_path}; run 'ads-bib bootstrap --download-fasttext' or set a different path",
+                f"missing at {model_path}; download lid.176.bin there or set translate.fasttext_model to an existing file",
             )
         )
 

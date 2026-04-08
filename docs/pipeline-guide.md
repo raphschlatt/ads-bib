@@ -107,7 +107,8 @@ separately). See [Configuration](configuration.md#translate) for all keys.
 Tokenization uses spaCy to lemmatize the translated text — reducing inflected
 forms to their base form (e.g. "gravitational", "gravity" → "gravit") so the
 topic model treats related terms as one token. Only lemmatization and POS
-tagging are enabled. `n_process` auto-scales to your CPU count (capped at 8).
+tagging are enabled. In the packaged presets, `n_process` defaults to `1`; raise
+it explicitly if you want parallel spaCy workers.
 
 Switch from `en_core_web_md` to `en_core_web_lg` if you need better POS
 accuracy on unusual vocabulary.
@@ -162,7 +163,7 @@ Two independent projections are computed from the full-dimensional embeddings:
 
 PaCMAP is the default reduction method — fast, balances local and global
 structure. Use UMAP when you need density-preserving coordinates
-(`densmap=True`). Both backends support any reduction algorithm.
+(`densmap=True`). The current package supports `pacmap` and `umap`.
 
 `n_neighbors` has the most impact. Higher values (50--80) produce broader,
 connected clusters. Lower values (15--30) produce tighter, separated groups.
@@ -319,7 +320,8 @@ The final phase builds four networks from your curated dataset:
 | **Bibliographic coupling** | Papers A and B share references | Number of shared references |
 | **Author co-citation** | First authors X and Y are cited together | Number of papers citing both authors |
 
-Each network is exported as a GEXF file that opens directly in Gephi. Every
+Each network is exported as a GEXF file that opens directly in
+[Gephi](https://gephi.org/). Every
 node carries the full publication metadata (Bibcode, Author, Title, Year,
 Journal, Abstract, Citation Count, DOI, topic_id, Name, embedding_2d_x/y,
 Title_en, Abstract_en, and Toponymy hierarchy columns where applicable).
@@ -327,8 +329,10 @@ Title_en, Abstract_en, and Toponymy hierarchy columns where applicable).
 The `min_counts` parameter sets minimum edge weight per metric. For a small
 corpus under 500 documents, start with `direct=3`, `co_citation=10`,
 `bibliographic_coupling=10`, `author_co_citation=5`. Scale proportionally for
-larger corpora. Gephi and CiteSpace allow further filtering on the exported
-networks.
+larger corpora. [Gephi](https://gephi.org/) and
+[CiteSpace](https://citespace.podia.com/) allow further filtering on the
+exported networks.
 
-The pipeline also exports `download_wos_export.txt` for CiteSpace and
-VOSviewer.
+The pipeline also exports `download_wos_export.txt` for
+[CiteSpace](https://citespace.podia.com/) and
+[VOSviewer](https://www.vosviewer.com/).

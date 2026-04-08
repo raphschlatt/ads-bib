@@ -10,6 +10,7 @@ from ads_bib.config import init_paths
 from ads_bib.presets import write_preset
 
 FASTTEXT_MODEL_URL = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
+DEFAULT_FASTTEXT_MODEL_RELATIVE_PATH = "data/models/lid.176.bin"
 
 
 def _resolve_project_path(project_root: Path, raw_path: str) -> Path:
@@ -47,12 +48,33 @@ def _download_file(url: str, destination: Path) -> None:
         shutil.copyfileobj(response, handle)
 
 
+def ensure_default_fasttext_model(
+    *,
+    project_root: str | Path | None = None,
+    configured_path: str | Path | None,
+) -> Path | None:
+    """Download the bundled fastText model when config uses the default path."""
+    if not configured_path:
+        return None
+
+    root = Path(project_root) if project_root else Path.cwd()
+    root = root.expanduser().resolve()
+    configured = _resolve_project_path(root, str(configured_path))
+    default_path = _resolve_project_path(root, DEFAULT_FASTTEXT_MODEL_RELATIVE_PATH)
+
+    if configured != default_path or configured.is_file():
+        return None
+
+    _download_file(FASTTEXT_MODEL_URL, configured)
+    return configured
+
+
 def bootstrap_workspace(
     *,
     project_root: str | Path | None = None,
     preset_name: str | None = None,
     config_output: str | Path | None = None,
-    env_file: str | Path = ".env.example",
+    env_file: str | Path = ".env",
     download_fasttext: bool = False,
     force: bool = False,
 ) -> list[str]:

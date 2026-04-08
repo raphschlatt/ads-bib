@@ -8,6 +8,13 @@ import ads_bib.doctor as doctor
 import pytest
 
 
+def _passing_report(*, stages: tuple[str, ...] = ("search",)) -> doctor.DoctorReport:
+    return doctor.DoctorReport(
+        checks=(doctor.DoctorCheck(name="search.query", status="ok", detail="configured"),),
+        active_stages=stages,
+    )
+
+
 def test_run_quality_checks_runs_ruff_then_pytest_with_pythonpath():
     calls: list[tuple[list[str], dict[str, str] | None]] = []
 
@@ -54,6 +61,12 @@ def test_main_dispatches_run(monkeypatch, tmp_path):
         calls["kwargs"] = kwargs
 
     monkeypatch.setattr(cli, "run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "collect_doctor_report",
+        lambda *args, **kwargs: _passing_report(stages=("translate", "citations")),
+    )
     rc = cli.main(
         [
             "run",
@@ -87,6 +100,8 @@ def test_main_dispatches_run_with_preset(monkeypatch):
         calls["kwargs"] = kwargs
 
     monkeypatch.setattr(cli, "run_pipeline", _fake_run_pipeline)
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "collect_doctor_report", lambda *args, **kwargs: _passing_report())
     rc = cli.main(
         [
             "run",
@@ -110,10 +125,73 @@ def test_main_dispatches_run_with_preset(monkeypatch):
 def test_main_run_requires_search_query(monkeypatch, tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("run:\n  run_name: test\nsearch:\n  query: ''\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "collect_doctor_report",
+        lambda *args, **kwargs: doctor.DoctorReport(
+            checks=(doctor.DoctorCheck(name="search.query", status="fail", detail="missing"),),
+            active_stages=("search",),
+        ),
+    )
+
+    assert cli.main(["run", "--config", str(config_path)]) == 1
+
+
+def test_main_run_returns_nonzero_with_preflight_report(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("run:\n  run_name: test\nsearch:\n  query: q\n", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "run_pipeline",
+        lambda *args, **kwargs: pytest.fail("run_pipeline should not be called"),
+    )
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "collect_doctor_report",
+        lambda *args, **kwargs: doctor.DoctorReport(
+            checks=(
+                doctor.DoctorCheck(name="search.query", status="ok", detail="configured"),
+                doctor.DoctorCheck(
+                    name="search.ads_token",
+                    status="fail",
+                    detail="missing ADS token",
+                ),
+            ),
+            active_stages=("search", "translate"),
+        ),
+    )
+
+    rc = cli.main(["run", "--config", str(config_path)])
+
+    assert rc == 1
+    assert "Run blocked by preflight checks" in capsys.readouterr().err
+
+
+def test_main_run_reports_prepared_fasttext(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "run:\n"
+            "  run_name: test\n"
+            "search:\n"
+            "  query: q\n"
+            "translate:\n"
+            "  enabled: true\n"
+            "  fasttext_model: data/models/lid.176.bin\n"
+        ),
+        encoding="utf-8",
+    )
+    prepared_path = tmp_path / "data" / "models" / "lid.176.bin"
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: prepared_path)
+    monkeypatch.setattr(cli, "collect_doctor_report", lambda *args, **kwargs: _passing_report())
     monkeypatch.setattr(cli, "run_pipeline", lambda *args, **kwargs: None)
 
-    with pytest.raises(ValueError, match="search.query"):
-        cli.main(["run", "--config", str(config_path)])
+    rc = cli.main(["run", "--config", str(config_path)])
+
+    assert rc == 0
+    assert f"Prepared translate.fasttext_model at {prepared_path}" in capsys.readouterr().out
 
 
 def test_main_run_missing_legacy_config_path_shows_preset_migration_hint():
