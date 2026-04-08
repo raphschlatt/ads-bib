@@ -125,7 +125,7 @@ Shared configuration for all pipeline stages that use `llama_server` as provider
 | `port` | int \| null | `null` | Port; `null` auto-selects a free port |
 | `threads` | int \| null | `null` | CPU threads; `null` uses system default |
 | `ctx_size` | int | `4096` | Context window size in tokens |
-| `gpu_layers` | int | `-1` | GPU layers to offload; `-1` = GPU road default, `0` = CPU-only local road |
+| `gpu_layers` | int | `-1` | GPU layers to offload; `-1` = GPU road default, `0` = CPU-managed local road. With the default `command: "llama-server"`, a PATH-resolved runtime may still be probed with `-1` first and fall back to `0` automatically. |
 | `startup_timeout_s` | float | `120.0` | Seconds to wait for the server to become ready |
 | `reasoning` | string | `"off"` | Reasoning mode; `"off"` for standard inference |
 

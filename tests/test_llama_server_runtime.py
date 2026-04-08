@@ -78,8 +78,12 @@ def test_ensure_llama_server_reuses_process_and_auto_port(tmp_path, monkeypatch)
 
     monkeypatch.setattr(
         runtime,
-        "resolve_llama_server_command",
-        lambda *args, **kwargs: "/usr/bin/llama-server",
+        "prepare_llama_server_runtime",
+        lambda **kwargs: runtime.LlamaServerCommandResolution(
+            command="/usr/bin/llama-server",
+            source="path",
+            detail="resolved llama-server from PATH",
+        ),
     )
     monkeypatch.setattr(runtime, "_find_free_port", lambda host: 18080)
     monkeypatch.setattr(
@@ -118,8 +122,12 @@ def test_ensure_llama_server_cleans_up_on_readiness_failure(tmp_path, monkeypatc
 
     monkeypatch.setattr(
         runtime,
-        "resolve_llama_server_command",
-        lambda *args, **kwargs: "/usr/bin/llama-server",
+        "prepare_llama_server_runtime",
+        lambda **kwargs: runtime.LlamaServerCommandResolution(
+            command="/usr/bin/llama-server",
+            source="path",
+            detail="resolved llama-server from PATH",
+        ),
     )
     monkeypatch.setattr(runtime, "_find_free_port", lambda host: 18081)
     monkeypatch.setattr(runtime, "_spawn_llama_server", lambda **kwargs: (fake_process, fake_log_handle))
@@ -139,6 +147,90 @@ def test_ensure_llama_server_cleans_up_on_readiness_failure(tmp_path, monkeypatc
     assert fake_process.terminated is True
     assert fake_log_handle.closed is True
     assert runtime._SERVER_REGISTRY == {}
+
+
+def test_ensure_llama_server_prefers_path_offload_and_falls_back_to_cpu(tmp_path, monkeypatch):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
+    spec = ModelSpec(model_path=str(model_file))
+    config = runtime.LlamaServerConfig(gpu_layers=0)
+    spawned_layers: list[int] = []
+    fake_processes: list[_FakeProcess] = []
+    fake_logs: list[StringIO] = []
+
+    monkeypatch.setattr(
+        runtime,
+        "prepare_llama_server_runtime",
+        lambda **kwargs: runtime.LlamaServerCommandResolution(
+            command="/usr/bin/llama-server",
+            source="path",
+            detail="resolved llama-server from PATH",
+        ),
+    )
+    monkeypatch.setattr(runtime, "_find_free_port", lambda host: 18082)
+
+    def _fake_spawn(**kwargs):
+        spawned_layers.append(kwargs["config"].gpu_layers)
+        process = _FakeProcess()
+        log_handle = StringIO()
+        fake_processes.append(process)
+        fake_logs.append(log_handle)
+        return process, log_handle
+
+    def _fake_wait(**kwargs):
+        if kwargs["process"] is fake_processes[0]:
+            raise RuntimeError("offload probe failed")
+        return None
+
+    monkeypatch.setattr(runtime, "_spawn_llama_server", _fake_spawn)
+    monkeypatch.setattr(runtime, "_wait_for_server_ready", _fake_wait)
+
+    handle = runtime.ensure_llama_server(
+        model_spec=spec,
+        config=config,
+        runtime_log_path=tmp_path / "runtime.log",
+    )
+
+    assert handle.base_url == "http://127.0.0.1:18082/v1"
+    assert spawned_layers == [-1, 0]
+    assert fake_processes[0].terminated is True
+    assert fake_logs[0].closed is True
+    assert fake_processes[1].poll() is None
+    assert fake_logs[1].closed is False
+
+
+def test_ensure_llama_server_keeps_managed_cpu_runtime_without_path_probe(tmp_path, monkeypatch):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
+    spec = ModelSpec(model_path=str(model_file))
+    config = runtime.LlamaServerConfig(gpu_layers=0)
+    spawned_layers: list[int] = []
+
+    monkeypatch.setattr(
+        runtime,
+        "prepare_llama_server_runtime",
+        lambda **kwargs: runtime.LlamaServerCommandResolution(
+            command=str(tmp_path / "managed" / "llama-server"),
+            source="managed_downloaded",
+            detail="downloaded managed llama-server runtime",
+        ),
+    )
+    monkeypatch.setattr(runtime, "_find_free_port", lambda host: 18083)
+    monkeypatch.setattr(
+        runtime,
+        "_spawn_llama_server",
+        lambda **kwargs: (spawned_layers.append(kwargs["config"].gpu_layers) or _FakeProcess(), StringIO()),
+    )
+    monkeypatch.setattr(runtime, "_wait_for_server_ready", lambda **kwargs: None)
+
+    handle = runtime.ensure_llama_server(
+        model_spec=spec,
+        config=config,
+        runtime_log_path=tmp_path / "runtime.log",
+    )
+
+    assert handle.base_url == "http://127.0.0.1:18083/v1"
+    assert spawned_layers == [0]
 
 
 def test_wait_for_server_ready_reports_qwen35_architecture_mismatch(tmp_path):

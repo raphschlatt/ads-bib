@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import atexit
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import TextIOBase
 import json
 import logging
@@ -141,6 +141,13 @@ class ManagedLlamaServerDownloadError(LlamaServerRuntimeError):
     """Raised when the managed runtime download or extraction fails."""
 
 
+@dataclass(frozen=True)
+class _LlamaServerStartAttempt:
+    config: LlamaServerConfig
+    resolved_command: str
+    auto_fallback: bool = False
+
+
 _SERVER_REGISTRY: dict[tuple[str, str, str | None], _ManagedServer] = {}
 _MANAGED_LLAMA_ASSETS: dict[tuple[str, str, str], ManagedLlamaAsset] = {
     (
@@ -195,12 +202,10 @@ def ensure_llama_server(
 ) -> LlamaServerHandle:
     """Start or reuse one llama-server process for the given model/runtime."""
     normalized = config.normalized()
-    resolved_command = resolve_llama_server_command(
-        normalized.command,
+    attempts = _build_llama_server_start_attempts(
+        config=normalized,
         project_root=project_root,
         runtime_log_path=runtime_log_path,
-        gpu_layers=normalized.gpu_layers,
-        allow_managed_download=True,
     )
     try:
         model_path = model_spec.resolve()
@@ -208,51 +213,116 @@ def ensure_llama_server(
         raise LlamaServerRuntimeError(
             f"GGUF model resolution failed for {model_spec.display_name()}: {exc}"
         ) from exc
-    registry_key = (model_path, _runtime_key(normalized), _log_key(runtime_log_path))
-    existing = _SERVER_REGISTRY.get(registry_key)
-    if existing is not None and existing.process.poll() is None:
-        return existing.handle
-    if existing is not None:
-        _SERVER_REGISTRY.pop(registry_key, None)
+    for attempt in attempts:
+        registry_key = (model_path, _runtime_key(attempt.config), _log_key(runtime_log_path))
+        existing = _SERVER_REGISTRY.get(registry_key)
+        if existing is not None and existing.process.poll() is None:
+            return existing.handle
+        if existing is not None:
+            _SERVER_REGISTRY.pop(registry_key, None)
 
-    port = normalized.port or _find_free_port(normalized.host)
-    handle = LlamaServerHandle(
-        host=normalized.host,
-        port=port,
-        model_label=model_spec.display_name(),
-    )
-    logger.info(
-        "Starting llama-server for %s on %s (command: %s)",
-        handle.model_label,
-        handle.base_url,
-        resolved_command,
-    )
-    process, log_handle = _spawn_llama_server(
-        command=resolved_command,
-        model_path=model_path,
-        config=normalized,
-        port=port,
-        runtime_log_path=runtime_log_path,
-    )
-    managed = _ManagedServer(
-        process=process,
-        handle=handle,
-        runtime_log_path=runtime_log_path,
-        log_handle=log_handle,
-    )
-    _SERVER_REGISTRY[registry_key] = managed
-    try:
-        _wait_for_server_ready(
-            handle=handle,
-            timeout_s=normalized.startup_timeout_s,
-            process=process,
-            command=resolved_command,
+    for index, attempt in enumerate(attempts):
+        effective_config = attempt.config
+        registry_key = (model_path, _runtime_key(effective_config), _log_key(runtime_log_path))
+        port = effective_config.port or _find_free_port(effective_config.host)
+        handle = LlamaServerHandle(
+            host=effective_config.host,
+            port=port,
+            model_label=model_spec.display_name(),
+        )
+        logger.info(
+            "Starting llama-server for %s on %s (command: %s, gpu_layers=%s)",
+            handle.model_label,
+            handle.base_url,
+            attempt.resolved_command,
+            effective_config.gpu_layers,
+        )
+        process, log_handle = _spawn_llama_server(
+            command=attempt.resolved_command,
+            model_path=model_path,
+            config=effective_config,
+            port=port,
             runtime_log_path=runtime_log_path,
         )
-    except Exception:
-        stop_llama_server(handle=handle, model_path=model_path, config=normalized, runtime_log_path=runtime_log_path)
-        raise
-    return handle
+        managed = _ManagedServer(
+            process=process,
+            handle=handle,
+            runtime_log_path=runtime_log_path,
+            log_handle=log_handle,
+        )
+        _SERVER_REGISTRY[registry_key] = managed
+        try:
+            _wait_for_server_ready(
+                handle=handle,
+                timeout_s=effective_config.startup_timeout_s,
+                process=process,
+                command=attempt.resolved_command,
+                runtime_log_path=runtime_log_path,
+            )
+            return handle
+        except Exception as exc:
+            stop_llama_server(
+                handle=handle,
+                model_path=model_path,
+                config=effective_config,
+                runtime_log_path=runtime_log_path,
+            )
+            if attempt.auto_fallback and index + 1 < len(attempts):
+                logger.warning(
+                    "PATH llama-server startup with gpu_layers=%s failed; retrying with gpu_layers=%s. %s",
+                    effective_config.gpu_layers,
+                    attempts[index + 1].config.gpu_layers,
+                    exc,
+                )
+                continue
+            raise
+    raise AssertionError("llama-server start attempts exhausted without returning or raising")
+
+
+def _build_llama_server_start_attempts(
+    *,
+    config: LlamaServerConfig,
+    project_root: Path | str | None,
+    runtime_log_path: Path | None,
+) -> list[_LlamaServerStartAttempt]:
+    resolution = prepare_llama_server_runtime(
+        config=config,
+        project_root=project_root,
+        runtime_log_path=runtime_log_path,
+    )
+    resolved_command = str(resolution.command)
+    attempts = [
+        _LlamaServerStartAttempt(
+            config=config,
+            resolved_command=resolved_command,
+        )
+    ]
+    if _should_try_path_offload_probe(config=config, resolution=resolution):
+        attempts.insert(
+            0,
+            _LlamaServerStartAttempt(
+                config=replace(config, gpu_layers=-1),
+                resolved_command=resolved_command,
+                auto_fallback=True,
+            ),
+        )
+    return attempts
+
+
+def _should_try_path_offload_probe(
+    *,
+    config: LlamaServerConfig,
+    resolution: LlamaServerCommandResolution,
+) -> bool:
+    return (
+        _uses_default_llama_server_command(config.command)
+        and config.gpu_layers == 0
+        and resolution.source == "path"
+    )
+
+
+def _uses_default_llama_server_command(command: str) -> bool:
+    return (str(command).strip() or DEFAULT_LLAMA_SERVER_COMMAND) == DEFAULT_LLAMA_SERVER_COMMAND
 
 
 def stop_llama_server(
