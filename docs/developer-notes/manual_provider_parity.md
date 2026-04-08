@@ -115,7 +115,10 @@ where llama-server
 llama-server --version
 ```
 
-If not installed, install a current external `llama-server` build (e.g. via Winget `ggml.llamacpp` on Windows).
+If the default `llama_server.command` is left at `llama-server`, the package-managed
+runtime path now covers the normal public local-road contract. Only set or
+install an external binary manually when you intentionally want to override the
+managed runtime.
 
 Run notebook top-to-bottom and record the same checks.
 

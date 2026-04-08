@@ -194,6 +194,74 @@ def test_main_run_reports_prepared_fasttext(monkeypatch, tmp_path, capsys):
     assert f"Prepared translate.fasttext_model at {prepared_path}" in capsys.readouterr().out
 
 
+def test_main_run_reports_prepared_managed_llama_server(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "collect_doctor_report",
+        lambda *args, **kwargs: _passing_report(stages=("topic_fit",)),
+    )
+    monkeypatch.setattr(
+        cli,
+        "prepare_llama_server_runtime",
+        lambda **kwargs: type(
+            "_Runtime",
+            (),
+            {
+                "source": "managed_downloaded",
+                "command": "/tmp/managed/llama-server",
+                "detail": "downloaded managed runtime",
+            },
+        )(),
+    )
+    monkeypatch.setattr(cli, "run_pipeline", lambda *args, **kwargs: None)
+
+    rc = cli.main(
+        [
+            "run",
+            "--preset",
+            "local_cpu",
+            "--set",
+            "search.query=author:test",
+        ]
+    )
+
+    assert rc == 0
+    assert "Prepared llama_server.command at /tmp/managed/llama-server" in capsys.readouterr().out
+
+
+def test_main_run_blocks_when_managed_llama_server_prepare_fails(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "collect_doctor_report",
+        lambda *args, **kwargs: _passing_report(stages=("topic_fit",)),
+    )
+    monkeypatch.setattr(
+        cli,
+        "prepare_llama_server_runtime",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("managed runtime failed")),
+    )
+    monkeypatch.setattr(
+        cli,
+        "run_pipeline",
+        lambda *args, **kwargs: pytest.fail("run_pipeline should not be called"),
+    )
+
+    rc = cli.main(
+        [
+            "run",
+            "--preset",
+            "local_cpu",
+            "--set",
+            "search.query=author:test",
+        ]
+    )
+
+    assert rc == 1
+    assert "Run blocked while preparing llama_server.command" in capsys.readouterr().err
+
+
 def test_main_run_missing_legacy_config_path_shows_preset_migration_hint():
     with pytest.raises(FileNotFoundError, match="Legacy preset file") as exc_info:
         cli.main(["run", "--config", "configs/pipeline/local_cpu.yaml"])

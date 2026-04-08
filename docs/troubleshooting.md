@@ -50,15 +50,18 @@ Symptom: local GGUF translation or labeling fails before generation starts.
 
 Fix:
 
-- Ensure a current external `llama-server` executable is installed and
-  reachable on `PATH`.
-- `ads-bib run ...` checks the resolved command before the pipeline starts.
-- On Windows, check `where llama-server` and `llama-server --version`.
+- With the default `llama_server.command: "llama-server"`, `ads-bib run`
+  first checks `PATH`, then the managed cache, then downloads the pinned
+  package-managed runtime automatically.
+- If `ads-bib doctor ...` says the managed runtime will be auto-downloaded on
+  run, that is only a warning, not a blocker.
+- If you set `llama_server.command` to an explicit path or custom command
+  name, that override must resolve successfully; otherwise the run stops early.
 - If `Qwen3.5` fails with `unknown model architecture: 'qwen35'`, your active
-  binary is too old.
-- If an outdated env-local `llama-server` shadows the intended binary, remove
-  the old env-local `llama.cpp` packages or set `llama_server.command`
-  explicitly.
+  binary is too old or incompatible.
+- If an outdated `PATH` binary shadows the managed runtime you intended to use,
+  remove the old binary from `PATH` or point `llama_server.command` at the
+  exact executable you want.
 - Restart the notebook session or CLI run after changing the executable path.
 
 ## Unsupported local HF architecture

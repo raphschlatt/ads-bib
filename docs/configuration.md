@@ -28,8 +28,8 @@ stacks, especially on Windows.
 | --- | --- | --- | --- | --- | --- |
 | `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Official default remote setup with the smallest local footprint |
 | `hf_api` | HF API | HF API | HF API | `bertopic` | Alternative remote road for Hugging Face API users |
-| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Advanced local CPU road; auto-downloads supported model assets where possible |
-| `local_gpu` | llama-server | Local | llama-server | `bertopic` | Advanced local GPU road with external `llama-server` runtime |
+| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Package-managed local CPU road with auto-resolved NLLB, GGUF, and managed llama-server runtime |
+| `local_gpu` | llama-server | Local | llama-server | `bertopic` | Package-managed local GPU road with one official Torch/CUDA install story and managed llama-server runtime |
 
 ## Install Profiles
 
@@ -41,8 +41,8 @@ smallest documented commands that cleanly satisfy the preset contracts today.
 | --- | --- | --- | --- |
 | `openrouter` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | Needs Toponymy, visualization stack, `openai`, and `litellm` |
 | `hf_api` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | HF API translation/embeddings plus BERTopic LiteLLM labeling |
-| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Adds NLLB translation and a tested CPU torch wheel; topic labeling still depends on external `llama-server` |
-| `local_gpu` | `uv pip install -e ".[topic]" <your CUDA-matched torch>` | `uv pip install "ads-bib[topic]" <your CUDA-matched torch>` | Use the torch build that matches your CUDA runtime; translation and labeling still depend on external `llama-server` |
+| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Adds NLLB translation, a tested CPU torch wheel, and the package-managed local runtime path |
+| `local_gpu` | `uv pip install -e ".[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | `uv pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | Official GPU install story for the packaged local road |
 | Everything | `uv pip install -e ".[all]"` | `uv pip install "ads-bib[all]"` | Convenience superset, not the lightest option |
 
 Completed runs save their resolved configuration to
@@ -120,12 +120,12 @@ Shared configuration for all pipeline stages that use `llama_server` as provider
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `command` | string | `"llama-server"` | Path or name of the llama-server executable |
+| `command` | string | `"llama-server"` | Default package-managed command token. With the default value, ads-bib tries `PATH`, then the managed cache, then an on-demand managed runtime download. Set an explicit path or custom command only to override that behavior. |
 | `host` | string | `"127.0.0.1"` | Bind address |
 | `port` | int \| null | `null` | Port; `null` auto-selects a free port |
 | `threads` | int \| null | `null` | CPU threads; `null` uses system default |
 | `ctx_size` | int | `4096` | Context window size in tokens |
-| `gpu_layers` | int | `-1` | GPU layers to offload; `-1` = all, `0` = CPU only |
+| `gpu_layers` | int | `-1` | GPU layers to offload; `-1` = GPU road default, `0` = CPU-only local road |
 | `startup_timeout_s` | float | `120.0` | Seconds to wait for the server to become ready |
 | `reasoning` | string | `"off"` | Reasoning mode; `"off"` for standard inference |
 

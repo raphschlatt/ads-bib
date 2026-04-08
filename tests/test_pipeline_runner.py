@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 import ads_bib.pipeline as pipeline
-from ads_bib.presets import get_preset_names, load_preset_config
+from ads_bib.presets import get_preset_names, get_preset_summary, load_preset_config
 from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS
 
 
@@ -54,6 +54,8 @@ def test_package_preset_registry_contains_four_presets():
         "local_cpu",
         "local_gpu",
     )
+    assert "Package-managed local CPU road" in get_preset_summary("local_cpu")
+    assert "Package-managed local GPU road" in get_preset_summary("local_gpu")
 
 
 
@@ -174,6 +176,9 @@ def test_official_pipeline_config_templates_load(
     assert config.translate.fasttext_model == "data/models/lid.176.bin"
     assert config.translate.max_workers == 8
     assert config.llama_server.command == "llama-server"
+    expected_gpu_layers = 0 if config_name == "local_cpu.yaml" else -1
+    if config_name in {"local_cpu.yaml", "local_gpu.yaml"}:
+        assert config.llama_server.gpu_layers == expected_gpu_layers
     assert config.topic_model.embedding_provider == embedding_provider
     assert config.topic_model.embedding_model == embedding_model
     assert config.topic_model.embedding_batch_size == 32

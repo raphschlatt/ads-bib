@@ -9,7 +9,7 @@ from typing import Literal
 import spacy.util
 
 from ads_bib._utils.huggingface_api import HUGGINGFACE_API_KEY_ENV_VARS
-from ads_bib._utils.llama_server import resolve_llama_server_command
+from ads_bib._utils.llama_server import inspect_llama_server_command, prepare_llama_server_command
 from ads_bib._utils.model_specs import ModelSpec
 from ads_bib.bootstrap import DEFAULT_FASTTEXT_MODEL_RELATIVE_PATH
 from ads_bib.config import _module_is_available
@@ -130,7 +130,43 @@ def _api_key_check(label: str, value: str | None, *, hint: str) -> DoctorCheck:
     return _fail(label, hint)
 
 
-def _collect_translate_checks(config: PipelineConfig, project_root: Path) -> list[DoctorCheck]:
+def _llama_server_runtime_check(
+    name: str,
+    *,
+    config: PipelineConfig,
+    project_root: Path,
+    prepare_managed_runtime: bool,
+) -> DoctorCheck:
+    try:
+        resolution = (
+            prepare_llama_server_command(
+                config.llama_server.command,
+                project_root=project_root,
+                gpu_layers=config.llama_server.gpu_layers,
+            )
+            if prepare_managed_runtime
+            else inspect_llama_server_command(
+                config.llama_server.command,
+                project_root=project_root,
+                gpu_layers=config.llama_server.gpu_layers,
+            )
+        )
+    except Exception as exc:
+        return _fail(name, str(exc))
+
+    if resolution.command is not None:
+        return _ok(name, resolution.detail)
+    if resolution.source == "managed_pending":
+        return _warn(name, resolution.detail)
+    return _fail(name, resolution.detail)
+
+
+def _collect_translate_checks(
+    config: PipelineConfig,
+    project_root: Path,
+    *,
+    prepare_managed_runtime: bool,
+) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
     cfg = config.translate
     model_path = _resolve_config_path(project_root, cfg.fasttext_model)
@@ -177,12 +213,14 @@ def _collect_translate_checks(config: PipelineConfig, project_root: Path) -> lis
         checks.append(_module_check("translate.provider", "huggingface_hub"))
     elif provider == "llama_server":
         checks.append(_module_check("translate.provider", "openai"))
-        try:
-            resolve_llama_server_command(config.llama_server.command)
-        except FileNotFoundError as exc:
-            checks.append(_fail("translate.llama_server.command", str(exc)))
-        else:
-            checks.append(_ok("translate.llama_server.command", "command resolved"))
+        checks.append(
+            _llama_server_runtime_check(
+                "translate.llama_server.command",
+                config=config,
+                project_root=project_root,
+                prepare_managed_runtime=prepare_managed_runtime,
+            )
+        )
 
         try:
             model_spec = ModelSpec.from_fields(
@@ -261,7 +299,13 @@ def _collect_author_disambiguation_checks() -> list[DoctorCheck]:
     return [_module_check("author_disambiguation", "author_name_disambiguation")]
 
 
-def _collect_topic_checks(config: PipelineConfig, project_root: Path, active_stages: tuple[StageName, ...]) -> list[DoctorCheck]:
+def _collect_topic_checks(
+    config: PipelineConfig,
+    project_root: Path,
+    active_stages: tuple[StageName, ...],
+    *,
+    prepare_managed_runtime: bool,
+) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
     cfg = config.topic_model
 
@@ -355,12 +399,14 @@ def _collect_topic_checks(config: PipelineConfig, project_root: Path, active_sta
             )
         )
     elif cfg.llm_provider == "llama_server":
-        try:
-            resolve_llama_server_command(config.llama_server.command)
-        except FileNotFoundError as exc:
-            checks.append(_fail("topic_model.llama_server.command", str(exc)))
-        else:
-            checks.append(_ok("topic_model.llama_server.command", "command resolved"))
+        checks.append(
+            _llama_server_runtime_check(
+                "topic_model.llama_server.command",
+                config=config,
+                project_root=project_root,
+                prepare_managed_runtime=prepare_managed_runtime,
+            )
+        )
         try:
             model_spec = ModelSpec.from_fields(
                 model_repo=cfg.llm_model_repo,
@@ -400,6 +446,7 @@ def collect_doctor_report(
     *,
     start_stage: StageName | str | None = None,
     stop_stage: StageName | str | None = None,
+    prepare_managed_runtime: bool = False,
 ) -> DoctorReport:
     """Collect stage-aware runtime checks for one effective pipeline config."""
     prepared = prepare_pipeline_config(config)
@@ -433,7 +480,13 @@ def collect_doctor_report(
         checks.append(_module_check("pyarrow", "pyarrow"))
 
     if "translate" in active_stages and prepared.translate.enabled:
-        checks.extend(_collect_translate_checks(prepared, project_root))
+        checks.extend(
+            _collect_translate_checks(
+                prepared,
+                project_root,
+                prepare_managed_runtime=prepare_managed_runtime,
+            )
+        )
 
     if "tokenize" in active_stages and prepared.tokenize.enabled:
         checks.extend(_collect_tokenize_checks(prepared))
@@ -442,7 +495,14 @@ def collect_doctor_report(
         checks.extend(_collect_author_disambiguation_checks())
 
     if any(stage in _TOPIC_STAGES for stage in active_stages):
-        checks.extend(_collect_topic_checks(prepared, project_root, active_stages))
+        checks.extend(
+            _collect_topic_checks(
+                prepared,
+                project_root,
+                active_stages,
+                prepare_managed_runtime=prepare_managed_runtime,
+            )
+        )
 
     if "citations" in active_stages:
         checks.extend(_collect_citations_checks(prepared))

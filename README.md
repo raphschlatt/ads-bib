@@ -32,7 +32,10 @@ Before `ads-bib run`, create `.env` in your working directory and add
 `OPENROUTER_API_KEY` for the default `openrouter` road. `ads-bib run` now does
 its own stage-aware preflight, creates `data/` and `runs/` on demand, and
 auto-downloads the default `data/models/lid.176.bin` when a packaged starter
-preset needs it.
+preset needs it. When a preset uses `llama_server` and `llama_server.command`
+stays at the packaged default, `ads-bib run` also resolves a package-managed
+`llama-server` binary automatically instead of requiring a separate manual
+runtime install.
 
 Optional support commands:
 

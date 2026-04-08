@@ -4,6 +4,7 @@ from pathlib import Path
 
 import ads_bib.bootstrap as bootstrap
 import ads_bib.doctor as doctor
+from ads_bib._utils.llama_server import LlamaServerRuntimeResolution
 from ads_bib.pipeline import PipelineConfig
 from ads_bib.presets import load_preset_config
 
@@ -183,11 +184,62 @@ def test_collect_doctor_report_checks_llama_server_runtime(monkeypatch, tmp_path
     )
 
     monkeypatch.setattr(doctor, "_module_is_available", lambda module: True)
+    monkeypatch.setattr(
+        doctor,
+        "inspect_llama_server_command",
+        lambda *args, **kwargs: LlamaServerRuntimeResolution(
+            command=None,
+            source="managed_pending",
+            detail="managed llama-server for windows-x86_64-cpu is not cached yet and will be auto-downloaded on ads-bib run",
+            managed_root=tmp_path / "data" / "models" / "llama_cpp",
+            platform_variant="windows-x86_64-cpu",
+        ),
+    )
 
-    def _raise_missing(command: str) -> str:
-        raise FileNotFoundError(f"llama-server command not found: {command!r}")
+    report = doctor.collect_doctor_report(
+        config,
+        start_stage="translate",
+        stop_stage="translate",
+    )
+    failures = {check.name: check.detail for check in report.failing_checks()}
+    warnings = {check.name: check.detail for check in report.checks if check.status == "warn"}
 
-    monkeypatch.setattr(doctor, "resolve_llama_server_command", _raise_missing)
+    assert "translate.llama_server.command" not in failures
+    assert "translate.llama_server.command" in warnings
+    assert "auto-downloaded on ads-bib run" in warnings["translate.llama_server.command"]
+    assert "translate.model" not in failures
+
+
+def test_collect_doctor_report_fails_for_missing_custom_llama_server_command(monkeypatch, tmp_path):
+    fasttext_path = tmp_path / "data" / "models" / "lid.176.bin"
+    gguf_path = tmp_path / "models" / "model.gguf"
+    fasttext_path.parent.mkdir(parents=True, exist_ok=True)
+    gguf_path.parent.mkdir(parents=True, exist_ok=True)
+    fasttext_path.write_bytes(b"model")
+    gguf_path.write_bytes(b"gguf")
+
+    config = PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path), "start_stage": "translate"},
+            "translate": {
+                "provider": "llama_server",
+                "model_path": str(gguf_path),
+                "fasttext_model": "data/models/lid.176.bin",
+            },
+            "llama_server": {"command": "custom-llama-server"},
+        }
+    )
+
+    monkeypatch.setattr(doctor, "_module_is_available", lambda module: True)
+    monkeypatch.setattr(
+        doctor,
+        "inspect_llama_server_command",
+        lambda *args, **kwargs: LlamaServerRuntimeResolution(
+            command=None,
+            source="missing",
+            detail="llama-server command not found on PATH: 'custom-llama-server'",
+        ),
+    )
 
     report = doctor.collect_doctor_report(
         config,
@@ -197,4 +249,3 @@ def test_collect_doctor_report_checks_llama_server_runtime(monkeypatch, tmp_path
     failures = {check.name: check.detail for check in report.failing_checks()}
 
     assert "translate.llama_server.command" in failures
-    assert "translate.model" not in failures

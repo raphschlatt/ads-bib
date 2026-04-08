@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from collections.abc import Callable, Sequence
 
+from ads_bib._utils.llama_server import prepare_llama_server_runtime
 from ads_bib.bootstrap import bootstrap_workspace, ensure_default_fasttext_model
 from ads_bib.doctor import collect_doctor_report, format_doctor_report
 from ads_bib.pipeline import PipelineConfig, run_pipeline
@@ -20,6 +21,7 @@ from ads_bib.presets import (
 )
 
 CommandRunner = Callable[[Sequence[str], dict[str, str] | None], int]
+_TOPIC_STAGES = frozenset({"embeddings", "reduction", "topic_fit", "topic_dataframe", "visualize", "curate"})
 
 
 def _run_command(command: Sequence[str], env: dict[str, str] | None = None) -> int:
@@ -120,6 +122,12 @@ def _format_run_preflight_report(report) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _run_requires_llama_server(config: PipelineConfig, active_stages: tuple[str, ...]) -> bool:
+    if "translate" in active_stages and config.translate.enabled and config.translate.provider == "llama_server":
+        return True
+    return bool(_TOPIC_STAGES.intersection(active_stages)) and config.topic_model.llm_provider == "llama_server"
+
+
 def _handle_run(args: argparse.Namespace) -> int:
     config = _load_config_from_args(args)
     if config.translate.enabled:
@@ -142,6 +150,17 @@ def _handle_run(args: argparse.Namespace) -> int:
     if report.has_failures():
         sys.stderr.write(_format_run_preflight_report(report))
         return 1
+    if _run_requires_llama_server(config, report.active_stages):
+        try:
+            runtime = prepare_llama_server_runtime(
+                config=config.llama_server,
+                project_root=config.run.project_root,
+            )
+        except Exception as exc:
+            sys.stderr.write(f"Run blocked while preparing llama_server.command: {exc}\n")
+            return 1
+        if runtime.source == "managed_downloaded" and runtime.command is not None:
+            sys.stdout.write(f"Prepared llama_server.command at {runtime.command}\n")
     run_pipeline(
         config,
         start_stage=args.from_stage,

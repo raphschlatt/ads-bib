@@ -95,12 +95,13 @@ After:   "On the Special and General Theory of Relativity"
 | --- | --- | --- | --- |
 | `openrouter` | Sends text to a remote chat model via API | Simple setup, high quality | Costs per token |
 | `nllb` | Runs Meta's NLLB-200 locally via CTranslate2 | Offline, zero cost, 200+ languages | Below chat model quality on scientific text |
-| `llama_server` | Runs a local GGUF model through external llama-server | Fast, high quality with GPU | Requires llama-server binary |
+| `llama_server` | Runs a local GGUF model through the package-managed llama-server runtime path | Fast, high quality with local GGUF models | Heavier local runtime than remote APIs |
 | `huggingface_api` | Calls HF Inference API | HF-native model identifiers | Requires HF_TOKEN |
 
 `max_workers` controls concurrency: 8--20 for remote providers, 1--2 for local.
-`fasttext_model` points to `lid.176.bin` in `data/models/` (download
-separately). See [Configuration](configuration.md#translate) for all keys.
+`fasttext_model` points to `lid.176.bin` in `data/models/`; packaged starter
+presets download the default file automatically on run when it is missing. See
+[Configuration](configuration.md#translate) for all keys.
 
 ## Phase 3: Tokenization
 

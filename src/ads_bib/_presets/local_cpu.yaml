@@ -34,7 +34,7 @@ llama_server:
   port: null
   threads: null
   ctx_size: 4096
-  gpu_layers: -1
+  gpu_layers: 0
   startup_timeout_s: 120.0
   reasoning: "off"
 

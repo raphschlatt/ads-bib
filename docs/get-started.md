@@ -19,8 +19,8 @@ checkout, replace `ads-bib[...]` with the editable form `-e ".[...]"`.
 | --- | --- | --- | --- |
 | `openrouter` | `uv pip install "ads-bib[topic,topic-llm]"` | `python -m pip install "ads-bib[topic,topic-llm]"` | Official default remote road |
 | `hf_api` | `uv pip install "ads-bib[topic,topic-llm]"` | `python -m pip install "ads-bib[topic,topic-llm]"` | Alternative remote road |
-| `local_cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `python -m pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Advanced local CPU road with NLLB + llama-server labeling |
-| `local_gpu` | `uv pip install "ads-bib[topic]" <your CUDA-matched torch>` | `python -m pip install "ads-bib[topic]" <your CUDA-matched torch>` | Advanced local GPU road with external `llama-server` |
+| `local_cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `python -m pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Package-managed local CPU road with NLLB + local GGUF labeling |
+| `local_gpu` | `uv pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | `python -m pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | Package-managed local GPU road with one official Torch/CUDA install story |
 | Any road / convenience install | `uv pip install "ads-bib[all]"` | `python -m pip install "ads-bib[all]"` | Largest and slowest option; useful when you want every supported runtime path |
 
 Current extras are still somewhat conservative supersets. For example,
@@ -44,10 +44,18 @@ uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-
 Plain `pip` remains fully supported, but especially on Windows the heavier
 topic stacks can take several minutes to resolve and install.
 
-If you plan to use local GGUF models for translation or topic labeling, you
-also need an external `llama-server` binary. On Windows, the tested path is the
-Winget `ggml.llamacpp` package. This is only required for the advanced
-`local_cpu` and `local_gpu` roads.
+For the current `local_gpu` road:
+
+```bash
+uv pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+```
+
+If a preset uses `llama_server` and `llama_server.command` stays at the default
+`llama-server`, `ads-bib run` resolves a package-managed runtime automatically:
+first from `PATH`, then from the managed cache under `data/models/llama_cpp/`,
+and finally by downloading the pinned managed binary on demand. Set
+`llama_server.command` explicitly only when you intentionally want to override
+that managed runtime.
 
 ## Create `.env`
 
@@ -79,8 +87,10 @@ ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 `ads-bib run` performs a stage-aware preflight before the pipeline starts. It
 creates the expected `data/` and `runs/` directories on demand and downloads
 the default `data/models/lid.176.bin` automatically when a packaged starter
-preset needs it. If a required key, optional dependency, or `llama-server`
-binary is missing, the command stops early and tells you what to fix.
+preset needs it. For default local runtime configs it also resolves the managed
+`llama-server` runtime automatically. If a required key, optional dependency,
+or explicit custom runtime override is missing, the command stops early and
+tells you what to fix.
 
 You can still materialize and edit a preset YAML if you want one local config
 file:
