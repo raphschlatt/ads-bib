@@ -8,6 +8,7 @@ import logging
 import os
 from pathlib import Path
 import random
+import time
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -785,6 +786,8 @@ def _finalize_run_summary(
         publications=ctx.publications,
         refs=ctx.refs,
         curated=ctx.curated_df,
+        topic_df=ctx.topic_df,
+        topics=ctx.topics,
         topic_hierarchy=ctx.topic_hierarchy,
         start_time=ctx.start_time,
         status=status,
@@ -1858,6 +1861,7 @@ def run_pipeline(
     load_environment: bool = True,
 ) -> PipelineContext:
     prepared_config = prepare_pipeline_config(config)
+    effective_start_time = start_time if start_time is not None else time.time()
     resolved_start = validate_stage_name(start_stage or prepared_config.run.start_stage)
     resolved_stop = (
         validate_stage_name(stop_stage) if stop_stage is not None else prepared_config.run.stop_stage
@@ -1870,7 +1874,7 @@ def run_pipeline(
         paths=paths,
         run=run,
         tracker=tracker,
-        start_time=start_time,
+        start_time=effective_start_time,
         load_environment=load_environment,
         output_mode="cli",
     )

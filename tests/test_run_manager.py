@@ -4,6 +4,7 @@ import logging
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
@@ -162,3 +163,32 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
         "topic_primary_layer_selection": "auto",
     }
     assert parsed["reproducibility"]["config_sha256"]
+
+
+def test_run_manager_save_summary_uses_topics_for_partial_topic_runs(tmp_path):
+    run = RunManager(run_name="topic_partial", project_root=tmp_path)
+    run.save_config({"topic_model": {"backend": "bertopic"}})
+
+    pubs = pd.DataFrame({"Bibcode": ["a", "b", "c"]})
+    refs = pd.DataFrame({"Bibcode": ["x"]})
+    topics = np.array([0, -1, 1])
+
+    run.save_summary(
+        publications=pubs,
+        refs=refs,
+        topics=topics,
+        start_time=time.time() - 5,
+        status="completed",
+        requested_start_stage="topic_fit",
+        requested_stop_stage="topic_fit",
+        completed_stages=["topic_fit"],
+    )
+
+    summary_path = run.paths["root"] / "run_summary.yaml"
+    parsed = yaml.safe_load(summary_path.read_text(encoding="utf-8"))
+
+    assert parsed["counts"]["topic_model"]["documents_modeled"] == 3
+    assert parsed["counts"]["topic_model"]["topics_nunique"] == 3
+    assert parsed["counts"]["topic_model"]["outliers_count"] == 1
+    assert parsed["counts"]["topic_model"]["outliers_rate"] == pytest.approx(1 / 3, abs=1e-4)
+    assert parsed["counts"]["curated"]["publications"] == 0

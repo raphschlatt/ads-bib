@@ -190,6 +190,8 @@ class RunManager:
         publications: pd.DataFrame | None = None,
         refs: pd.DataFrame | None = None,
         curated: pd.DataFrame | None = None,
+        topic_df: pd.DataFrame | None = None,
+        topics: Any | None = None,
         topic_hierarchy: dict[str, Any] | None = None,
         start_time: float | None = None,
         config_path: Path | None = None,
@@ -212,6 +214,10 @@ class RunManager:
             The references dataset.
         curated : pd.DataFrame, optional
             The final curated text dataset after cluster removal.
+        topic_df : pd.DataFrame, optional
+            The topic dataframe when topic modeling has completed but curation has not.
+        topics : Any, optional
+            Raw topic assignments used as a fallback for partial runs before topic_df exists.
         start_time : float, optional
             The timestamp when the pipeline started (from time.time()).
         config_path : Path, optional
@@ -230,7 +236,7 @@ class RunManager:
         # Calculate duration
         duration_sec = 0.0
         duration_min = 0.0
-        if start_time:
+        if start_time is not None:
             duration_sec = time.time() - start_time
             duration_min = duration_sec / 60.0
 
@@ -242,16 +248,24 @@ class RunManager:
         pub_count = len(publications) if publications is not None else 0
         ref_count = len(refs) if refs is not None else 0
         curated_count = len(curated) if curated is not None else 0
+        topic_df_count = len(topic_df) if topic_df is not None else 0
+        topic_values: list[int] = []
+        topic_count_frame = curated if curated is not None else topic_df
+        if topic_count_frame is not None and "topic_id" in topic_count_frame.columns:
+            topic_values = [int(value) for value in topic_count_frame["topic_id"].tolist()]
+        elif topics is not None:
+            topic_values = [int(value) for value in list(topics)]
+        documents_modeled = len(topic_values) if topic_values else topic_df_count
         
         topics_nunique = 0
         outliers_count = 0
         outliers_rate = 0.0
-        
-        if curated is not None and "topic_id" in curated.columns:
-            topics_nunique = curated["topic_id"].nunique()
-            outliers_count = int((curated["topic_id"] == -1).sum())
-            if curated_count > 0:
-                outliers_rate = outliers_count / curated_count
+
+        if topic_values:
+            topics_nunique = len(set(topic_values))
+            outliers_count = sum(1 for value in topic_values if value == -1)
+            if documents_modeled > 0:
+                outliers_rate = outliers_count / documents_modeled
 
         # Build schema dict
         summary = {
@@ -259,7 +273,7 @@ class RunManager:
             "run": {
                 "run_id": self.run_id,
                 "run_name": self.run_name,
-                "started_at_utc": datetime.datetime.fromtimestamp(start_time, datetime.timezone.utc).isoformat() if start_time else None,
+                "started_at_utc": datetime.datetime.fromtimestamp(start_time, datetime.timezone.utc).isoformat() if start_time is not None else None,
                 "ended_at_utc": now.isoformat(),
                 "duration_seconds": round(duration_sec, 2),
                 "duration_minutes": round(duration_min, 2),
@@ -284,7 +298,7 @@ class RunManager:
                     "references": ref_count,
                 },
                 "topic_model": {
-                    "documents_modeled": curated_count,
+                    "documents_modeled": documents_modeled,
                     "topics_nunique": topics_nunique,
                     "outliers_count": outliers_count,
                     "outliers_rate": round(outliers_rate, 4),

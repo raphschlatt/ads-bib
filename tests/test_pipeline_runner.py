@@ -684,6 +684,7 @@ def test_run_pipeline_writes_summary_for_partial_cli_run(tmp_path, monkeypatch):
     summary = yaml.safe_load((run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
     assert summary["schema_version"] == 2
     assert summary["run"]["status"] == "completed"
+    assert summary["run"]["started_at_utc"] is not None
     assert summary["stages"]["requested_start_stage"] == "search"
     assert summary["stages"]["requested_stop_stage"] == "translate"
     assert summary["stages"]["completed_stages"] == ["search", "export", "translate"]
