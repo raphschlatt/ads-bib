@@ -53,6 +53,7 @@ site/
 # Local test/debug artifacts
 _test_run_dir/
 tmp_native_capture*.log
+tmp/
 
 # OS
 .DS_Store
