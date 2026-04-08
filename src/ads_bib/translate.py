@@ -541,7 +541,9 @@ def _merge_translated_chunks(chunks: list[str]) -> str:
 
 def _strip_think_tags(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from LLM output."""
-    return text.replace("<think>", "").split("</think>", 1)[-1].strip()
+    cleaned = text.replace("<think>", "").split("</think>", 1)[-1].strip()
+    cleaned = re.sub(r"<\|im_end\|>\s*$", "", cleaned).strip()
+    return cleaned
 
 
 def _split_text_by_chars(

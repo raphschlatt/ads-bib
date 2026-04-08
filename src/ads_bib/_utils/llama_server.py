@@ -631,6 +631,7 @@ def _spawn_llama_server(
         "-ngl",
         str(config.gpu_layers),
     ]
+    args.extend(_llama_server_model_args(model_path))
     if config.threads is not None:
         args.extend(["--threads", str(config.threads)])
     if config.reasoning:
@@ -661,6 +662,13 @@ def _spawn_llama_server(
         if log_handle is not None:
             log_handle.close()
         raise
+
+
+def _llama_server_model_args(model_path: str) -> list[str]:
+    """Return narrow model-specific startup overrides for known llama.cpp quirks."""
+    if "translategemma" in str(model_path).lower():
+        return ["--no-jinja", "--chat-template", "chatml"]
+    return []
 
 
 def _command_looks_like_path(raw: str) -> bool:

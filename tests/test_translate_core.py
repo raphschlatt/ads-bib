@@ -320,6 +320,11 @@ def test_translate_openrouter_strips_think_tags(monkeypatch):
     assert "<think>" not in translated
 
 
+def test_strip_think_tags_removes_im_end_suffix():
+    translated = tr._strip_think_tags("<think>reasoning</think>Hello World<|im_end|>\n")
+    assert translated == "Hello World"
+
+
 def test_translate_huggingface_api_uses_async_client(monkeypatch):
     calls: dict = {}
 

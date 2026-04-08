@@ -302,6 +302,38 @@ def test_spawn_llama_server_passes_reasoning_off_by_default(tmp_path, monkeypatc
     log_handle.close()
 
 
+def test_spawn_llama_server_adds_translategemma_template_override(tmp_path, monkeypatch):
+    model_file = tmp_path / "translategemma-4b-it.Q4_K_M.gguf"
+    model_file.write_text("fake", encoding="utf-8")
+    calls: dict[str, object] = {}
+
+    class _FakePopen:
+        def __init__(self, args, **kwargs):
+            calls["args"] = list(args)
+            calls["kwargs"] = kwargs
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", _FakePopen)
+
+    process, log_handle = runtime._spawn_llama_server(
+        command="/usr/bin/llama-server",
+        model_path=str(model_file),
+        config=runtime.LlamaServerConfig(),
+        port=18081,
+        runtime_log_path=tmp_path / "runtime.log",
+    )
+
+    assert "--no-jinja" in calls["args"]
+    assert "--chat-template" in calls["args"]
+    idx = calls["args"].index("--chat-template")
+    assert calls["args"][idx + 1] == "chatml"
+    assert process.poll() is None
+    assert log_handle is not None
+    log_handle.close()
+
+
 def test_inspect_llama_server_runtime_uses_managed_cache(tmp_path, monkeypatch):
     asset = runtime._select_managed_llama_asset(gpu_layers=0)
     assert asset is not None
