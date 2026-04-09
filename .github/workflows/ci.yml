@@ -39,9 +39,6 @@ jobs:
       - name: Pytest (excluding topic-stack tests)
         run: pytest -q -m "not requires_topic_stack"
 
-      - name: Notebook contract
-        run: pytest -q tests/test_pipeline_notebook_contract.py
-
   topic-stack:
     runs-on: ubuntu-latest
     steps:
@@ -72,11 +69,11 @@ jobs:
           sudo swapon /swapfile
           sudo swapon --show
 
-      - name: Install dependencies (topic + extras)
+      - name: Install dependencies (base + optional overrides + tests)
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e ".[topic,translate-nllb,test,umap,hdbscan]"
+          python -m pip install -e ".[test,umap,hdbscan]"
           python -m pip install build twine
 
       - name: Pytest (full)
@@ -97,15 +94,18 @@ jobs:
           python -c "import ads_bib; print(ads_bib.__version__)"
           python -c "import ads_bib.search, ads_bib.export, ads_bib.tokenize, ads_bib.translate, ads_bib.citations"
           ads-bib preset list
-          ads-bib bootstrap --project-root /tmp/ads_smoke --preset openrouter --config ads-bib.yaml --env-file .env
+          ads-bib preset write openrouter --output /tmp/ads_smoke/ads-bib.yaml
           test -f /tmp/ads_smoke/ads-bib.yaml
           grep -q "run_name: ads_bib_openrouter" /tmp/ads_smoke/ads-bib.yaml
-          grep -q "ADS_TOKEN=" /tmp/ads_smoke/.env
+          ads-bib bootstrap --project-root /tmp/ads_bootstrap_smoke --env-file .env
+          test -d /tmp/ads_bootstrap_smoke/data/raw
+          test -d /tmp/ads_bootstrap_smoke/runs
+          grep -q "ADS_TOKEN=" /tmp/ads_bootstrap_smoke/.env
           ADS_TOKEN=dummy ads-bib doctor --config /tmp/ads_smoke/ads-bib.yaml --to search --set search.query='author:"test"'
 
-      - name: Wheel smoke (topic extras)
+      - name: Wheel smoke (optional overrides)
         run: |
           . /tmp/ads_pkg_smoke/bin/activate
           WHEEL="$(ls dist/*.whl | head -n 1)"
-          python -m pip install "$WHEEL[topic,umap,hdbscan]"
+          python -m pip install "$WHEEL[umap,hdbscan]"
           python -c "import ads_bib.topic_model, ads_bib.visualize"

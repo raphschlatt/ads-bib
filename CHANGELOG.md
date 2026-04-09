@@ -16,9 +16,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Offline HF provider smoke coverage plus env-gated live HF smoke tests for translation, embeddings, and BERTopic labeling.
 
 ### Changed
-- Optional dependency `litellm` moved from the `topic` extra to `topic-llm` (OpenRouter / HF-via-LiteLLM labeling paths). Full installs still use `ads-bib[all]`, which includes `topic-llm`.
-- Pin `datamapplot` to `>=0.6.4,<0.7` in the `topic` extra: 0.7.x changed the `selection_handlers` layout and breaks `ads_bib.visualize` until imports are updated.
-- GitHub Actions `topic-stack` job installs `topic` without `topic-llm` so CI does not depend on resolving `litellm` on the runner; use `ads-bib[topic-llm]` locally for OpenRouter/LiteLLM paths.
+- Base `ads-bib` installs now own the official runtime stack; only non-default algorithm overrides remain behind the `umap` and `hdbscan` extras.
+- Pin `datamapplot` to `>=0.6.4,<0.7`: 0.7.x changed the `selection_handlers` layout and breaks `ads_bib.visualize` until imports are updated.
+- GitHub Actions now install only the active base contract plus `test`, `umap`, and `hdbscan`; removed references to historical extras and install profiles.
 - `pipeline.ipynb` now uses explicit section dicts plus `NotebookSession`; it no longer owns config assembly, invalidation, `globals()` syncing, or `START_STAGE` / `STOP_STAGE`.
 - Stage slicing remains a CLI/YAML concern; notebook reruns are driven by executing the corresponding stage cell.
 - Notebook stage cells are now strict and no longer auto-chain earlier stages such as `translate -> export`.
@@ -36,15 +36,15 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - OpenRouter and Hugging Face chat translation now share the same centralized scientific translation prompt contract.
 - Official runtime roads now ship as four packaged generic presets accessed via CLI rather than repo-root YAML files.
 - Stable local presets now pin only GGUF model families that are validated against the baseline `ADS_env` runtime; the CPU labeling preset uses `Qwen/Qwen2.5-0.5B-Instruct-GGUF` instead of unsupported `qwen35` variants.
-- Packaging extras now install `huggingface-hub` for topic and NLLB translation paths.
+- Base runtime dependencies now include the provider and topic stack needed by the four official roads; `huggingface-hub` remains part of that default install.
 - Hugging Face API key resolution now accepts `HF_TOKEN`, `HF_API_KEY`, and `HUGGINGFACE_API_KEY`.
 - Core runtime dependencies now include `pyarrow` and `networkx`, and translation now validates the `openai` dependency for OpenRouter before execution.
-- Packaging extras no longer expose the obsolete `translate-local` / `translate-api` names; the lightweight provider clients moved into the `test` extra, and `ads-bib[all]` now only aggregates active extras.
+- Packaging extras no longer expose the obsolete `translate-local` / `translate-api` names; the remaining extras are `test`, `umap`, and `hdbscan`.
 
 ### Docs
 - Site configuration lives at `zensical.toml` in the repository root; build and preview use `zensical ...` from the root (including GitHub Actions).
-- `Package_ToDo.md` is no longer tracked in git; maintainers may keep a private local copy or use GitHub Issues for release tasks.
+- `Package_ToDo.md` remains maintainer-local; repository cleanup no longer depends on a versioned backlog file in the public tree.
 - Removed `CLAUDE.md`; repository engineering rules and conventions live in `AGENTS.md` only.
 - Public docs and metadata now position the installed package and CLI as the primary runtime path, with `pipeline.ipynb` documented as an optional GitHub companion.
 - `AGENTS.md` architecture notes now record the notebook-session adapter and the source-based AND step.
-- README/runtime templates now document the `bootstrap -> doctor -> run` flow, `HF_TOKEN`, the packaged preset model, HF-native model ids, and the lean `huggingface_api` scope (`translation`, `embeddings`, `BERTopic labeling`, but not `Toponymy`).
+- README/runtime docs now document `ads-bib run` as the happy path, keep `bootstrap` and `doctor` as support commands, and treat `huggingface_api` as a full official road across both topic backends.

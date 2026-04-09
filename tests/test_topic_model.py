@@ -895,7 +895,7 @@ def test_fit_toponymy_raises_actionable_error_for_missing_transitive_dependency(
     except ImportError as exc:
         assert "Missing module: 'dask'" in str(exc)
         assert "vectorizers" in str(exc)
-        assert "uv pip install -e \".[all,test]\"" in str(exc)
+        assert "uv pip install --upgrade ads-bib" in str(exc)
 
 
 @pytest.mark.parametrize(
