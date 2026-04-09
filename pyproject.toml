@@ -27,16 +27,34 @@ classifiers = [
 ]
 dependencies = [
     "PyYAML",
+    "accelerate>=1.0",
+    "bertopic",
+    "ctranslate2",
+    "datamapplot>=0.6.4,<0.7",
+    "dask",
+    "fast-hdbscan",
+    "fasttext-wheel",
+    "huggingface-hub",
+    "litellm",
+    "matplotlib",
     "networkx",
-    "pandas>=2.0",
+    "openai",
     "numpy>=1.24",
+    "pacmap",
+    "pandas>=2.0",
     "pyarrow",
     "requests",
     "python-dotenv",
-    "fasttext-wheel",
+    "scikit-learn",
+    "seaborn",
+    "sentence-transformers>=5.1",
+    "sentencepiece",
     "spacy>=3.7",
-    "tqdm",
     "scipy>=1.10",
+    "toponymy==0.4.0",
+    "torch>=2.5,<2.7",
+    "tqdm",
+    "transformers>=4.56",
 ]
 keywords = ["ads", "bibliometrics", "research", "topic-modeling", "citation-network"]
 
@@ -50,26 +68,9 @@ Issues = "https://github.com/raphschlatt/ADS_Pipeline/issues"
 ads-bib = "ads_bib.cli:main"
 
 [project.optional-dependencies]
-topic = [
-    "bertopic",
-    "sentence-transformers>=5.1",
-    "scikit-learn",
-    "datamapplot>=0.6.4,<0.7",
-    "pacmap",
-    "fast-hdbscan",
-    "huggingface-hub",
-    "openai",
-    "toponymy==0.4.0",
-    "dask",
-    "seaborn",
-    "matplotlib",
-]
-topic-llm = ["litellm"]
 umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
-translate-nllb = ["ctranslate2", "transformers>=4.56", "sentencepiece", "huggingface-hub"]
 test = ["pytest>=7", "ruff>=0.6", "openai", "huggingface-hub"]
-all = ["ads-bib[topic,topic-llm,translate-nllb,umap,hdbscan]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ads_bib"]

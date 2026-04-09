@@ -71,6 +71,13 @@ class DoctorReport:
         return tuple(check for check in self.checks if check.status == "fail")
 
 
+@dataclass(frozen=True)
+class TorchRuntimeInfo:
+    version: str
+    build: str
+    cuda_available: bool
+
+
 def _ok(name: str, detail: str) -> DoctorCheck:
     return DoctorCheck(name=name, status="ok", detail=detail)
 
@@ -120,8 +127,79 @@ def _spacy_model_installed(model_name: str) -> bool:
 
 def _module_check(label: str, module_name: str) -> DoctorCheck:
     if _module_is_available(module_name):
-        return _ok(label, f"optional dependency '{module_name}' is available")
-    return _fail(label, f"missing optional dependency '{module_name}'")
+        return _ok(label, f"dependency '{module_name}' is available")
+    return _fail(label, f"missing dependency '{module_name}'")
+
+
+def _inspect_torch_runtime() -> TorchRuntimeInfo | None:
+    try:
+        import torch
+    except ImportError:
+        return None
+
+    cuda_available = False
+    cuda_namespace = getattr(torch, "cuda", None)
+    is_available = getattr(cuda_namespace, "is_available", None)
+    if callable(is_available):
+        cuda_available = bool(is_available())
+
+    cuda_version = getattr(getattr(torch, "version", None), "cuda", None)
+    hip_version = getattr(getattr(torch, "version", None), "hip", None)
+    if cuda_version:
+        build = f"cuda:{cuda_version}"
+    elif hip_version:
+        build = f"hip:{hip_version}"
+    else:
+        build = "cpu"
+
+    return TorchRuntimeInfo(
+        version=str(getattr(torch, "__version__", "unknown")),
+        build=build,
+        cuda_available=cuda_available,
+    )
+
+
+def _collect_torch_runtime_checks(
+    *,
+    label_prefix: str,
+    require_cuda: bool = False,
+) -> list[DoctorCheck]:
+    checks = [_module_check(f"{label_prefix}.torch", "torch")]
+    info = _inspect_torch_runtime()
+    if info is None:
+        return checks
+
+    checks.append(
+        _ok(
+            f"{label_prefix}.torch_runtime",
+            f"torch {info.version} | build={info.build} | cuda_available={info.cuda_available}",
+        )
+    )
+    expected_device = "cuda" if info.cuda_available else "cpu"
+    if require_cuda and not info.cuda_available:
+        checks.append(
+            _fail(
+                f"{label_prefix}.cuda_support",
+                "official local_gpu support requires a CUDA-enabled torch build in this env",
+            )
+        )
+    else:
+        checks.append(
+            _ok(
+                f"{label_prefix}.expected_device",
+                f"local HF/Torch work is expected to run on {expected_device}",
+            )
+        )
+    return checks
+
+
+def _looks_like_official_local_gpu(config: PipelineConfig) -> bool:
+    return (
+        config.translate.provider == "transformers"
+        and str(config.translate.model or "").strip() == "google/translategemma-4b-it"
+        and config.topic_model.embedding_provider == "local"
+        and config.topic_model.llm_provider == "local"
+    )
 
 
 def _api_key_check(label: str, value: str | None, *, hint: str) -> DoctorCheck:
@@ -213,7 +291,12 @@ def _collect_translate_checks(
         checks.append(_module_check("translate.provider", "huggingface_hub"))
     elif provider == "transformers":
         checks.append(_module_check("translate.provider", "transformers"))
-        checks.append(_module_check("translate.provider.torch", "torch"))
+        checks.extend(
+            _collect_torch_runtime_checks(
+                label_prefix="translate.provider",
+                require_cuda=_looks_like_official_local_gpu(config),
+            )
+        )
     elif provider == "llama_server":
         checks.append(_module_check("translate.provider", "openai"))
         checks.append(
@@ -349,6 +432,8 @@ def _collect_topic_checks(
     embedding_module = embedding_imports.get(cfg.embedding_provider)
     if embedding_module is not None:
         checks.append(_module_check("topic_model.embedding_provider", embedding_module))
+    if cfg.embedding_provider == "local":
+        checks.extend(_collect_torch_runtime_checks(label_prefix="topic_model.embedding_provider"))
     if cfg.embedding_provider == "openrouter":
         checks.append(
             _api_key_check(
@@ -372,6 +457,13 @@ def _collect_topic_checks(
     llm_module = llm_imports.get(cfg.llm_provider)
     if llm_module is not None:
         checks.append(_module_check("topic_model.llm_provider", llm_module))
+    if cfg.llm_provider == "local":
+        checks.extend(
+            _collect_torch_runtime_checks(
+                label_prefix="topic_model.llm_provider",
+                require_cuda=_looks_like_official_local_gpu(config),
+            )
+        )
     if cfg.llm_provider == "openrouter":
         if cfg.backend == "toponymy":
             api_key = cfg.llm_api_key or cfg.embedding_api_key

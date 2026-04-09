@@ -2,11 +2,11 @@
 
 Engineering rules and operating conventions for this repository.
 
-## 0) Runtime Environment (Mandatory)
+## 0) Runtime Environment
 
-- Before running notebook cells, scripts, or tests, always activate:
-  - `conda activate ADS_env`
-- All commands and expected behavior in this repository assume the `ADS_env` conda environment.
+- Public package validation should prefer fresh Python 3.12 `uv` environments.
+- `ADS_env` is legacy repo-local state, not the public package contract.
+- If you are working in the legacy notebook/dev workflow and `ADS_env` exists locally, you may still use it for repo-local checks.
 
 ## 1) Architecture Map
 
@@ -86,6 +86,7 @@ Seed entries:
 - `2026-04-08 | Run-first public CLI contract | bootstrap+doctor-first onboarding kept leaking repo-era setup into the public package story and caused repeated docs drift | public happy path is now install + .env + ads-bib run, with run owning the required preflight and preparing the default fastText asset on demand; bootstrap and doctor remain optional support utilities | remove bootstrap/doctor-first wording and .env.example assumptions from public docs and CLI help`
 - `2026-04-08 | Package-managed llama-server path for local roads | local_cpu and local_gpu must share the same public package contract as remote roads instead of requiring a separate manual runtime install | default llama_server.command now means PATH -> managed cache -> package-managed download, while explicit custom commands remain opt-in overrides | remove docs/tests wording that treats local roads as permanently external-runtime-only`
 - `2026-04-09 | Local GPU translation moves to original TranslateGemma via Transformers while GGUF stays optional for labeling only | TranslateGemma GGUF through llama-server proved too unstable as the official local GPU translation path, while local HF/Torch paths already cover embeddings and local labeling cleanly | local_cpu defaults stay NLLB + GGUF labeling, local_gpu defaults become Transformers translation + local HF labeling, GGUF labeling remains an optional path on both local roads, and hf_api support now covers Toponymy too | remove TranslateGemma GGUF rescue logic, old preset wording, and docs that imply local_gpu translation is llama-server-first`
+- `2026-04-09 | Base package owns the official runtime contract | extras- and ADS_env-based install guidance leaked packaging internals into the public story even though the official roads depend on one shared default stack | ads-bib without extras is now the target install, base dependencies cover the official roads and default algorithms, and only non-default algorithm swaps stay behind extras | remove preset install tables, public extras guidance, and ADS_env-as-contract wording`
 
 ## 3) DataFrame Schema Conventions
 
@@ -113,7 +114,7 @@ Seed entries:
   - BERTopic: `llm_labeling`, `llm_labeling_post_outliers`
   - Toponymy: `llm_labeling_toponymy`
 - Toponymy provides aggregated LLM cost logging identical to the BERTopic output format.
-- BERTopic OpenRouter labeling is a conscious third-party exception (LiteLLM path) unless a low-risk adapter is explicitly implemented; install the optional extra `topic-llm` (provides `litellm`) for those provider paths.
+- BERTopic OpenRouter labeling is a conscious third-party exception (LiteLLM path) unless a low-risk adapter is explicitly implemented; `litellm` is part of the base package because it is required by the official remote roads.
 - All Toponymy hierarchical layers are preserved as `Topic_Layer_X` columns in the output DataFrame for multi-level interactive maps.
 - After `reduce_outliers`, always refresh topic representations via `update_topics`.
   - Reason: topic assignments changed, so keywords/labels/representative docs must be recomputed.

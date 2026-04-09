@@ -17,13 +17,14 @@ Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
 
 ## Quickstart
 
-Install into your preferred Python environment. `uv pip` is the recommended
-installer because it resolves this stack much faster than plain `pip`; the full
-fallback commands and local-road notes are on the
+Create one Python environment for your machine and install `ads-bib` into it.
+`uv pip` is the recommended public installer because it resolves this stack
+much faster than plain `pip`; the hardware-specific Torch fallback for
+NVIDIA/CUDA machines is on the
 [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) page.
 
 ```bash
-uv pip install "ads-bib[topic,topic-llm]"
+uv pip install ads-bib
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
@@ -37,7 +38,11 @@ preset needs it. When a config uses `llama_server` and
 resolves a package-managed `llama-server` binary automatically instead of
 requiring a separate manual runtime install. The current local defaults are:
 `local_cpu` = NLLB translation + GGUF labeling, `local_gpu` = Transformers
-translation + local Transformers labeling.
+translation + local Transformers labeling. On standard CPU machines and for the
+remote roads, `uv pip install ads-bib` is the intended happy path. On
+NVIDIA/CUDA machines that should run the official `local_gpu` road with GPU
+acceleration, install the validated CUDA Torch wheel into the same env after
+`ads-bib`.
 
 Optional support commands:
 

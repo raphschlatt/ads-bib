@@ -10,7 +10,8 @@ Scope:
 
 ## Shared Baseline
 
-1. Activate environment:
+1. Activate your repo dev environment. `ADS_env` is still a common legacy
+   choice for this manual runbook:
 
 ```bash
 conda activate ADS_env

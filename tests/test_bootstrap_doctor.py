@@ -249,3 +249,65 @@ def test_collect_doctor_report_fails_for_missing_custom_llama_server_command(mon
     failures = {check.name: check.detail for check in report.failing_checks()}
 
     assert "translate.llama_server.command" in failures
+
+
+def test_collect_doctor_report_flags_cpu_only_torch_for_official_local_gpu(monkeypatch, tmp_path):
+    config_data = load_preset_config("local_gpu").to_dict()
+    config_data["run"]["project_root"] = str(tmp_path)
+    config_data["search"]["query"] = "author:test"
+    config = PipelineConfig.from_dict(config_data)
+
+    monkeypatch.setenv("ADS_TOKEN", "token")
+    monkeypatch.setattr(doctor, "_module_is_available", lambda module: True)
+    monkeypatch.setattr(
+        doctor,
+        "_inspect_torch_runtime",
+        lambda: doctor.TorchRuntimeInfo(version="2.6.0+cpu", build="cpu", cuda_available=False),
+    )
+
+    report = doctor.collect_doctor_report(config, stop_stage="translate")
+    failures = {check.name: check.detail for check in report.failing_checks()}
+    ok_checks = {check.name: check.detail for check in report.checks if check.status == "ok"}
+
+    assert "translate.provider.torch_runtime" in ok_checks
+    assert "build=cpu" in ok_checks["translate.provider.torch_runtime"]
+    assert "translate.provider.cuda_support" in failures
+
+
+def test_collect_doctor_report_reports_expected_embedding_device(monkeypatch, tmp_path):
+    config_data = load_preset_config("local_cpu").to_dict()
+    config_data["run"]["project_root"] = str(tmp_path)
+    config_data["search"]["query"] = "author:test"
+    config = PipelineConfig.from_dict(config_data)
+
+    monkeypatch.setenv("ADS_TOKEN", "token")
+    monkeypatch.setattr(doctor, "_module_is_available", lambda module: True)
+    monkeypatch.setattr(
+        doctor,
+        "_inspect_torch_runtime",
+        lambda: doctor.TorchRuntimeInfo(version="2.6.0+cpu", build="cpu", cuda_available=False),
+    )
+    monkeypatch.setattr(
+        doctor,
+        "inspect_llama_server_command",
+        lambda *args, **kwargs: LlamaServerRuntimeResolution(
+            command="/tmp/managed/llama-server",
+            source="managed_cached",
+            detail="using cached managed llama-server runtime",
+            managed_root=tmp_path / "data" / "models" / "llama_cpp",
+            platform_variant="windows-x86_64-cpu",
+        ),
+    )
+
+    report = doctor.collect_doctor_report(
+        config,
+        start_stage="embeddings",
+        stop_stage="embeddings",
+    )
+    ok_checks = {check.name: check.detail for check in report.checks if check.status == "ok"}
+
+    assert "topic_model.embedding_provider.torch_runtime" in ok_checks
+    assert (
+        ok_checks["topic_model.embedding_provider.expected_device"]
+        == "local HF/Torch work is expected to run on cpu"
+    )

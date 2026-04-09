@@ -10,45 +10,46 @@ user wants to use it, `uv` must be installed once first, for example via
 `python -m pip install uv`, `pipx install uv`, or the platform-specific Astral
 installer.
 
-For an installed package from an index, use `ads-bib[...]`. For a repository
-checkout, replace `ads-bib[...]` with the editable form `-e ".[...]"`.
+The public contract is one env per machine, not one install profile per road.
 
-### Recommended Install Profiles
+### Install `ads-bib`
 
-| Preset / Road | Recommended `uv pip` install | Plain `pip` fallback | Notes |
-| --- | --- | --- | --- |
-| `openrouter` | `uv pip install "ads-bib[topic,topic-llm]"` | `python -m pip install "ads-bib[topic,topic-llm]"` | Official default remote road |
-| `hf_api` | `uv pip install "ads-bib[topic,topic-llm]"` | `python -m pip install "ads-bib[topic,topic-llm]"` | Alternative remote road |
-| `local_cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `python -m pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Package-managed local CPU road with NLLB plus GGUF labeling by default |
-| `local_gpu` | `uv pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | `python -m pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | Package-managed local GPU road with original TranslateGemma via Transformers and local HF labeling |
-| Any road / convenience install | `uv pip install "ads-bib[all]"` | `python -m pip install "ads-bib[all]"` | Largest and slowest option; useful when you want every supported runtime path |
-
-Current extras are still somewhat conservative supersets. For example,
-`openrouter` does not use every package inside `topic`, but today that is the
-smallest supported extra set that covers the full preset contract cleanly.
-
-### Minimal Example Commands
-
-For the default remote road:
+Start with the base package:
 
 ```bash
-uv pip install "ads-bib[topic,topic-llm]"
+uv pip install ads-bib
 ```
 
-For the current `local_cpu` road:
+That is the intended install for:
+
+- `openrouter`
+- `hf_api`
+- `local_cpu`
+- CPU-only fallback behavior of the local HF/Torch paths
+
+If you are on an NVIDIA/CUDA machine and want the official accelerated
+`local_gpu` road, install the validated CUDA Torch wheel into the same env:
 
 ```bash
-uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
 ```
 
-Plain `pip` remains fully supported, but especially on Windows the heavier
-topic stacks can take several minutes to resolve and install.
+This is the only supported public fallback when the default `torch` install
+does not expose CUDA. It is a hardware-class override, not a preset-specific
+install path.
 
-For the current `local_gpu` road:
+### Optional Algorithm Extras
+
+The base package already contains everything required by the official default
+roads. Only install extras if you intentionally switch away from the defaults:
 
 ```bash
-uv pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+uv pip install "ads-bib[umap]"
+uv pip install "ads-bib[hdbscan]"
 ```
+
+- `umap` is only needed when you set `topic_model.reduction_method=umap`.
+- `hdbscan` is only needed when you set `topic_model.clustering_method=hdbscan`.
 
 If a preset or override uses `llama_server` and `llama_server.command` stays at
 the default `llama-server`, `ads-bib run` resolves a package-managed runtime

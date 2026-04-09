@@ -6,7 +6,8 @@ new-user path.
 
 ## Docs maintenance
 
-Build and preview the site in `ADS_env`:
+Build and preview the site in your active repo dev env. `ADS_env` is still a
+common legacy choice, but it is no longer the public package contract:
 
 ```bash
 python -m pip install zensical

@@ -20,17 +20,23 @@ Fix:
 - Re-run `ads-bib run ...` after editing `.env`.
 - Reload the environment in the notebook session or restart the kernel.
 
-## Missing optional dependency
+## Missing runtime dependency
 
 Symptom: import or provider errors for topic models, translation, or
 visualization.
 
 Fix:
 
-- Reinstall with the smallest preset-matching profile from `Get Started` or
-  `Configuration`.
-- Use `uv pip install "ads-bib[all]"` only as the convenience fallback when you
-  explicitly want every supported runtime path.
+- Reinstall the base package into the active env:
+
+```bash
+uv pip install --upgrade ads-bib
+```
+
+- If you intentionally switched to `topic_model.reduction_method=umap`, add
+  `uv pip install "ads-bib[umap]"`.
+- If you intentionally switched to `topic_model.clustering_method=hdbscan`, add
+  `uv pip install "ads-bib[hdbscan]"`.
 - Use `ads-bib doctor ...` if you want the full stage-aware report without starting a run.
 
 ## Missing `lid.176.bin`
@@ -97,7 +103,7 @@ Fix:
 
 - Ensure `OPENROUTER_API_KEY` is set.
 - Ensure the `openai` Python package is installed. For package-managed installs,
-  the documented preset profiles already cover this; otherwise install `openai`
+  `uv pip install ads-bib` already covers this; otherwise install `openai`
   directly.
 - Use supported provider names and model identifiers.
 
@@ -130,8 +136,8 @@ Fix:
 
 - Ensure `HF_TOKEN` is set. `HF_API_KEY` and `HUGGINGFACE_API_KEY` are also
   accepted.
-- Ensure the `huggingface-hub` Python package is installed. The documented
-  preset profiles already include it.
+- Ensure the `huggingface-hub` Python package is installed. `uv pip install ads-bib`
+  already includes it for the official roads.
 - Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or
   `unsloth/Qwen2.5-72B-Instruct:featherless-ai`.
 

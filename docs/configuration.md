@@ -20,30 +20,51 @@ entrypoint. `preset write` is optional when you want one editable YAML file, and
 `doctor` is the support command for printing the full preflight report without
 starting a run.
 
-`uv pip` is the recommended installer for these preset roads. Plain `pip`
-remains supported, but expect substantially longer installs on heavy topic
-stacks, especially on Windows.
+`uv pip` is the recommended public installer for these preset roads. The public
+contract is one env per machine, not a preset-specific install matrix.
 
 | Preset | Translation | Embeddings | Labeling | Default Backend | Intended Use |
 | --- | --- | --- | --- | --- | --- |
 | `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Official default remote setup with the smallest local footprint |
 | `hf_api` | HF API | HF API | HF API | `bertopic` | Alternative remote road for Hugging Face API users |
 | `local_cpu` | NLLB | Local | llama-server | `bertopic` | Package-managed local CPU road with auto-resolved NLLB and GGUF labeling by default |
-| `local_gpu` | Transformers | Local | Local | `bertopic` | Package-managed local GPU road with one official Torch/CUDA install story and local HF defaults |
+| `local_gpu` | Transformers | Local | Local | `bertopic` | Package-managed local GPU road with local HF defaults; NVIDIA/CUDA acceleration depends on the active Torch build |
 
-## Install Profiles
+## Install Contract
 
-These are the current supported extra sets for each official runtime road. They
-are not perfectly minimal by internal implementation path, but they are the
-smallest documented commands that cleanly satisfy the preset contracts today.
+The intended public install is:
 
-| Preset | Recommended install from a checkout | Installed-package equivalent | Notes |
-| --- | --- | --- | --- |
-| `openrouter` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | Needs Toponymy, visualization stack, `openai`, and `litellm` |
-| `hf_api` | `uv pip install -e ".[topic,topic-llm]"` | `uv pip install "ads-bib[topic,topic-llm]"` | HF API translation/embeddings plus BERTopic LiteLLM labeling |
-| `local_cpu` | `uv pip install -e ".[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | `uv pip install "ads-bib[topic,translate-nllb]" "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu` | Adds NLLB translation, a tested CPU torch wheel, and the package-managed local runtime path |
-| `local_gpu` | `uv pip install -e ".[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | `uv pip install "ads-bib[topic]" "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124` | Official GPU install story for the packaged local road |
-| Everything | `uv pip install -e ".[all]"` | `uv pip install "ads-bib[all]"` | Convenience superset, not the lightest option |
+```bash
+uv pip install ads-bib
+```
+
+That base install is meant to cover every official road at the dependency
+level, plus the default algorithms used by those roads:
+
+- PaCMAP, not UMAP
+- fast-hdbscan, not `hdbscan`
+- local CPU translation via NLLB
+- local GPU translation via Transformers
+- local embeddings via SentenceTransformers
+- remote/provider paths for OpenRouter and Hugging Face API
+
+If you are on an NVIDIA/CUDA machine and want the official accelerated
+`local_gpu` path, install the validated CUDA Torch wheel into the same env:
+
+```bash
+uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+```
+
+This is the only supported public fallback when the default `torch` install
+does not expose CUDA. It is a hardware-class adjustment, not a separate preset
+or road-specific install profile.
+
+Optional non-default algorithm extras remain available for advanced overrides:
+
+```bash
+uv pip install "ads-bib[umap]"
+uv pip install "ads-bib[hdbscan]"
+```
 
 Completed runs save their resolved configuration to
 `runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
