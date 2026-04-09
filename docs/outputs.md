@@ -1,52 +1,46 @@
-# Reference
+# Output Artifacts
 
-## Stable Top-Level Imports
+This page is the authoritative reference for everything a completed
+`ads-bib` run writes to disk. For interpretation of the citation networks,
+see [Citation Networks](citation-networks.md). For the Python symbols that
+produce these artifacts, see [Python API](python-api.md).
 
-```python
-from ads_bib import (
-    PipelineConfig,
-    NotebookSession,
-    build_topic_dataframe,
-    compute_embeddings,
-    fit_bertopic,
-    fit_toponymy,
-    process_all_citations,
-    run_pipeline,
-)
+## Run Layout
+
+```text
+runs/run_20260407_120000_ads_bib_openrouter/
+├── config_used.yaml
+├── run_summary.yaml
+├── logs/
+│   └── runtime.log
+├── data/
+│   ├── curated_dataset.parquet
+│   ├── direct.gexf
+│   ├── co_citation.gexf
+│   ├── bibliographic_coupling.gexf
+│   ├── author_co_citation.gexf
+│   └── download_wos_export.txt
+└── plots/
+    └── topic_map.html
 ```
 
-For usage-focused examples and signatures, use [Python API](python-api.md).
+Every file in that tree has a single canonical owner described below.
 
-## Output Schema
+## `config_used.yaml`
 
-### `curated_dataset.parquet`
+The resolved, normalized `PipelineConfig` actually used for the run. You can
+feed it back into the CLI verbatim:
 
-Columns added by each stage:
+```bash
+ads-bib run --config runs/<run_id>/config_used.yaml
+```
 
-| Stage | Columns |
-| --- | --- |
-| Export | `Bibcode`, `Author`, `Title`, `Year`, `Journal`, `Abstract`, `Citation Count`, `DOI`, `Affiliation`, ... |
-| Translation | `Title_lang`, `Abstract_lang`, `Title_en`, `Abstract_en` |
-| Tokenization | `full_text`, `tokens` |
-| AND (optional) | `author_uids`, `author_display_names` |
-| Embeddings | (cached separately, not in DataFrame) |
-| Reduction | `embedding_2d_x`, `embedding_2d_y` |
-| Topic (BERTopic) | `topic_id`, `Name` |
-| Topic (Toponymy) | `topic_id`, `Name`, `topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`, `topic_layer_count` |
+Use it to reproduce a run exactly, audit what values the preset + CLI
+overrides resolved to, or diff two runs to see which knobs changed.
 
-Schema conventions:
+## `run_summary.yaml`
 
-- All pipeline-produced columns use `snake_case`.
-- `topic_id` is the document-topic membership column (int). `-1` = outlier.
-- `Name` is the human-readable topic label.
-- `embedding_2d_x` / `embedding_2d_y` are the 2D coordinates for visualization.
-- For Toponymy, `topic_id` and `Name` are working-layer aliases. The canonical
-  hierarchy is `topic_layer_<n>_id` and `topic_layer_<n>_label`, where layer 0
-  is the finest and higher layers are coarser.
-
-### `run_summary.yaml`
-
-Written at the end of each run:
+Compact run report written at the end of each run.
 
 ```yaml
 schema_version: 2
@@ -99,30 +93,89 @@ costs:
       cost_usd: 0.0156
 ```
 
-### `.gexf` node attributes
+Key fields:
+
+- **`schema_version`** — bumped on breaking changes to this file.
+- **`stages.completed_stages`** — usable for resume-style runs with
+  `--from <next_stage>`.
+- **`reproducibility.config_sha256`** — same value for two runs means they
+  used byte-identical configs.
+- **`counts.topic_model.outliers_rate`** — quality proxy; very high rates
+  usually mean clusters are too sharp.
+- **`costs`** — only populated for providers with cost tracking (OpenRouter
+  respects `openrouter_cost_mode`; HF API calls are not billed through this
+  tracker).
+
+## `curated_dataset.parquet`
+
+The main document-level output. Columns accumulate across stages:
+
+| Stage | Columns |
+| --- | --- |
+| Export | `Bibcode`, `Author`, `Title`, `Year`, `Journal`, `Abstract`, `Citation Count`, `DOI`, `Affiliation`, ... |
+| Translation | `Title_lang`, `Abstract_lang`, `Title_en`, `Abstract_en` |
+| Tokenization | `full_text`, `tokens` |
+| AND (optional) | `author_uids`, `author_display_names` |
+| Embeddings | (cached separately, not in DataFrame) |
+| Reduction | `embedding_2d_x`, `embedding_2d_y` |
+| Topic (BERTopic) | `topic_id`, `Name` |
+| Topic (Toponymy) | `topic_id`, `Name`, `topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`, `topic_layer_count` |
+
+Schema conventions:
+
+- All pipeline-produced columns use `snake_case`.
+- `topic_id` is the document-topic membership column (int). `-1` = outlier.
+- `Name` is the human-readable topic label.
+- `embedding_2d_x` / `embedding_2d_y` are the 2D coordinates for
+  visualization.
+- For Toponymy, `topic_id` and `Name` are **working-layer aliases**. The
+  canonical hierarchy is `topic_layer_<n>_id` / `topic_layer_<n>_label`,
+  where layer 0 is the finest and higher layers are coarser.
+
+## `.gexf` Node Attributes
 
 Every publication node in the exported `.gexf` files carries:
 
 `Bibcode`, `Author`, `Title`, `Year`, `Journal`, `Abstract`,
 `Citation Count`, `DOI`, `topic_id`, `Name`, `embedding_2d_x`,
-`embedding_2d_y`, `Title_en`, `Abstract_en`
+`embedding_2d_y`, `Title_en`, `Abstract_en`.
 
-For Toponymy runs, nodes also include `topic_layer_<n>_id`,
+For Toponymy runs, nodes additionally carry `topic_layer_<n>_id`,
 `topic_layer_<n>_label`, `topic_primary_layer_index`, and
 `topic_layer_count`.
 
+The four network files (`direct`, `co_citation`, `bibliographic_coupling`,
+`author_co_citation`) share the same node schema and differ only in edge
+semantics. See [Citation Networks](citation-networks.md) for the
+interpretation of each.
+
+## `download_wos_export.txt`
+
+A WOS-format plain-text export of the curated dataset. Use it for
+[CiteSpace](https://citespace.podia.com/) and
+[VOSviewer](https://www.vosviewer.com/), which both import WOS-style
+records natively.
+
+## `topic_map.html`
+
+The interactive datamapplot visualization. A self-contained HTML file —
+open it directly in any modern browser. Controls: hover for metadata,
+<kbd>Shift</kbd>+drag to lasso a word-cloud region, <kbd>Shift</kbd>+drag on
+the timeline to filter years, click a topic entry to isolate it.
+
 ## AND Integration Contract
 
-`ads-bib` keeps AND as an optional external package step. This repository owns
-the source-level adapter only:
+Author Name Disambiguation stays an optional external integration.
+`ads-bib` owns only the source-level adapter, which:
 
-- stage ADS-shaped `publications` and `references` as source files,
-- call an external source-based disambiguation function,
-- validate source-mirrored outputs and map them back into pipeline DataFrames,
-- persist disambiguated source snapshots,
-- pass disambiguated author IDs into author-based citation exports.
+- stages ADS-shaped `publications` and `references` as source files,
+- calls an external source-based disambiguation function,
+- validates the source-mirrored outputs and maps them back into pipeline
+  DataFrames,
+- persists disambiguated source snapshots,
+- passes disambiguated author IDs into author-based citation exports.
 
-Expected source inputs:
+**Expected source inputs:**
 
 - `Bibcode`
 - `Author`
@@ -131,30 +184,12 @@ Expected source inputs:
 - `Abstract_en` or `Abstract`
 - optional `Affiliation`
 
-Expected source-mirrored output additions:
+**Expected source-mirrored output additions:**
 
 - `AuthorUID`
 - `AuthorDisplayName`
 
-Mapped pipeline outputs normalize these into:
+**Mapped pipeline outputs normalize these into:**
 
 - `author_uids`
 - `author_display_names`
-
-## Quality Checks
-
-```bash
-ads-bib check
-```
-
-Equivalent explicit commands:
-
-```bash
-python -m ruff check src tests scripts
-PYTHONPATH=src python -m pytest -q
-```
-
-## How to Cite
-
-If you use this repository or package in research, cite the software metadata
-in `CITATION.cff`.

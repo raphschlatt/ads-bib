@@ -15,18 +15,28 @@ Copyright &copy; 2026 Raphael Schlattmann
 
 nav = [
   { Home = "index.md" },
-  { "Get Started" = "get-started.md" },
-  { "Runtime Roads" = "runtime-roads.md" },
-  { "Search & Query Design" = "search-query-design.md" },
-  { "Topic Modeling" = "topic-modeling.md" },
-  { "Pipeline Guide" = "pipeline-guide.md" },
-  { "Citation Outputs" = "citation-outputs.md" },
-  { Configuration = "configuration.md" },
-  { "Python API" = "python-api.md" },
-  { Troubleshooting = "troubleshooting.md" },
-  { Reference = "reference.md" },
-  { "Advanced Integrations" = "advanced-integrations.md" },
-  { "Developer Notes" = [{ Overview = "developer-notes/index.md" }, { "Manual Provider Parity" = "developer-notes/manual_provider_parity.md" }] },
+  { "Get Started" = [
+    { "Install & First Run" = "get-started.md" },
+    { "Runtime Roads" = "runtime-roads.md" },
+  ] },
+  { Concepts = [
+    { "Search & Query Design" = "search-query-design.md" },
+    { "Topic Modeling" = "topic-modeling.md" },
+    { "Citation Networks" = "citation-networks.md" },
+  ] },
+  { Guides = [
+    { "Pipeline Tuning" = "pipeline-guide.md" },
+    { "Python API" = "python-api.md" },
+  ] },
+  { Reference = [
+    { Configuration = "configuration.md" },
+    { "Output Artifacts" = "outputs.md" },
+    { Troubleshooting = "troubleshooting.md" },
+  ] },
+  { "Developer Notes" = [
+    { Overview = "developer-notes/index.md" },
+    { "Manual Provider Parity" = "developer-notes/manual_provider_parity.md" },
+  ] },
 ]
 
 [project.theme]

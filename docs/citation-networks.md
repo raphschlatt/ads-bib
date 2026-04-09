@@ -1,22 +1,22 @@
-# Citation Outputs
+# Citation Networks
 
-`ads-bib` exports a curated dataset plus multiple citation-network views so you
-can move directly into tools like [Gephi](https://gephi.org/),
-[CiteSpace](https://citespace.podia.com/), or
-[VOSviewer](https://www.vosviewer.com/).
+`ads-bib` exports four citation-network views and a WOS-format text export so
+you can move directly into network analysis tools. For the full output schema
+(DataFrame columns, `run_summary.yaml` keys, `.gexf` node attributes), see
+[Output Artifacts](outputs.md).
 
-## What a Run Produces
+## Run Artifacts at a Glance
 
 A completed run writes its artifacts under `runs/<run_id>/`:
 
 ```text
 runs/run_20260407_120000_ads_bib_openrouter/
-├── config_used.yaml
-├── run_summary.yaml
+├── config_used.yaml              # exact resolved config (reuse as CLI input)
+├── run_summary.yaml              # run metadata, counts, costs
 ├── logs/
 │   └── runtime.log
 ├── data/
-│   ├── curated_dataset.parquet
+│   ├── curated_dataset.parquet   # document-level output with topics + 2D coords
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
@@ -26,90 +26,41 @@ runs/run_20260407_120000_ads_bib_openrouter/
     └── topic_map.html
 ```
 
-## The Main Dataset Artifacts
+The order of files above matches the order of questions during analysis:
+**what did I run → how did it go → what dataset do I have → which networks →
+which external import**.
 
-### `curated_dataset.parquet`
+## The Four Network Types
 
-This is the main document-level output:
+### Direct citation (`direct.gexf`)
 
-- publication metadata
-- translated title/abstract columns
-- tokenized text
-- topic assignments
-- 2D coordinates for the topic map
-- optional hierarchy columns for Toponymy
+An edge exists when one paper in the corpus directly cites another.
 
-Use this file when you want to continue analysis in pandas, Polars, or a
-database workflow.
+Use it for explicit citation lineage and directional influence; this is the
+strictest view and contains no inferred links.
 
-### `config_used.yaml`
+### Co-citation (`co_citation.gexf`)
 
-This is the exact resolved config used for the run. It makes reruns and audits
-reproducible.
+Two papers are linked when they are cited together by a later paper.
 
-### `run_summary.yaml`
+Use it for intellectual proximity, canonical pairings, and high-level field
+structure. Co-citation networks tend to highlight foundational works.
 
-This is the compact run report:
+### Bibliographic coupling (`bibliographic_coupling.gexf`)
 
-- start/end time
-- stage status
-- record counts
-- topic counts / outliers
-- optional cost and token summaries
+Two papers are linked when they share references.
 
-Use it to compare runs without reopening every artifact.
+Use it for contemporaneous similarity and topic-neighbor discovery among
+papers that may not cite each other directly.
 
-## The Citation Network Types
+### Author co-citation (`author_co_citation.gexf`)
 
-### Direct citation
+Two (first) authors are linked when they are cited together.
 
-File: `direct.gexf`
+Use it for author-level intellectual structure, schools of thought, and
+recurring collaboration-adjacent pairings.
 
-An edge exists when one paper directly cites another paper in the corpus.
-
-Use this when you want:
-
-- explicit citation lineage
-- directional influence
-- a stricter, less inferred network
-
-### Co-citation
-
-File: `co_citation.gexf`
-
-Two papers are linked when they are cited together by later papers.
-
-Use this when you want:
-
-- intellectual proximity
-- canonical pairings in later reception
-- higher-level field structure
-
-### Bibliographic coupling
-
-File: `bibliographic_coupling.gexf`
-
-Two papers are linked when they cite the same references.
-
-Use this when you want:
-
-- contemporaneous similarity
-- shared reference bases
-- topic-neighbor discovery among papers that may not cite each other directly
-
-### Author co-citation
-
-File: `author_co_citation.gexf`
-
-Two authors are linked when they are cited together.
-
-Use this when you want:
-
-- author-level intellectual structure
-- schools of thought or recurring pairings
-- downstream interpretation beyond single papers
-
-## Which Output Should You Use?
+## Which Artifact for Which Task
 
 | Goal | Best artifact |
 | --- | --- |
@@ -121,15 +72,59 @@ Use this when you want:
 | Explore author-level structure | `author_co_citation.gexf` |
 | Import into CiteSpace / VOSviewer | `download_wos_export.txt` |
 
-## Tooling
+## External Tooling
 
-- [Gephi](https://gephi.org/)
-  - best for interactive network exploration of `.gexf`
-- [CiteSpace](https://citespace.podia.com/)
-  - import the WOS-style text export
-- [VOSviewer](https://www.vosviewer.com/)
-  - import the WOS-style text export
+- **[Gephi](https://gephi.org/)** — desktop network visualization. Opens
+  `.gexf` directly and keeps every node attribute the pipeline exports.
+- **[Gephi Lite](https://gephi.org/gephi-lite/)** — browser-based Gephi for
+  quick inspection without installing the desktop app.
+  See the [embed integration guide](https://docs.gephi.org/lite/integration/embed/)
+  for self-hosted iframe embeds.
+- **[CiteSpace](https://citespace.podia.com/)** — imports
+  `download_wos_export.txt` (WOS format) and runs temporal bibliometric
+  analyses.
+- **[VOSviewer](https://www.vosviewer.com/)** — imports the same WOS export
+  and renders overlay-style clustering views.
 
-If you need the exact schema details for node attributes and `run_summary.yaml`,
-see [Reference](reference.md). If you need the raw export parameters, see
-[Configuration](configuration.md#citations).
+### Live embed: Gephi Lite
+
+<!-- TODO: embed gephi-lite
+     Target: replace this placeholder with an iframe pointing at a
+     pipeline-generated .gexf opened in Gephi Lite.
+     Reference: https://docs.gephi.org/lite/integration/embed/
+     Desired size: similar to the Topic Map iframe on the landing page
+     (~420px tall, full width). Keep the caption below the frame.
+-->
+
+*Interactive Gephi Lite embed of a sample `direct.gexf` — screenshot /
+embed follows in a later update.*
+
+### Screenshots: CiteSpace & VOSviewer
+
+<!-- TODO: screenshot citespace
+     Caption: "CiteSpace reading the Pipeline's download_wos_export.txt"
+     Desired: full-width screenshot of the CiteSpace import screen or the
+     first clustering view on a pipeline-exported WOS file.
+-->
+
+<!-- TODO: screenshot vosviewer
+     Caption: "VOSviewer overlay view of the Pipeline's download_wos_export.txt"
+     Desired: full-width screenshot of a VOSviewer clustering after
+     importing the WOS file.
+-->
+
+*CiteSpace and VOSviewer screenshots follow in a later update.*
+
+## Tuning Edge Density
+
+All four networks run through a per-metric `min_counts` filter before export.
+The code default is `1` for each metric (keep every edge); the four packaged
+presets raise those thresholds to
+`{direct: 3, co_citation: 6, bibliographic_coupling: 3, author_co_citation: 5}`
+as practical starter values for typical research corpora. Scale up for
+denser corpora, down for sparse ones. See
+[Configuration → Citations](configuration.md#citations) for the raw keys.
+
+For the full output schema (node attributes, DataFrame columns, run summary),
+continue to [Output Artifacts](outputs.md). For the raw citation config keys,
+see [Configuration](configuration.md#citations).

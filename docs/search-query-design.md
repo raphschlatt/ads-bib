@@ -59,11 +59,17 @@ search:
 
 Use this when the corpus is defined by a topic rather than by authorship.
 
+!!! warning "Start narrow"
+    A first-run query that resolves to more than ~10,000 ADS records will
+    spend most of its time in export and translation. Validate the pipeline
+    end-to-end with a small slice before you scale up.
+
 ## A Good Iteration Pattern
 
 1. Start with a narrow query.
 2. Run the pipeline once and inspect:
-   - publication count
+   - publication count (see `counts.total_processing.publications` in
+     [`run_summary.yaml`](outputs.md#run-summaryyaml))
    - reference count
    - topic coherence
    - citation network density

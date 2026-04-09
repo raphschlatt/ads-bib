@@ -1,36 +1,29 @@
-# Get Started
+# Install & First Run
 
-This guide takes you from the published-package install contract to a completed
-CLI run.
+This page takes you from zero to a completed `ads-bib` run. If you are not
+sure which road fits your setup, read [Runtime Roads](runtime-roads.md) first.
 
 ## Install
 
-`uv pip` is the recommended installer. It uses the same Python environment but
-resolves and downloads this dependency stack much faster than plain `pip`. If a
-user wants to use it, `uv` must be installed once first, for example via
-`python -m pip install uv`, `pipx install uv`, or the platform-specific Astral
-installer.
+`uv pip` is the recommended installer. If you do not have it yet, install it
+once via `python -m pip install uv`, `pipx install uv`, or the platform
+installer from Astral.
 
-The public contract is one env per machine, not one install profile per road.
-
-### Install `ads-bib`
-
-Create one env for the machine, activate it in your shell, then install the
-base package:
+The contract is one env per machine, not one install per road:
 
 ```bash
 uv venv .ads-bib
 uv pip install ads-bib
 ```
 
-That is the intended install for:
+Activate the env in your shell before continuing. That one install covers:
 
 - `openrouter`
 - `hf_api`
 - `local_cpu`
-- CPU-only fallback behavior of the local HF/Torch paths
+- the CPU fallback of the local HF/Torch paths
 
-If you are on an NVIDIA/CUDA machine and want the official accelerated
+If you are on an NVIDIA / CUDA machine and want the official accelerated
 `local_gpu` road, install the validated CUDA Torch wheel into the same env:
 
 ```bash
@@ -41,46 +34,29 @@ This is the only supported public fallback when the default `torch` install
 does not expose CUDA. It is a hardware-class override, not a preset-specific
 install path.
 
-### Optional Algorithm Extras
-
-The base package already contains everything required by the official default
-roads. Only install extras if you intentionally switch away from the defaults:
-
-```bash
-uv pip install "ads-bib[umap]"
-uv pip install "ads-bib[hdbscan]"
-```
-
-- `umap` is only needed when you set `topic_model.reduction_method=umap`.
-- `hdbscan` is only needed when you set `topic_model.clustering_method=hdbscan`.
-
-If a preset or override uses `llama_server` and `llama_server.command` stays at
-the default `llama-server`, `ads-bib run` resolves a package-managed runtime
-automatically: first from `PATH`, then from the managed cache under
-`data/models/llama_cpp/`, and finally by downloading the pinned managed binary
-on demand. `local_cpu` uses that path by default for labeling; `local_gpu`
-uses it only when you explicitly switch labeling to GGUF. Set
-`llama_server.command` explicitly only when you intentionally want to override
-that managed runtime.
-
 ## Create `.env`
 
-Run the CLI from the directory that should hold your `data/` and `runs/`
-folders. By default, that current working directory becomes the pipeline
-`project_root`.
+Run `ads-bib` from the directory that should hold `data/` and `runs/`. That
+directory becomes the pipeline `project_root`.
 
-Create `.env` in that working directory. The ADS token is always required. The
-other keys are only needed if you choose remote providers for translation or
-topic labeling.
+Create `.env` in that working directory. `ADS_TOKEN` is always required; the
+other keys depend on the road you pick:
+
+| Road | Required keys |
+| --- | --- |
+| `openrouter` | `ADS_TOKEN`, `OPENROUTER_API_KEY` |
+| `hf_api` | `ADS_TOKEN`, `HF_TOKEN` |
+| `local_cpu` | `ADS_TOKEN` |
+| `local_gpu` | `ADS_TOKEN` |
 
 ```env
 ADS_TOKEN=...
 OPENROUTER_API_KEY=...  # only for openrouter providers
-HF_TOKEN=...            # canonical key for huggingface_api providers
+HF_TOKEN=...            # only for huggingface_api providers
 ```
 
-`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted, but `HF_TOKEN` is the
-canonical variable documented throughout the package.
+`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted, but `HF_TOKEN` is
+the canonical variable throughout the package.
 
 ## Run the CLI
 
@@ -91,88 +67,61 @@ ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
 `ads-bib run` performs a stage-aware preflight before the pipeline starts. It
-creates the expected `data/` and `runs/` directories on demand and downloads
-the default `data/models/lid.176.bin` automatically when a packaged starter
-preset needs it. For configs that use `llama_server`, it also resolves the
-managed runtime automatically. If a required key, optional dependency, or
-explicit custom runtime override is missing, the command stops early and tells
-you what to fix.
+creates `data/` and `runs/` on demand, downloads the default
+`data/models/lid.176.bin` when needed, and resolves the package-managed
+`llama-server` runtime automatically for configs that use it. If a required
+key, optional dependency, or explicit override is missing, the command stops
+early and tells you what to fix.
 
-You can still materialize and edit a preset YAML if you want one local config
-file:
+If you want one editable local config, materialize a preset:
 
 ```bash
 ads-bib preset write openrouter --output ads-bib.yaml
 ads-bib run --config ads-bib.yaml --set search.query='author:"Hawking, S*"'
 ```
 
-Optional support commands:
+Use `--from`, `--to`, and `--set key=value` to constrain stages or tweak a
+preset. [Configuration](configuration.md) is the detailed reference for every
+config key.
+
+## Verify Before You Debug
+
+If a run stops early or feels wrong, run the preflight explicitly:
 
 ```bash
 ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
-ads-bib bootstrap --download-fasttext
 ```
 
-- `doctor` prints the full preflight report without starting a run.
-- `bootstrap` is a convenience helper that can write `.env`, materialize a
-  preset YAML, and download the default fastText model into the current working
-  directory.
-
-Use `--from`, `--to`, and additional `--set key=value` overrides to constrain
-stages or tweak a preset. The [Configuration](configuration.md) page is the
-single detailed reference for the four runtime roads and all config keys.
-
-## First Run vs Later Runs
-
-The first run on a fresh machine or in a fresh env can be noticeably slower
-than later runs. `ads-bib run` may need to resolve or download:
-
-- `data/models/lid.176.bin` for fastText language detection
-- the spaCy model used by tokenization
-- NLLB or TranslateGemma model weights
-- SentenceTransformer model weights
-- the package-managed `llama-server` runtime
-- GGUF weights if you use `llama_server`
-
-None of those actions add a new pipeline stage. They are warmup and cache
-population for the normal stages you already asked to run.
-
-## Optional Notebook Workflow
-
-`pipeline.ipynb` is not part of the installed runtime contract. If you want the
-interactive notebook workflow, use it from a GitHub checkout of the repository.
-The notebook stays aligned with the same config keys documented on the
-[Configuration](configuration.md) page.
+`doctor` prints the full stage-aware report without starting a run.
+`bootstrap` is a separate convenience helper that can write `.env`, materialize
+a preset YAML, and download the default fastText model into the current
+directory.
 
 ## See Your Outputs
 
-After a successful run, your outputs are under `runs/<run_id>/`:
+After a successful run, outputs live under `runs/<run_id>/`:
 
 ```
 runs/run_20260407_120000_ads_bib_openrouter/
-├── config_used.yaml              # rerun this exact config anytime
-├── run_summary.yaml              # run metadata, counts, costs
-├── logs/
-│   └── runtime.log               # full model output and cost tracking
+├── config_used.yaml
+├── run_summary.yaml
+├── logs/runtime.log
 ├── data/
-│   ├── curated_dataset.parquet   # publications with topics + embeddings
-│   ├── direct.gexf               # direct citation network
-│   ├── co_citation.gexf          # co-citation network
+│   ├── curated_dataset.parquet
+│   ├── direct.gexf
+│   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf   # author co-citation network
-│   └── download_wos_export.txt   # WOS format for CiteSpace / VOSviewer
-└── plots/
-    └── topic_map.html            # interactive visualization
+│   ├── author_co_citation.gexf
+│   └── download_wos_export.txt
+└── plots/topic_map.html
 ```
 
 Open `topic_map.html` in a browser, load the `.gexf` files in
 [Gephi](https://gephi.org/), or import `download_wos_export.txt` into
 [CiteSpace](https://citespace.podia.com/) or
-[VOSviewer](https://www.vosviewer.com/). The `config_used.yaml` can be reused
-directly as a CLI config for future runs.
+[VOSviewer](https://www.vosviewer.com/). `config_used.yaml` is reusable as a
+CLI config for future runs.
 
-To customize the pipeline beyond the defaults, read the
-[Runtime Roads](runtime-roads.md) page explains the four official preset
-contracts. Use the [Pipeline Guide](pipeline-guide.md) for deeper stage and
-tuning advice, and [Configuration](configuration.md) for the raw config
-reference.
+For artifact-level detail, continue to [Output Artifacts](outputs.md). For
+runtime-road trade-offs, see [Runtime Roads](runtime-roads.md). For deeper
+stage and tuning advice, see the [Pipeline Guide](pipeline-guide.md).

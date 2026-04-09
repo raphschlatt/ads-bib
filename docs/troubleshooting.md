@@ -1,14 +1,30 @@
 # Troubleshooting
 
-Start with the same `ads-bib run ...` command you actually want to execute.
-`run` now performs a stage-aware preflight before the pipeline starts and stops
-early when required keys, optional dependencies, or runtime files are missing.
+Every `ads-bib run` performs a stage-aware preflight before the pipeline
+starts and stops early when required keys, optional dependencies, or runtime
+files are missing. The symptom → fix pairs below cover the errors that
+survive that preflight.
 
-If you want the full report without starting a run, use:
+## Before You Debug
 
-```bash
-ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
-```
+Walk through this short checklist before investigating a symptom:
+
+1. Run the preflight report on the exact command you want to execute:
+
+    ```bash
+    ads-bib doctor --preset <road> --set search.query='<your query>'
+    ```
+
+2. Confirm `.env` exists in your working directory and holds the keys your
+   road requires (see [Install & First Run](get-started.md#create-env)).
+3. Check the versions of the package and its heavy dependencies:
+
+    ```bash
+    uv pip list | grep -E "ads-bib|torch|transformers|sentence-transformers"
+    ```
+
+If the preflight reports a managed runtime download, that is only a warning,
+not a blocker.
 
 ## Missing ADS token
 
@@ -45,14 +61,9 @@ Symptom: a fresh env or a fresh machine feels much slower than later runs.
 
 Fix:
 
-- Expect one-time warmup work on the first run.
-- Depending on the road, `ads-bib` may need to download or warm:
-  - `lid.176.bin`
-  - the spaCy tokenization model
-  - NLLB or TranslateGemma weights
-  - SentenceTransformer weights
-  - the package-managed `llama-server` runtime
-  - GGUF weights for local GGUF labeling
+- This is expected one-time warmup work. See
+  [Runtime Roads → First-Run Behavior](runtime-roads.md#first-run-behavior)
+  for the exact list of assets each road may need to download.
 - Re-run the same command once the caches are populated before treating the
   slowdown as a regression.
 
@@ -190,3 +201,19 @@ python -m spacy download en_core_web_md
 
 Or configure a fallback model explicitly. If `tokenize.auto_download=true`, the
 run will also try to install the preferred model automatically.
+
+## Quality Checks (Contributors)
+
+If you are working on `ads-bib` itself rather than just running it, these
+checks mirror CI:
+
+```bash
+ads-bib check
+```
+
+Equivalent explicit commands:
+
+```bash
+python -m ruff check src tests scripts
+PYTHONPATH=src python -m pytest -q
+```

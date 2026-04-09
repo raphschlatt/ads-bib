@@ -69,10 +69,11 @@ uv pip install "ads-bib[hdbscan]"
 Completed runs save their resolved configuration to
 `runs/<run_id>/config_used.yaml`, which can be reused directly as a CLI config.
 
-Unless stated otherwise, the tables below describe the raw config schema and
-code defaults. Packaged presets override many of these values, so inspect the
-preset table above or write one locally with `ads-bib preset write ...` when
-you need road-specific starter values.
+Unless stated otherwise, the tables below describe the raw code defaults. The
+`Preset Override` column shows the value used by the four packaged starter
+presets when they deviate from the code default. Inspect
+`src/ads_bib/_presets/*.yaml` or write a preset locally with
+`ads-bib preset write ...` when you need the full road-specific starter config.
 
 ## Notebook Section Dicts
 
@@ -95,7 +96,7 @@ to notebook dict keys and YAML config keys.
 | `start_stage` | string | `"search"` | First stage to execute (CLI only) |
 | `stop_stage` | string \| null | `null` | Last stage to execute; `null` runs to the end |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
-| `openrouter_cost_mode` | string | `"hybrid"` | Cost estimation mode: `"hybrid"`, `"strict"`, or `"fast"` |
+| `openrouter_cost_mode` | string | `"hybrid"` | OpenRouter cost resolution. `"hybrid"` combines live usage with a pricing lookup (default). `"strict"` fails fast when cost data is incomplete. `"fast"` skips the extra lookup and trusts the streaming usage payload. |
 | `project_root` | string \| null | `null` | Override project root; defaults to current working directory |
 
 ## Search
@@ -152,10 +153,6 @@ labeling path for `local_gpu`.
 | `startup_timeout_s` | float | `120.0` | Seconds to wait for the server to become ready |
 | `reasoning` | string | `"off"` | Reasoning mode; `"off"` for standard inference |
 
-For short-label GGUF naming, the package currently starts `llama-server` with
-an internal `--parallel 8` default. That is an implementation detail for the
-supported GGUF labeling path, not a public config key yet.
-
 ## Tokenize
 
 | Key | Type | Default | Description |
@@ -182,13 +179,13 @@ supported GGUF labeling path, not a public config key yet.
 
 ### Core
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `sample_size` | int \| null | `null` | Random subset size for exploration; `null` uses all documents |
-| `backend` | string | varies | `bertopic` or `toponymy` |
-| `clustering_method` | string | `"fast_hdbscan"` | HDBSCAN implementation; `"hdbscan"` for hierarchy analysis |
-| `outlier_threshold` | float | `0.5` | Probability threshold for outlier reassignment (BERTopic) |
-| `min_df` | int \| null | `null` | Minimum document frequency for topic terms; `null` enables auto-scaling as `max(1, min(5, n_docs // 100))` |
+| Key | Type | Default | Preset Override | Description |
+| --- | --- | --- | --- | --- |
+| `sample_size` | int \| null | `null` | — | Random subset size for exploration; `null` uses all documents |
+| `backend` | string | `"bertopic"` | `openrouter` → `toponymy` | `bertopic` (flat topic set) or `toponymy` (hierarchical layers) |
+| `clustering_method` | string | `"fast_hdbscan"` | — | HDBSCAN implementation; `"hdbscan"` for hierarchy analysis |
+| `outlier_threshold` | float | `0.5` | — | Probability threshold for outlier reassignment (BERTopic) |
+| `min_df` | int \| null | `null` | all presets → `3` | Minimum document frequency for topic terms; `null` enables auto-scaling as `max(1, min(5, n_docs // 100))` |
 
 ### Embeddings
 
@@ -296,21 +293,17 @@ curation:
 
 ## Citations
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `metrics` | list | `["direct", "co_citation", "bibliographic_coupling", "author_co_citation"]` | Network types to build |
-| `min_counts` | dict | see below | Minimum edge weight per metric |
-| `authors_filter` | list[string] \| null | `null` | Optional author-name filters for author co-citation exports |
-| `output_format` | string | `"gexf"` | Export format: `gexf`, `graphology`, `csv`, or `all` |
+| Key | Type | Default | Preset Override | Description |
+| --- | --- | --- | --- | --- |
+| `metrics` | list | `["direct", "co_citation", "bibliographic_coupling", "author_co_citation"]` | — | Network types to build |
+| `min_counts` | dict | `{direct: 1, co_citation: 1, bibliographic_coupling: 1, author_co_citation: 1}` | all presets → `{direct: 3, co_citation: 6, bibliographic_coupling: 3, author_co_citation: 5}` | Minimum edge weight per metric |
+| `authors_filter` | list[string] \| null | `null` | — | Optional author-name filters for author co-citation exports |
+| `output_format` | string | `"gexf"` | — | Export format: `gexf`, `graphology`, `csv`, or `all` |
 
-Default `min_counts`:
-```yaml
-min_counts:
-  direct: 3
-  co_citation: 6
-  bibliographic_coupling: 3
-  author_co_citation: 5
-```
+The code default is `1` for every metric (everything keeps every edge). The
+four packaged presets raise those thresholds to practical starter values
+(`3/6/3/5`) so the exported networks stay readable on typical corpora. Override
+per metric via `citations.min_counts.<metric>`.
 
 ## CLI Overrides
 

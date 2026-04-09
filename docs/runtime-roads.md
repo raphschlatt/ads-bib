@@ -1,129 +1,121 @@
 # Runtime Roads
 
-`ads-bib` ships four official runtime roads. They share the same public
-package contract and differ only in provider keys, hardware, and the preset you
-choose.
+`ads-bib` ships four official runtime roads. They share the same package
+install and differ only in provider keys, hardware, and the preset you pick.
 
-The published-package happy path is:
+## Pick a road
+
+```
+openrouter  — you accept a credit-card provider and want minimal local setup
+hf_api      — your team already has a Hugging Face token and model workflow
+local_cpu   — you want an offline-friendly run on a CPU-only machine
+local_gpu   — you have an NVIDIA / CUDA GPU and want local acceleration
+```
+
+## Road Matrix
+
+| Road | Hardware | Network | Cost model | Default backend |
+| --- | --- | --- | --- | --- |
+| `openrouter` | any | API calls | pay-per-token | `toponymy` |
+| `hf_api` | any | API calls | HF-plan-dependent | `bertopic` |
+| `local_cpu` | CPU | only model downloads | none after setup | `bertopic` |
+| `local_gpu` | NVIDIA + CUDA | only model downloads | none after setup | `bertopic` |
+
+| Road | Translation | Embeddings | Labeling |
+| --- | --- | --- | --- |
+| `openrouter` | OpenRouter chat model | OpenRouter embeddings | OpenRouter LLM |
+| `hf_api` | HF Inference API | HF Inference API | HF Inference API |
+| `local_cpu` | NLLB via CTranslate2 | SentenceTransformers | GGUF via `llama_server` |
+| `local_gpu` | TranslateGemma via `transformers` | SentenceTransformers | local `transformers` |
+
+The happy path is always:
 
 ```bash
 uv venv .ads-bib
 uv pip install ads-bib
-ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
+ads-bib run --preset <road> --set search.query='author:"Hawking, S*"'
 ```
 
-If you want the official accelerated `local_gpu` road on an NVIDIA/CUDA
-machine, install the validated CUDA Torch wheel into the same env as explained
-on [Get Started](get-started.md).
-
-## Road Matrix
-
-| Road | Translation | Embeddings | Labeling | Default backend | Best fit |
-| --- | --- | --- | --- | --- | --- |
-| `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Lowest local setup burden, pay-per-use remote inference |
-| `hf_api` | HF API | HF API | HF API | `bertopic` | Hugging Face Inference users who want one remote provider |
-| `local_cpu` | NLLB | Local SentenceTransformers | GGUF via `llama_server` | `bertopic` | Offline/local-first CPU workflow |
-| `local_gpu` | Original TranslateGemma via `transformers` | Local SentenceTransformers | Local Transformers | `bertopic` | Local GPU workflow with NVIDIA/CUDA acceleration |
+For `local_gpu` on NVIDIA / CUDA, also install the validated CUDA Torch wheel
+as described in [Install & First Run](get-started.md#install).
 
 ## `openrouter`
 
-Use `openrouter` when you want the smallest local footprint and the simplest
-first remote run.
+Smallest local footprint. Good default for the first remote run.
 
-- Required keys: `ADS_TOKEN`, `OPENROUTER_API_KEY`
-- Hardware: any machine that can run the Python package
-- Defaults:
-  - translation: remote OpenRouter chat model
-  - embeddings: remote OpenRouter embedding model
-  - labeling: remote OpenRouter LLM
-  - backend: `toponymy`
-- Not default:
-  - no local model downloads
-  - no `llama-server`
-
-This is still the first documented example because it has the smallest local
-surface area, not because it is the only official road.
+- **Keys**: `ADS_TOKEN`, `OPENROUTER_API_KEY`
+- **Hardware**: any machine that can run the Python package
+- **Defaults**:
+    - translation: remote OpenRouter chat model
+    - embeddings: remote OpenRouter embedding model
+    - labeling: remote OpenRouter LLM
+    - backend: `toponymy`
+- **Not used**: no local model downloads, no `llama-server`
 
 ## `hf_api`
 
-Use `hf_api` when you want one remote provider but prefer Hugging Face model
-IDs and tokens over OpenRouter.
+One remote provider with Hugging Face model identifiers.
 
-- Required keys: `ADS_TOKEN`, `HF_TOKEN`
-- Hardware: any machine that can run the Python package
-- Defaults:
-  - translation: Hugging Face Inference API
-  - embeddings: Hugging Face Inference API
-  - labeling: Hugging Face Inference API
-  - backend: `bertopic`
-- Also supported:
-  - `toponymy` with `huggingface_api` for both embeddings and labeling
+- **Keys**: `ADS_TOKEN`, `HF_TOKEN`
+- **Hardware**: any machine that can run the Python package
+- **Defaults**:
+    - translation: Hugging Face Inference API
+    - embeddings: Hugging Face Inference API
+    - labeling: Hugging Face Inference API
+    - backend: `bertopic`
 
-This road is now provider-consistent across the full topic-model stack, not
-just BERTopic.
+`hf_api` supports **both** `bertopic` and `toponymy` via `huggingface_api` for
+embeddings and labeling. The provider stack stays identical across the two
+backends.
 
 ## `local_cpu`
 
-Use `local_cpu` when you want a local run without requiring CUDA.
+Local run without requiring CUDA.
 
-- Required keys: `ADS_TOKEN`
-- Hardware: standard CPU machine
-- Defaults:
-  - translation: `nllb`
-  - embeddings: local SentenceTransformers
-  - labeling: GGUF via `llama_server`
-  - backend: `bertopic`
-- Optional switch:
-  - set `topic_model.llm_provider=local` to use local Transformers labeling
+- **Keys**: `ADS_TOKEN`
+- **Hardware**: standard CPU machine
+- **Defaults**:
+    - translation: `nllb` via CTranslate2
+    - embeddings: local SentenceTransformers (`google/embeddinggemma-300m`)
+    - labeling: GGUF via `llama_server`, preset model
+      `mradermacher/Qwen3.5-0.8B-GGUF / Qwen3.5-0.8B.Q4_K_M.gguf`
+    - backend: `bertopic`
+- **Optional switch**: set `topic_model.llm_provider=local` to use local
+  Transformers labeling instead
 
-The `llama-server` runtime is package-managed by default. With
+The `llama-server` runtime is package-managed. With
 `llama_server.command: "llama-server"`, `ads-bib` resolves the executable from
-`PATH`, then the managed cache, then a package-managed download on demand.
+`PATH`, then from the managed cache under `data/models/llama_cpp/`, then by
+downloading the pinned runtime on demand. Set `llama_server.command` to an
+explicit path only when you intentionally want to override that.
 
 ## `local_gpu`
 
-Use `local_gpu` when you want the official local GPU road and have a compatible
-Torch/CUDA stack.
+Local GPU road for machines with a compatible Torch/CUDA stack.
 
-- Required keys: `ADS_TOKEN`
-- Hardware:
-  - NVIDIA/CUDA for the official accelerated path
-  - without CUDA, local HF/Torch work falls back to CPU and `doctor` flags the
-    official GPU road as unsupported
-- Defaults:
-  - translation: original `google/translategemma-4b-it` via local `transformers`
-  - embeddings: local SentenceTransformers
-  - labeling: local Transformers
-  - backend: `bertopic`
-- Optional switch:
-  - set `topic_model.llm_provider=llama_server` to use GGUF labeling instead
+- **Keys**: `ADS_TOKEN`
+- **Hardware**:
+    - NVIDIA / CUDA for the official accelerated path
+    - without CUDA, local HF/Torch work falls back to CPU and `doctor` flags
+      the official GPU road as unsupported
+- **Defaults**:
+    - translation: `google/translategemma-4b-it` via local `transformers`
+    - embeddings: local SentenceTransformers (`google/embeddinggemma-300m`)
+    - labeling: local `transformers` with `google/gemma-3-1b-it`
+    - backend: `bertopic`
+- **Optional switch**: set `topic_model.llm_provider=llama_server` to use GGUF
+  labeling instead
 
-This road is intentionally no longer GGUF-first for translation. GGUF remains a
-local labeling option, not the official translation path.
+## First-Run Behavior
 
-## Local-Road Runtime Notes
-
-### Package-managed `llama-server`
-
-`llama_server.command` defaults to `llama-server`. In that default mode,
-`ads-bib` resolves the runtime in this order:
-
-1. `PATH`
-2. managed cache under `data/models/llama_cpp/`
-3. package-managed download of the pinned runtime
-
-Set an explicit path or custom command only when you intentionally want a
-user-managed override.
-
-### First-run behavior
-
-The first run on a machine can be noticeably slower because it may need to
-download or warm:
+The first run on a fresh machine or in a fresh env is usually the slowest.
+`ads-bib run` may download or warm:
 
 - `lid.176.bin` for fastText language detection
 - the spaCy tokenization model
 - NLLB or TranslateGemma weights
 - SentenceTransformer model weights
-- the managed `llama-server` binary and GGUF weights
+- the package-managed `llama-server` binary and GGUF weights
 
-Later runs usually reuse those assets from cache.
+Later runs reuse those assets from cache. None of them add a pipeline stage —
+they only populate the caches for the stages you already asked to run.

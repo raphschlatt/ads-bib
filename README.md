@@ -42,7 +42,8 @@ Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
 - [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/) — `openrouter`, `hf_api`, `local_cpu`, and `local_gpu`
 - [Search & Query Design](https://raphschlatt.github.io/ADS_Pipeline/search-query-design/) — ADS query patterns and corpus design
 - [Topic Modeling](https://raphschlatt.github.io/ADS_Pipeline/topic-modeling/) — embeddings, reduction, clustering, BERTopic, and Toponymy
-- [Citation Outputs](https://raphschlatt.github.io/ADS_Pipeline/citation-outputs/) — networks, artifacts, and downstream tools
+- [Citation Networks](https://raphschlatt.github.io/ADS_Pipeline/citation-networks/) — network types, artifacts, and downstream tools
+- [Output Artifacts](https://raphschlatt.github.io/ADS_Pipeline/outputs/) — run layout, `run_summary.yaml`, curated dataset schema
 - [Configuration](https://raphschlatt.github.io/ADS_Pipeline/configuration/) — complete config key and preset reference
 - [Python API](https://raphschlatt.github.io/ADS_Pipeline/python-api/) — key Python entrypoints and examples
 - [Troubleshooting](https://raphschlatt.github.io/ADS_Pipeline/troubleshooting/) — common issues and fixes

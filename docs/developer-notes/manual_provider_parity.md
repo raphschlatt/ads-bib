@@ -23,7 +23,7 @@ python -c "import transformers, sentence_transformers; print('transformers', tra
 If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local runs:
 
 ```bash
-pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
+uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
 ```
 
 Parity runs should cover all four roads and both supported backends.
