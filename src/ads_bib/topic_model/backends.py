@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import importlib
 import inspect
@@ -24,6 +25,7 @@ from ads_bib._utils.huggingface_api import (
     resolve_huggingface_api_key,
 )
 from ads_bib._utils.llama_server import (
+    DEFAULT_LLAMA_SERVER_PARALLEL,
     LlamaServerConfig,
     build_openai_client,
     ensure_llama_server,
@@ -56,7 +58,7 @@ from ads_bib.topic_model._runtime import (
     TOPONYMY_EMBEDDING_PROVIDERS,
     TOPONYMY_LLM_PROVIDERS,
 )
-from ads_bib.topic_model.embeddings import OpenRouterEmbedder
+from ads_bib.topic_model.embeddings import HuggingFaceAPIEmbedder, OpenRouterEmbedder
 
 logger = logging.getLogger("ads_bib.topic_model")
 
@@ -69,8 +71,8 @@ DEFAULT_BERTOPIC_PIPELINE_MODELS = ["POS", "KeyBERT", "MMR"]
 DEFAULT_BERTOPIC_PARALLEL_MODELS = ["MMR", "POS", "KeyBERT"]
 DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS = 128  # Keep hierarchy labels concise and readable
 BERTopicLLMProvider: TypeAlias = Literal["local", "llama_server", "huggingface_api", "openrouter"]
-ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "openrouter"]
-ToponymyEmbeddingProvider: TypeAlias = Literal["local", "openrouter"]
+ToponymyLLMProvider: TypeAlias = Literal["local", "llama_server", "huggingface_api", "openrouter"]
+ToponymyEmbeddingProvider: TypeAlias = Literal["local", "huggingface_api", "openrouter"]
 ToponymyBackend: TypeAlias = Literal["toponymy"]
 ToponymyLayerIndex: TypeAlias = int | Literal["auto"] | None
 
@@ -618,6 +620,142 @@ def _create_openrouter_bertopic_representation(
     return _OpenRouterBERTopicRepresentation()
 
 
+def _create_llama_server_bertopic_representation(
+    *,
+    model_spec: ModelSpec,
+    prompt: str,
+    nr_docs: int,
+    diversity: float,
+    delay: float,
+    max_tokens: int,
+    llama_server_config: LlamaServerConfig | None,
+    runtime_log_path: Path | None,
+) -> Any:
+    """Create a BERTopic representation model that calls local llama-server directly."""
+    from bertopic.representation import BaseRepresentation
+
+    handle = ensure_llama_server(
+        model_spec=model_spec,
+        config=llama_server_config or LlamaServerConfig(),
+        runtime_log_path=runtime_log_path,
+    )
+    api_model = Path(model_spec.resolve()).name
+
+    class _LlamaServerBERTopicRepresentation(BaseRepresentation):
+        def __init__(self) -> None:
+            self.prompt = prompt
+            self.nr_docs = nr_docs
+            self.diversity = diversity
+            self.delay_in_seconds = delay
+            self.max_tokens = max(1, int(max_tokens))
+            self._client = build_openai_client(handle=handle)
+            self._max_workers = DEFAULT_LLAMA_SERVER_PARALLEL
+            self._usage = None
+
+        def consume_usage(self) -> None:
+            return None
+
+        def _create_prompt(
+            self,
+            docs: list[str],
+            topic: int,
+            topics: dict[int, list[tuple[str, float]]],
+        ) -> str:
+            prompt_text = self.prompt
+            keywords = [word for word, _score in topics.get(topic, [])]
+            if "[KEYWORDS]" in prompt_text:
+                prompt_text = prompt_text.replace("[KEYWORDS]", " ".join(keywords))
+            if "[DOCUMENTS]" in prompt_text:
+                prompt_text = prompt_text.replace(
+                    "[DOCUMENTS]",
+                    "".join(f"- {doc[:255]}\n" for doc in docs),
+                )
+            return prompt_text
+
+        @staticmethod
+        def _normalize_label(content: str | None) -> str:
+            if content is None:
+                return ""
+            label = _strip_think_tags(str(content)).strip()
+            if not label:
+                return ""
+            label = label.splitlines()[0].strip()
+            if label.lower().startswith("topic:"):
+                label = label.split(":", 1)[1].strip()
+            return label
+
+        def _label_topic(
+            self,
+            topic: int,
+            docs: list[str],
+            topics: dict[int, list[tuple[str, float]]],
+        ) -> tuple[int, str | None]:
+            if self.delay_in_seconds:
+                time.sleep(self.delay_in_seconds)
+            response = self._client.chat.completions.create(
+                model=api_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": self._create_prompt(docs, topic, topics)},
+                ],
+                max_tokens=self.max_tokens,
+                temperature=0.0,
+            )
+            return topic, self._normalize_label(str(response.choices[0].message.content or ""))
+
+        def extract_topics(
+            self,
+            topic_model: Any,
+            documents: pd.DataFrame,
+            c_tf_idf: Any,
+            topics: dict[int, list[tuple[str, float]]],
+        ) -> dict[int, list[tuple[str, float]]]:
+            repr_docs_mappings, _, _, _ = topic_model._extract_representative_docs(
+                c_tf_idf,
+                documents,
+                topics,
+                500,
+                self.nr_docs,
+                self.diversity,
+            )
+
+            updated_topics: dict[int, list[tuple[str, float]]] = {}
+            with ThreadPoolExecutor(max_workers=max(1, min(self._max_workers, len(repr_docs_mappings)))) as pool:
+                futures = {
+                    pool.submit(self._label_topic, topic, docs, topics): (topic, docs)
+                    for topic, docs in repr_docs_mappings.items()
+                }
+                for future in tqdm(as_completed(futures), total=len(futures), disable=not topic_model.verbose):
+                    topic, docs = futures[future]
+                    fallback = list(topics.get(topic, [(f"Topic {topic}", 1.0)]))
+                    try:
+                        _topic, label = future.result()
+                    except Exception as exc:
+                        logger.warning(
+                            "  BERTopic llama_server labeling fallback for topic %s (model=%s): %s: %s",
+                            topic,
+                            api_model,
+                            type(exc).__name__,
+                            exc,
+                        )
+                        updated_topics[topic] = fallback
+                        continue
+
+                    if not label:
+                        logger.warning(
+                            "  BERTopic llama_server labeling fallback for topic %s (model=%s): empty label",
+                            topic,
+                            api_model,
+                        )
+                        updated_topics[topic] = fallback
+                        continue
+                    updated_topics[topic] = [(label, 1)]
+
+            return updated_topics
+
+    return _LlamaServerBERTopicRepresentation()
+
+
 def _create_llm(
     provider: str,
     model: str,
@@ -673,22 +811,17 @@ def _create_llm(
         )
 
     if provider == "llama_server":
-        from bertopic.representation import OpenAI as BERTopicOpenAI
-
         if model_spec is None:
             raise ValueError("llama_server provider requires a resolved ModelSpec.")
-        handle = ensure_llama_server(
+        return _create_llama_server_bertopic_representation(
             model_spec=model_spec,
-            config=llama_server_config or LlamaServerConfig(),
-            runtime_log_path=runtime_log_path,
-        )
-        return BERTopicOpenAI(
-            client=build_openai_client(handle=handle),
-            model=Path(model_spec.resolve()).name,
             prompt=prompt,
-            generator_kwargs={"max_tokens": llm_max_new_tokens, "temperature": 0.0},
             nr_docs=nr_docs,
             diversity=diversity,
+            delay=delay,
+            max_tokens=llm_max_new_tokens,
+            llama_server_config=llama_server_config,
+            runtime_log_path=runtime_log_path,
         )
 
     if provider == "openrouter":
@@ -910,6 +1043,210 @@ def _create_tracked_toponymy_namer(
     return TrackedAsyncOpenRouterNamer(), usage
 
 
+def _create_tracked_toponymy_huggingface_namer(
+    *,
+    model: str,
+    api_key: str | None,
+    max_workers: int = 5,
+) -> tuple[Any, dict[str, Any]]:
+    """Create a Toponymy-compatible async HF API wrapper with usage tracking."""
+    from huggingface_hub import AsyncInferenceClient
+    from toponymy.llm_wrappers import AsyncLLMWrapper
+
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+    worker_count = max(1, int(max_workers))
+    normalized_model = normalize_huggingface_model(model)
+    model_id, provider = (
+        normalized_model.rsplit(":", 1) if ":" in normalized_model else (normalized_model, None)
+    )
+    client = AsyncInferenceClient(
+        provider=provider,
+        api_key=resolve_huggingface_api_key(api_key),
+    )
+
+    class _TrackedAsyncHuggingFaceNamer(AsyncLLMWrapper):
+        def __init__(self) -> None:
+            self.client = client
+            self.model = model_id
+            self.max_workers = worker_count
+            self._semaphore = asyncio.Semaphore(self.max_workers)
+
+        @staticmethod
+        def _extract_usage(response: Any) -> tuple[int, int]:
+            response_usage = getattr(response, "usage", None)
+            if response_usage is None:
+                return 0, 0
+            return (
+                int(getattr(response_usage, "prompt_tokens", 0) or 0),
+                int(getattr(response_usage, "completion_tokens", 0) or 0),
+            )
+
+        async def _call_single(
+            self,
+            *,
+            messages: list[dict[str, str]],
+            temperature: float,
+            max_tokens: int,
+        ) -> str:
+            try:
+                async with self._semaphore:
+                    response = await self.client.chat_completion(
+                        model=self.model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "  Toponymy HF API labeling fallback (model=%s): %s: %s",
+                    self.model,
+                    type(exc).__name__,
+                    exc,
+                )
+                return ""
+
+            prompt_tokens, completion_tokens = self._extract_usage(response)
+            usage["prompt_tokens"] += prompt_tokens
+            usage["completion_tokens"] += completion_tokens
+            content = getattr(response.choices[0].message, "content", None)
+            return str(content or "")
+
+        async def _call_llm_batch(
+            self,
+            prompts: list[str],
+            temperature: float,
+            max_tokens: int,
+        ) -> list[str]:
+            tasks = [
+                self._call_single(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                for prompt in prompts
+            ]
+            return await asyncio.gather(*tasks)
+
+        async def _call_llm_with_system_prompt_batch(
+            self,
+            system_prompts: list[str],
+            user_prompts: list[str],
+            temperature: float,
+            max_tokens: int,
+        ) -> list[str]:
+            if len(system_prompts) != len(user_prompts):
+                raise ValueError("Number of system prompts must match number of user prompts")
+
+            tasks = [
+                self._call_single(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                for system_prompt, user_prompt in zip(system_prompts, user_prompts)
+            ]
+            return await asyncio.gather(*tasks)
+
+    return _TrackedAsyncHuggingFaceNamer(), usage
+
+
+def _create_llama_server_toponymy_namer(
+    *,
+    model_spec: ModelSpec,
+    config: LlamaServerConfig | None,
+    runtime_log_path: Path | None,
+    max_workers: int = DEFAULT_LLAMA_SERVER_PARALLEL,
+) -> tuple[Any, None]:
+    """Create a Toponymy-compatible async local llama-server wrapper."""
+    from toponymy.llm_wrappers import AsyncLLMWrapper
+
+    handle = ensure_llama_server(
+        model_spec=model_spec,
+        config=config or LlamaServerConfig(),
+        runtime_log_path=runtime_log_path,
+    )
+    client = build_openai_client(handle=handle)
+    api_model = Path(model_spec.resolve()).name
+    worker_count = max(1, int(max_workers))
+
+    class _AsyncLlamaServerNamer(AsyncLLMWrapper):
+        def __init__(self) -> None:
+            self.client = client
+            self.model = api_model
+            self.max_workers = worker_count
+            self._semaphore = asyncio.Semaphore(self.max_workers)
+
+        async def _call_single(
+            self,
+            *,
+            messages: list[dict[str, str]],
+            temperature: float,
+            max_tokens: int,
+        ) -> str:
+            try:
+                async with self._semaphore:
+                    response = await asyncio.to_thread(
+                        self.client.chat.completions.create,
+                        model=self.model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "  Toponymy llama_server labeling fallback (model=%s): %s: %s",
+                    self.model,
+                    type(exc).__name__,
+                    exc,
+                )
+                return ""
+            return str(response.choices[0].message.content or "")
+
+        async def _call_llm_batch(
+            self,
+            prompts: list[str],
+            temperature: float,
+            max_tokens: int,
+        ) -> list[str]:
+            tasks = [
+                self._call_single(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                for prompt in prompts
+            ]
+            return await asyncio.gather(*tasks)
+
+        async def _call_llm_with_system_prompt_batch(
+            self,
+            system_prompts: list[str],
+            user_prompts: list[str],
+            temperature: float,
+            max_tokens: int,
+        ) -> list[str]:
+            if len(system_prompts) != len(user_prompts):
+                raise ValueError("Number of system prompts must match number of user prompts")
+
+            tasks = [
+                self._call_single(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                for system_prompt, user_prompt in zip(system_prompts, user_prompts)
+            ]
+            return await asyncio.gather(*tasks)
+
+    return _AsyncLlamaServerNamer(), None
+
+
 def _build_toponymy_topic_info(topics: np.ndarray, topic_names: list[str] | None) -> pd.DataFrame:
     """Build BERTopic-like topic info rows for Toponymy outputs."""
     topic_names = topic_names or []
@@ -1019,8 +1356,11 @@ def _normalize_toponymy_inputs(
     if embedding_provider_norm not in TOPONYMY_EMBEDDING_PROVIDERS:
         allowed = ", ".join(sorted(TOPONYMY_EMBEDDING_PROVIDERS))
         raise ValueError(f"Invalid embedding_provider '{embedding_provider}'. Expected one of: {allowed}.")
-    if (llm_provider_norm == "openrouter" or embedding_provider_norm == "openrouter") and not api_key:
-        raise ValueError("api_key is required for Toponymy with OpenRouter.")
+    if not api_key and (
+        llm_provider_norm in {"openrouter", "huggingface_api"}
+        or embedding_provider_norm in {"openrouter", "huggingface_api"}
+    ):
+        raise ValueError("api_key is required for Toponymy with OpenRouter or Hugging Face API.")
 
     backend_norm = backend.strip().lower()
     if backend_norm != "toponymy":
@@ -1208,31 +1548,25 @@ def _build_toponymy_models(
             base_url=openrouter_api_base,
             max_workers=max_workers,
         )
+    elif llm_provider_norm == "huggingface_api":
+        llm_wrapper, llm_usage = _create_tracked_toponymy_huggingface_namer(
+            model=llm_model,
+            api_key=api_key,
+            max_workers=max_workers,
+        )
     elif llm_provider_norm == "llama_server":
-        try:
-            from toponymy.llm_wrappers import OpenAINamer
-        except ImportError as exc:
-            raise ImportError(
-                "llm_provider='llama_server' requires optional dependency 'openai' "
-                "and Toponymy's OpenAINamer wrapper."
-            ) from exc
         if llm_model_spec is None:
             raise ValueError("llama_server provider requires a resolved ModelSpec.")
-        handle = ensure_llama_server(
+        llm_wrapper, llm_usage = _create_llama_server_toponymy_namer(
             model_spec=llm_model_spec,
-            config=llama_server_config or LlamaServerConfig(),
+            config=llama_server_config,
             runtime_log_path=runtime_log_path,
-        )
-        llm_wrapper = OpenAINamer(
-            api_key="local",
-            model=Path(llm_model_spec.resolve()).name,
-            base_url=handle.base_url,
+            max_workers=max_workers,
         )
         if cost_tracker is not None:
             logger.info(
                 "  llama_server Toponymy LLM selected; token/cost tracking is unavailable for this step."
             )
-        llm_usage = None
     else:
         try:
             from toponymy.llm_wrappers import HuggingFaceNamer
@@ -1319,6 +1653,12 @@ def _build_toponymy_models(
             api_key=api_key,
             model=embedding_model,
             api_base=openrouter_api_base,
+            max_workers=max_workers,
+        )
+    elif embedding_provider_norm == "huggingface_api":
+        text_embedding_model = HuggingFaceAPIEmbedder(
+            api_key=api_key,
+            model=embedding_model,
             max_workers=max_workers,
         )
     else:
@@ -1724,6 +2064,9 @@ def fit_toponymy(
             field_label="llm_model",
         )
         llm_model = llm_model_spec.display_name()
+    elif llm_provider_norm == "huggingface_api":
+        llm_model = normalize_huggingface_model(llm_model)
+        api_key = resolve_huggingface_api_key(api_key)
     try:
         from toponymy import Toponymy, ToponymyClusterer
     except ImportError as exc:
@@ -1808,6 +2151,22 @@ def fit_toponymy(
                 prompt_tokens=prompt_tokens,
                 total_tokens=total_tokens,
                 cost_usd=cost_usd,
+            )
+    elif (
+        cost_tracker is not None
+        and embedding_provider_norm == "huggingface_api"
+        and hasattr(text_embedding_model, "usage")
+    ):
+        emb_usage = text_embedding_model.usage
+        total_tokens = int(emb_usage.get("total_tokens", 0))
+        if total_tokens > 0:
+            cost_tracker.add(
+                step="toponymy_embeddings",
+                provider="huggingface_api",
+                model=embedding_model,
+                prompt_tokens=int(emb_usage.get("prompt_tokens", 0)),
+                total_tokens=total_tokens,
+                cost_usd=None,
             )
 
     return topic_model, topics, topic_info

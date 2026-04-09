@@ -51,6 +51,22 @@ _EMBEDDING_MEMORY_FALLBACK_BUDGET_BYTES = 2 * 1024**3
 _MAX_OPENROUTER_WORKERS = 20
 
 
+def _resolve_sentence_transformer_device_label(model: Any) -> str:
+    """Return a compact runtime-device label for one SentenceTransformer."""
+    device = getattr(model, "device", None)
+    if device is not None:
+        return str(device)
+    module = getattr(model, "_first_module", lambda: None)()
+    if module is not None:
+        auto_model = getattr(module, "auto_model", None)
+        if auto_model is not None:
+            try:
+                return str(next(auto_model.parameters()).device)
+            except (AttributeError, StopIteration, TypeError):
+                pass
+    return "unknown"
+
+
 
 def _local_progress_bar(*, total: int, show_progress: bool):
     """Return a repo-owned local embedding progress bar or a no-op context."""
@@ -362,32 +378,37 @@ def _embed_local(
             show_progress=bool(show_progress) and progress_callback is None,
         ) as pbar:
             with capture_external_output(get_runtime_log_path()):
-                    from sentence_transformers import SentenceTransformer
+                from sentence_transformers import SentenceTransformer
 
-                    st = SentenceTransformer(model)
-                    batches: list[np.ndarray] = []
-                    for start in range(0, total_documents, chunk_size):
-                        batch = documents[start : start + chunk_size]
-                        batch_embeddings = np.asarray(
-                            st.encode(
-                                batch,
-                                show_progress_bar=False,
-                                batch_size=chunk_size,
-                            ),
-                            dtype=dtype,
+                st = SentenceTransformer(model)
+                logger.info(
+                    "  Local embedding device | model=%s | device=%s",
+                    model,
+                    _resolve_sentence_transformer_device_label(st),
+                )
+                batches: list[np.ndarray] = []
+                for start in range(0, total_documents, chunk_size):
+                    batch = documents[start : start + chunk_size]
+                    batch_embeddings = np.asarray(
+                        st.encode(
+                            batch,
+                            show_progress_bar=False,
+                            batch_size=chunk_size,
+                        ),
+                        dtype=dtype,
+                    )
+                    if batch_embeddings.ndim != 2:
+                        raise RuntimeError("Local embedding batch must be a 2D array.")
+                    if batch_embeddings.shape[0] != len(batch):
+                        raise RuntimeError(
+                            "Local embedding batch size mismatch: "
+                            f"expected {len(batch)}, got {batch_embeddings.shape[0]}."
                         )
-                        if batch_embeddings.ndim != 2:
-                            raise RuntimeError("Local embedding batch must be a 2D array.")
-                        if batch_embeddings.shape[0] != len(batch):
-                            raise RuntimeError(
-                                "Local embedding batch size mismatch: "
-                                f"expected {len(batch)}, got {batch_embeddings.shape[0]}."
-                            )
-                        batches.append(batch_embeddings)
-                        if progress_callback is not None:
-                            progress_callback(len(batch))
-                        elif pbar is not None:
-                            pbar.update(len(batch))
+                    batches.append(batch_embeddings)
+                    if progress_callback is not None:
+                        progress_callback(len(batch))
+                    elif pbar is not None:
+                        pbar.update(len(batch))
         emb = np.concatenate(batches, axis=0)
     except Exception as exc:
         raise_with_local_hf_compat_hint(model=model, use_case="embeddings", exc=exc)
@@ -755,4 +776,48 @@ class OpenRouterEmbedder:
         return out
 
 
-__all__ = ["compute_embeddings", "OpenRouterEmbedder"]
+class HuggingFaceAPIEmbedder:
+    """Unified HF API embedder with a Toponymy-compatible ``encode`` method."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        model: str,
+        batch_size: int = 64,
+        max_workers: int = 5,
+        dtype: Any = np.float32,
+    ) -> None:
+        self.api_key = api_key
+        self.model = model
+        self.batch_size = int(batch_size)
+        self.max_workers = int(max_workers)
+        self.dtype = dtype
+        self.usage = {"prompt_tokens": 0, "total_tokens": 0}
+
+    def encode(
+        self,
+        texts: list[str],
+        verbose: bool | None = None,
+        show_progress_bar: bool | None = None,
+        progress_callback: Callable[[int], None] | None = None,
+        **kwargs: Any,
+    ) -> np.ndarray:
+        del kwargs
+        embeddings = _embed_huggingface_api(
+            texts,
+            self.model,
+            self.batch_size,
+            self.dtype,
+            max_workers=self.max_workers,
+            show_progress=_resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar),
+            progress_callback=progress_callback,
+            api_key=self.api_key,
+            cost_tracker=None,
+        )
+        self.usage["prompt_tokens"] += len(texts)
+        self.usage["total_tokens"] += len(texts)
+        return embeddings
+
+
+__all__ = ["compute_embeddings", "HuggingFaceAPIEmbedder", "OpenRouterEmbedder"]

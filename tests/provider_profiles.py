@@ -13,7 +13,7 @@ class ProviderProfile:
 
     profile_id: str
     topic_backend: TopicBackend
-    translation_provider: Literal["openrouter", "huggingface_api", "llama_server", "nllb"]
+    translation_provider: Literal["openrouter", "huggingface_api", "llama_server", "nllb", "transformers"]
     translation_model: str
     embedding_provider: Literal["openrouter", "huggingface_api", "local"]
     embedding_model: str

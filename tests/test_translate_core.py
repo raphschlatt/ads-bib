@@ -320,9 +320,140 @@ def test_translate_openrouter_strips_think_tags(monkeypatch):
     assert "<think>" not in translated
 
 
-def test_strip_think_tags_removes_im_end_suffix():
-    translated = tr._strip_think_tags("<think>reasoning</think>Hello World<|im_end|>\n")
+def test_strip_think_tags_removes_reasoning_block_only():
+    translated = tr._strip_think_tags("<think>reasoning</think>Hello World\n")
     assert translated == "Hello World"
+
+
+def test_build_transformers_translation_messages():
+    messages = tr._build_transformers_translation_messages(
+        "Hallo Welt",
+        target_lang="en",
+        source_lang="de",
+    )
+
+    assert messages == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "source_lang_code": "de",
+                    "target_lang_code": "en",
+                    "text": "Hallo Welt",
+                }
+            ],
+        }
+    ]
+
+
+def test_translate_transformers_uses_structured_messages(monkeypatch):
+    calls: dict[str, object] = {}
+
+    class _FakeTensor:
+        shape = (1, 3)
+
+    class _FakeInputs(dict):
+        def to(self, device):
+            calls["device"] = device
+            return self
+
+    class _FakeProcessor:
+        def apply_chat_template(self, messages, **kwargs):
+            calls["messages"] = messages
+            calls["kwargs"] = kwargs
+            return _FakeInputs({"input_ids": _FakeTensor()})
+
+        def decode(self, tokens, *, skip_special_tokens):
+            calls["decoded_tokens"] = list(tokens)
+            calls["skip_special_tokens"] = skip_special_tokens
+            return "Hello World"
+
+    class _FakeModel:
+        device = "cuda:0"
+
+        def generate(self, **kwargs):
+            calls["generate_kwargs"] = kwargs
+            return [[101, 102, 103, 201, 202]]
+
+    class _FakeInferenceMode:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_torch = types.SimpleNamespace(inference_mode=lambda: _FakeInferenceMode())
+
+    monkeypatch.setattr(
+        tr,
+        "_load_local_transformers_translation_model",
+        lambda model, runtime_log_path: (_FakeProcessor(), _FakeModel(), "cuda:0", fake_torch),
+    )
+
+    translated = tr._translate_transformers(
+        "Hallo Welt",
+        target_lang="en",
+        source_lang="de",
+        model="google/translategemma-4b-it",
+        max_tokens=77,
+        runtime_log_path=None,
+    )
+
+    assert translated == "Hello World"
+    assert calls["messages"] == tr._build_transformers_translation_messages(
+        "Hallo Welt",
+        target_lang="en",
+        source_lang="de",
+    )
+    assert calls["kwargs"]["add_generation_prompt"] is True
+    assert calls["kwargs"]["return_dict"] is True
+    assert calls["kwargs"]["return_tensors"] == "pt"
+    assert calls["generate_kwargs"]["do_sample"] is False
+    assert calls["generate_kwargs"]["max_new_tokens"] == 77
+    assert calls["decoded_tokens"] == [201, 202]
+
+
+def test_translate_dataframe_transformers_success(monkeypatch):
+    df = pd.DataFrame({"Title": ["Hallo", "Hello"], "Title_lang": ["de", "en"]})
+    calls: dict[str, object] = {}
+
+    def _fake_translate_rows_transformers(
+        out_df,
+        *,
+        source_col,
+        target_col,
+        to_translate,
+        target_lang,
+        model,
+        max_tokens,
+        runtime_log_path,
+        show_progress,
+        progress_callback,
+    ):
+        del source_col, target_lang, runtime_log_path, show_progress, progress_callback
+        calls["model"] = model
+        calls["max_tokens"] = max_tokens
+        out_df.at[to_translate.index[0], target_col] = "Hallo-EN"
+        return [], 12.5
+
+    monkeypatch.setattr(tr, "_translate_rows_transformers", _fake_translate_rows_transformers)
+
+    out_df, cost_info = tr.translate_dataframe(
+        df,
+        columns=["Title"],
+        provider="transformers",
+        model="google/translategemma-4b-it",
+        max_translation_tokens=555,
+    )
+
+    assert out_df["Title_en"].tolist() == ["Hallo-EN", "Hello"]
+    assert cost_info["provider"] == "transformers"
+    assert cost_info["model"] == "google/translategemma-4b-it"
+    assert cost_info["prompt_tokens"] == 0
+    assert cost_info["completion_tokens"] == 0
+    assert calls["model"] == "google/translategemma-4b-it"
+    assert calls["max_tokens"] == 555
 
 
 def test_translate_huggingface_api_uses_async_client(monkeypatch):

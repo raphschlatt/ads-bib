@@ -137,16 +137,16 @@ def test_openrouter_package_preset_loads():
         ),
         (
             "local_gpu.yaml",
-            "llama_server",
+            "transformers",
+            "google/translategemma-4b-it",
             None,
-            "mradermacher/translategemma-4b-it-GGUF",
-            "translategemma-4b-it.Q4_K_M.gguf",
+            None,
             "local",
             "google/embeddinggemma-300m",
-            "llama_server",
+            "local",
+            "google/gemma-3-1b-it",
             None,
-            "unsloth/gemma-3-4b-it-GGUF",
-            "gemma-3-4b-it-Q4_K_M.gguf",
+            None,
             None,
         ),
     ],
@@ -389,17 +389,19 @@ def test_pipeline_config_allows_huggingface_api_for_bertopic():
     assert config.topic_model.llm_provider == "huggingface_api"
 
 
-def test_pipeline_config_rejects_huggingface_api_for_toponymy():
-    with pytest.raises(ValueError, match="Invalid provider 'huggingface_api'"):
-        pipeline.PipelineConfig.from_dict(
-            {
-                "topic_model": {
-                    "backend": "toponymy",
-                    "embedding_provider": "huggingface_api",
-                    "llm_provider": "local",
-                }
+def test_pipeline_config_allows_huggingface_api_for_toponymy():
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "topic_model": {
+                "backend": "toponymy",
+                "embedding_provider": "huggingface_api",
+                "llm_provider": "huggingface_api",
             }
-        )
+        }
+    )
+
+    assert config.topic_model.embedding_provider == "huggingface_api"
+    assert config.topic_model.llm_provider == "huggingface_api"
 
 
 def test_prepare_pipeline_config_injects_hf_keys(monkeypatch):

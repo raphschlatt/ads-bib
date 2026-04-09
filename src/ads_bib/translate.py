@@ -9,12 +9,13 @@ from pathlib import Path
 import re
 import time
 from collections.abc import Callable
-from typing import Literal, TypeAlias, TypedDict
+from typing import Any, Literal, TypeAlias, TypedDict
 
 import pandas as pd
 from tqdm.auto import tqdm
 
 from ads_bib._utils.cleaning import require_columns as _require_columns
+from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
@@ -24,7 +25,7 @@ from ads_bib._utils.llama_server import (
     build_openai_client,
     ensure_llama_server,
 )
-from ads_bib._utils.logging import get_console_stream
+from ads_bib._utils.logging import capture_external_output, get_console_stream, get_runtime_log_path
 from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.openrouter_client import (
     openrouter_chat_completion,
@@ -40,7 +41,13 @@ from ads_bib._utils.openrouter_costs import (
 
 logger = logging.getLogger(__name__)
 
-TranslationProvider: TypeAlias = Literal["openrouter", "huggingface_api", "llama_server", "nllb"]
+TranslationProvider: TypeAlias = Literal[
+    "openrouter",
+    "huggingface_api",
+    "llama_server",
+    "nllb",
+    "transformers",
+]
 
 
 class TranslationCostInfo(TypedDict):
@@ -62,6 +69,7 @@ _ft_model = None
 _fasttext_predict_needs_compat = False
 _fasttext_numpy2_warning_emitted = False
 _FASTTEXT_NUMPY2_COPY_ERROR = "Unable to avoid copy while creating an array as requested."
+_local_translation_models: dict[str, tuple[Any, Any, str, Any]] = {}
 
 
 def _get_ft_model(model_path: str | Path | None = None):
@@ -509,6 +517,182 @@ def _translate_rows_huggingface_api(
 
 
 # ---------------------------------------------------------------------------
+# local transformers backend  (official local TranslateGemma path)
+# ---------------------------------------------------------------------------
+
+
+def _build_transformers_translation_messages(
+    text: str,
+    *,
+    target_lang: str,
+    source_lang: str,
+) -> list[dict[str, object]]:
+    """Build TranslateGemma's structured chat-template input."""
+    source = str(source_lang or "").strip()
+    target = str(target_lang or "").strip()
+    if not source:
+        raise ValueError("transformers translation requires a detected source language code.")
+    if not target:
+        raise ValueError("transformers translation requires a target language code.")
+    return [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "source_lang_code": source,
+                    "target_lang_code": target,
+                    "text": str(text),
+                }
+            ],
+        }
+    ]
+
+
+def _resolve_local_model_device(model: Any) -> Any:
+    """Return the most useful runtime device handle for a local HF model."""
+    device = getattr(model, "device", None)
+    if device is not None and str(device) != "meta":
+        return device
+    try:
+        return next(model.parameters()).device
+    except (AttributeError, StopIteration, TypeError):
+        return device
+
+
+def _resolve_local_model_device_label(model: Any) -> str:
+    """Return a compact runtime-device label for logging."""
+    direct = getattr(model, "device", None)
+    if direct is not None and str(direct) != "meta":
+        return str(direct)
+    device_map = getattr(model, "hf_device_map", None)
+    if isinstance(device_map, dict) and device_map:
+        values = sorted({str(value) for value in device_map.values()})
+        return ",".join(values)
+    fallback = _resolve_local_model_device(model)
+    return str(fallback) if fallback is not None else "unknown"
+
+
+def _load_local_transformers_translation_model(
+    model: str,
+    *,
+    runtime_log_path: Path | None,
+) -> tuple[Any, Any, str, Any]:
+    """Load and cache the local HF translation stack once per process."""
+    cached = _local_translation_models.get(model)
+    if cached is not None:
+        return cached
+
+    try:
+        with capture_external_output(runtime_log_path or get_runtime_log_path()):
+            from transformers import AutoModelForImageTextToText, AutoProcessor
+
+            processor = AutoProcessor.from_pretrained(model)
+            local_model = AutoModelForImageTextToText.from_pretrained(model, device_map="auto")
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=model, use_case="translation", exc=exc)
+
+    try:
+        import torch
+    except ImportError as exc:
+        raise ImportError("provider='transformers' requires optional dependency 'torch'.") from exc
+
+    device_label = _resolve_local_model_device_label(local_model)
+    cached = (processor, local_model, device_label, torch)
+    _local_translation_models[model] = cached
+    logger.info("  Local translation device | model=%s | device=%s", model, device_label)
+    return cached
+
+
+def _translate_transformers(
+    text: str,
+    *,
+    target_lang: str,
+    source_lang: str,
+    model: str,
+    max_tokens: int,
+    runtime_log_path: Path | None,
+) -> str:
+    """Translate one text via the official local Transformers path."""
+    processor, local_model, _device_label, torch = _load_local_transformers_translation_model(
+        model,
+        runtime_log_path=runtime_log_path,
+    )
+    messages = _build_transformers_translation_messages(
+        text,
+        target_lang=target_lang,
+        source_lang=source_lang,
+    )
+    try:
+        with capture_external_output(runtime_log_path or get_runtime_log_path()):
+            inputs = processor.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+            input_device = _resolve_local_model_device(local_model)
+            if input_device is not None and hasattr(inputs, "to"):
+                inputs = inputs.to(input_device)
+            input_len = int(inputs["input_ids"].shape[-1])
+            with torch.inference_mode():
+                generation = local_model.generate(
+                    **inputs,
+                    do_sample=False,
+                    max_new_tokens=max_tokens,
+                )
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=model, use_case="translation", exc=exc)
+    decoded = processor.decode(generation[0][input_len:], skip_special_tokens=True).strip()
+    return _strip_think_tags(decoded)
+
+
+def _translate_rows_transformers(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_col: str,
+    to_translate: pd.DataFrame,
+    target_lang: str,
+    model: str,
+    max_tokens: int,
+    runtime_log_path: Path | None,
+    show_progress: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
+) -> tuple[list[tuple[object, str]], float]:
+    """Translate selected rows with one local Transformers model."""
+    lang_col = f"{source_col}_lang"
+    failed: list[tuple[object, str]] = []
+    started = time.perf_counter()
+
+    items = list(zip(to_translate.index, to_translate[source_col], to_translate[lang_col]))
+    for idx, text, src_lang in tqdm(
+        items,
+        total=len(items),
+        desc=f"  {source_col}",
+        disable=(not show_progress) or (progress_callback is not None),
+    ):
+        if progress_callback is not None:
+            progress_callback(1)
+        try:
+            translated = _translate_transformers(
+                str(text),
+                target_lang=target_lang,
+                source_lang=str(src_lang),
+                model=model,
+                max_tokens=max_tokens,
+                runtime_log_path=runtime_log_path,
+            )
+            df.at[idx, target_col] = translated or str(text)
+        except Exception as exc:
+            failed.append((idx, f"{type(exc).__name__}: {exc}"))
+
+    elapsed = max(1e-9, time.perf_counter() - started)
+    return failed, elapsed
+
+
+# ---------------------------------------------------------------------------
 # llama-server backend  (local GGUF generation)
 # ---------------------------------------------------------------------------
 
@@ -541,9 +725,7 @@ def _merge_translated_chunks(chunks: list[str]) -> str:
 
 def _strip_think_tags(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from LLM output."""
-    cleaned = text.replace("<think>", "").split("</think>", 1)[-1].strip()
-    cleaned = re.sub(r"<\|im_end\|>\s*$", "", cleaned).strip()
-    return cleaned
+    return text.replace("<think>", "").split("</think>", 1)[-1].strip()
 
 
 def _split_text_by_chars(
@@ -1040,13 +1222,14 @@ def translate_dataframe(
     columns : list[str]
         Columns to translate (e.g. ``["Title", "Abstract"]``).
     provider : str
-        ``"openrouter"``, ``"huggingface_api"``, ``"llama_server"``, or ``"nllb"``.
+        ``"openrouter"``, ``"huggingface_api"``, ``"llama_server"``, ``"nllb"``, or ``"transformers"``.
     model : str, optional
-        Model identifier for remote providers or NLLB. Examples:
+        Model identifier for remote providers, NLLB, or local Transformers. Examples:
 
         - OpenRouter: ``"gpt-4o"``
         - Hugging Face API: ``"Qwen/Qwen2.5-72B-Instruct:featherless-ai"``
         - NLLB: ``"JustFrederik/nllb-200-distilled-600M-ct2-int8"`` (default)
+        - Local Transformers: ``"google/translategemma-4b-it"``
     model_repo, model_file, model_path : str, optional
         Local GGUF model specification for ``provider="llama_server"``.
         Provide either ``model_path`` or the pair ``model_repo`` + ``model_file``.
@@ -1085,7 +1268,7 @@ def translate_dataframe(
             raise ValueError("provider='huggingface_api' requires translate.model.")
         model_name = normalize_huggingface_model(model_name)
         api_key = resolve_huggingface_api_key(api_key)
-    elif provider in {"openrouter", "nllb"} and not model_name:
+    elif provider in {"openrouter", "nllb", "transformers"} and not model_name:
         raise ValueError(f"provider={provider!r} requires translate.model.")
     llama_server_spec: ModelSpec | None = None
     if provider == "llama_server":
@@ -1098,7 +1281,7 @@ def translate_dataframe(
         )
     validate_provider(
         provider,
-        valid={"openrouter", "huggingface_api", "llama_server", "nllb"},
+        valid={"openrouter", "huggingface_api", "llama_server", "nllb", "transformers"},
         api_key=api_key,
         requires_key={"openrouter", "huggingface_api"},
         requires_import={
@@ -1106,6 +1289,7 @@ def translate_dataframe(
             "huggingface_api": "huggingface_hub",
             "llama_server": "openai",
             "nllb": "ctranslate2",
+            "transformers": "transformers",
         },
     )
     df = df.copy()
@@ -1207,6 +1391,22 @@ def translate_dataframe(
                     "  %s: chunked %s/%s texts (avg chunks/text=%.2f)",
                     col, f"{chunked_docs:,}", f"{n:,}", total_chunks / max(1, n),
                 )
+
+        elif provider == "transformers":
+            failed, elapsed_s = _translate_rows_transformers(
+                df,
+                source_col=col,
+                target_col=en_col,
+                to_translate=to_translate,
+                target_lang=target_lang,
+                model=str(model_name),
+                max_tokens=max_translation_tokens,
+                runtime_log_path=runtime_log_path,
+                show_progress=show_progress,
+                progress_callback=progress_callback,
+            )
+            docs_per_min = n * 60.0 / max(1e-9, elapsed_s)
+            logger.info("  %s: throughput %.2f docs/min", col, docs_per_min)
 
         elif provider == "nllb":
             failed, elapsed_s = _translate_rows_nllb(

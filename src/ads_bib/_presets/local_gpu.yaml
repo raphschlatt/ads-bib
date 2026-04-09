@@ -18,10 +18,10 @@ search:
 
 translate:
   enabled: true
-  provider: llama_server
-  model: null
-  model_repo: mradermacher/translategemma-4b-it-GGUF
-  model_file: translategemma-4b-it.Q4_K_M.gguf
+  provider: transformers
+  model: google/translategemma-4b-it
+  model_repo: null
+  model_file: null
   model_path: null
   api_key: null
   max_workers: 8
@@ -84,10 +84,10 @@ topic_model:
   toponymy_layer_index: auto
   llm_prompt_name: physics
   llm_prompt: null
-  llm_provider: llama_server
-  llm_model: null
-  llm_model_repo: unsloth/gemma-3-4b-it-GGUF
-  llm_model_file: gemma-3-4b-it-Q4_K_M.gguf
+  llm_provider: local
+  llm_model: google/gemma-3-1b-it
+  llm_model_repo: null
+  llm_model_file: null
   llm_model_path: null
   llm_api_key: null
   bertopic_label_max_tokens: 64

@@ -303,7 +303,7 @@ class PipelineConfig:
         )
         validate_provider(
             self.translate.provider,
-            valid={"openrouter", "huggingface_api", "llama_server", "nllb"},
+            valid={"openrouter", "huggingface_api", "llama_server", "nllb", "transformers"},
         )
 
         backend = self.topic_model.backend.strip().lower()

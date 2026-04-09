@@ -32,10 +32,12 @@ Before `ads-bib run`, create `.env` in your working directory and add
 `OPENROUTER_API_KEY` for the default `openrouter` road. `ads-bib run` now does
 its own stage-aware preflight, creates `data/` and `runs/` on demand, and
 auto-downloads the default `data/models/lid.176.bin` when a packaged starter
-preset needs it. When a preset uses `llama_server` and `llama_server.command`
-stays at the packaged default, `ads-bib run` also resolves a package-managed
-`llama-server` binary automatically instead of requiring a separate manual
-runtime install.
+preset needs it. When a config uses `llama_server` and
+`llama_server.command` stays at the packaged default, `ads-bib run` also
+resolves a package-managed `llama-server` binary automatically instead of
+requiring a separate manual runtime install. The current local defaults are:
+`local_cpu` = NLLB translation + GGUF labeling, `local_gpu` = Transformers
+translation + local Transformers labeling.
 
 Optional support commands:
 

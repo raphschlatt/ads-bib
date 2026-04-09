@@ -382,6 +382,10 @@ class _FakeHuggingFaceNamer:
         self.kwargs = kwargs
 
 
+class _FakeAsyncLLMWrapper:
+    pass
+
+
 class _FakeSentenceTransformer:
     def __init__(self, model_name):
         self.model_name = model_name
@@ -440,6 +444,7 @@ def _install_fake_toponymy_modules(monkeypatch, *, include_hf_namer: bool = True
     fake_clustering = types.ModuleType("toponymy.clustering")
 
     fake_llm_wrappers = types.ModuleType("toponymy.llm_wrappers")
+    fake_llm_wrappers.AsyncLLMWrapper = _FakeAsyncLLMWrapper
     if include_hf_namer:
         fake_llm_wrappers.HuggingFaceNamer = _FakeHuggingFaceNamer
 
@@ -983,18 +988,61 @@ def test_fit_toponymy_rejects_invalid_backend():
         assert "Expected 'toponymy'" in str(exc)
 
 
-def test_fit_toponymy_rejects_huggingface_api_embedding_provider():
-    with pytest.raises(ValueError, match="Invalid embedding_provider 'huggingface_api'"):
-        tm.fit_toponymy(
-            documents=["d1"],
-            embeddings=np.ones((1, 3), dtype=np.float32),
-            clusterable_vectors=np.ones((1, 2), dtype=np.float32),
-            backend="toponymy",
-            llm_provider="local",
-            llm_model="local-llm",
-            embedding_provider="huggingface_api",
-            embedding_model="hf-api-embedder",
-        )
+def test_fit_toponymy_supports_huggingface_api(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    calls: dict[str, Any] = {}
+
+    def _fake_create_tracked_hf_namer(*, model, api_key, max_workers):
+        calls["namer"] = {"model": model, "api_key": api_key, "max_workers": max_workers}
+        return object(), {"prompt_tokens": 12, "completion_tokens": 4, "call_records": []}
+
+    class _FakeHFEmbedder:
+        def __init__(self, *, api_key, model, max_workers):
+            calls["embedder_init"] = {
+                "api_key": api_key,
+                "model": model,
+                "max_workers": max_workers,
+            }
+            self.usage = {"prompt_tokens": 3, "total_tokens": 3}
+
+        def encode(self, texts, **kwargs):
+            del kwargs
+            return np.ones((len(texts), 3), dtype=np.float32)
+
+    class _Tracker:
+        def __init__(self):
+            self.entries = []
+
+        def add(self, **kwargs):
+            self.entries.append(kwargs)
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_huggingface_namer", _fake_create_tracked_hf_namer)
+    monkeypatch.setattr(tm_backends, "HuggingFaceAPIEmbedder", _FakeHFEmbedder)
+
+    tracker = _Tracker()
+    model, topics, _ = tm.fit_toponymy(
+        documents=["d1", "d2", "d3"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="huggingface_api",
+        llm_model="Qwen/Qwen2.5-72B-Instruct:featherless-ai",
+        embedding_provider="huggingface_api",
+        embedding_model="Qwen/Qwen3-Embedding-8B",
+        api_key="hf-token",
+        cost_tracker=tracker,
+    )
+
+    assert calls["namer"]["model"] == "Qwen/Qwen2.5-72B-Instruct:featherless-ai"
+    assert calls["namer"]["api_key"] == "hf-token"
+    assert calls["embedder_init"]["model"] == "Qwen/Qwen3-Embedding-8B"
+    assert topics.tolist() == [-1, 0, 1]
+    assert tracker.entries[0]["provider"] == "huggingface_api"
+    assert tracker.entries[0]["step"] == "llm_labeling_toponymy"
+    assert tracker.entries[1]["provider"] == "huggingface_api"
+    assert tracker.entries[1]["step"] == "toponymy_embeddings"
 
 
 def test_record_llm_usage_fetches_openrouter_cost(monkeypatch):
@@ -1861,24 +1909,9 @@ def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def test_create_llm_llama_server_uses_openai_representation(tmp_path, monkeypatch):
-    calls: dict[str, Any] = {}
+def test_create_llm_llama_server_uses_repo_owned_representation(tmp_path, monkeypatch):
     model_path = tmp_path / "qwen.gguf"
     model_path.write_text("fake", encoding="utf-8")
-
-    class _FakeBERTopicOpenAI:
-        def __init__(self, *, client, model, prompt=None, generator_kwargs=None, nr_docs=4, diversity=None, **kw):
-            calls["client"] = client
-            calls["model"] = model
-            calls["prompt"] = prompt
-            calls["generator_kwargs"] = generator_kwargs
-            calls["nr_docs"] = nr_docs
-            calls["diversity"] = diversity
-
-    fake_representation = types.ModuleType("bertopic.representation")
-    fake_representation.OpenAI = _FakeBERTopicOpenAI
-    monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
-
     handle = types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1")
     monkeypatch.setattr(tm_backends, "ensure_llama_server", lambda **kwargs: handle)
     monkeypatch.setattr(tm_backends, "build_openai_client", lambda **kwargs: "fake-client")
@@ -1897,13 +1930,11 @@ def test_create_llm_llama_server_uses_openai_representation(tmp_path, monkeypatc
         runtime_log_path=tmp_path / "runtime.log",
     )
 
-    assert isinstance(llm, _FakeBERTopicOpenAI)
-    assert calls["client"] == "fake-client"
-    assert calls["model"] == "qwen.gguf"
-    assert calls["prompt"] == "topic: <label>"
-    assert calls["generator_kwargs"] == {"max_tokens": 64, "temperature": 0.0}
-    assert calls["nr_docs"] == 8
-    assert calls["diversity"] == 0.2
+    assert llm._client == "fake-client"
+    assert llm.prompt == "topic: <label>"
+    assert llm.max_tokens == 64
+    assert llm.nr_docs == 8
+    assert llm.diversity == 0.2
 
 
 def test_fit_toponymy_supports_llama_server_llm_provider(tmp_path, monkeypatch):
@@ -1917,16 +1948,9 @@ def test_fit_toponymy_supports_llama_server_llm_provider(tmp_path, monkeypatch):
     model_path.write_text("fake", encoding="utf-8")
     monkeypatch.setattr(
         tm_backends,
-        "ensure_llama_server",
-        lambda **kwargs: types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1"),
+        "_create_llama_server_toponymy_namer",
+        lambda **kwargs: (types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1"), None),
     )
-
-    class _FakeNamer:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_llm_wrappers = sys.modules["toponymy.llm_wrappers"]
-    fake_llm_wrappers.OpenAINamer = _FakeNamer
 
     calls: dict[str, Any] = {}
 
@@ -1951,10 +1975,7 @@ def test_fit_toponymy_supports_llama_server_llm_provider(tmp_path, monkeypatch):
         runtime_log_path=tmp_path / "runtime.log",
     )
 
-    assert isinstance(model.llm_wrapper, _FakeNamer)
-    assert model.llm_wrapper.kwargs["api_key"] == "local"
-    assert model.llm_wrapper.kwargs["model"] == "qwen.gguf"
-    assert model.llm_wrapper.kwargs["base_url"] == "http://127.0.0.1:8080/v1"
+    assert model.llm_wrapper.base_url == "http://127.0.0.1:8080/v1"
     assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
     assert topics.tolist() == [-1, 0, 1]
     assert calls["usage"] is None

@@ -302,8 +302,8 @@ def test_spawn_llama_server_passes_reasoning_off_by_default(tmp_path, monkeypatc
     log_handle.close()
 
 
-def test_spawn_llama_server_adds_translategemma_template_override(tmp_path, monkeypatch):
-    model_file = tmp_path / "translategemma-4b-it.Q4_K_M.gguf"
+def test_spawn_llama_server_sets_parallel_default(tmp_path, monkeypatch):
+    model_file = tmp_path / "model.gguf"
     model_file.write_text("fake", encoding="utf-8")
     calls: dict[str, object] = {}
 
@@ -325,10 +325,9 @@ def test_spawn_llama_server_adds_translategemma_template_override(tmp_path, monk
         runtime_log_path=tmp_path / "runtime.log",
     )
 
-    assert "--no-jinja" in calls["args"]
-    assert "--chat-template" in calls["args"]
-    idx = calls["args"].index("--chat-template")
-    assert calls["args"][idx + 1] == "chatml"
+    assert "--parallel" in calls["args"]
+    idx = calls["args"].index("--parallel")
+    assert calls["args"][idx + 1] == str(runtime.DEFAULT_LLAMA_SERVER_PARALLEL)
     assert process.poll() is None
     assert log_handle is not None
     log_handle.close()

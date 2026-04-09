@@ -211,6 +211,9 @@ def _collect_translate_checks(
             )
         )
         checks.append(_module_check("translate.provider", "huggingface_hub"))
+    elif provider == "transformers":
+        checks.append(_module_check("translate.provider", "transformers"))
+        checks.append(_module_check("translate.provider.torch", "torch"))
     elif provider == "llama_server":
         checks.append(_module_check("translate.provider", "openai"))
         checks.append(
@@ -250,7 +253,7 @@ def _collect_translate_checks(
         for module_name in ("ctranslate2", "transformers", "sentencepiece", "huggingface_hub"):
             checks.append(_module_check("translate.provider", module_name))
 
-    if provider in {"openrouter", "huggingface_api", "nllb"} and not str(cfg.model or "").strip():
+    if provider in {"openrouter", "huggingface_api", "nllb", "transformers"} and not str(cfg.model or "").strip():
         checks.append(_fail("translate.model", f"provider '{provider}' requires translate.model"))
     elif str(cfg.model or "").strip():
         checks.append(_ok("translate.model", f"configured as {cfg.model}"))

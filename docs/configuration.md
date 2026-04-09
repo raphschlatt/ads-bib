@@ -28,8 +28,8 @@ stacks, especially on Windows.
 | --- | --- | --- | --- | --- | --- |
 | `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Official default remote setup with the smallest local footprint |
 | `hf_api` | HF API | HF API | HF API | `bertopic` | Alternative remote road for Hugging Face API users |
-| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Package-managed local CPU road with auto-resolved NLLB, GGUF, and managed llama-server runtime |
-| `local_gpu` | llama-server | Local | llama-server | `bertopic` | Package-managed local GPU road with one official Torch/CUDA install story and managed llama-server runtime |
+| `local_cpu` | NLLB | Local | llama-server | `bertopic` | Package-managed local CPU road with auto-resolved NLLB and GGUF labeling by default |
+| `local_gpu` | Transformers | Local | Local | `bertopic` | Package-managed local GPU road with one official Torch/CUDA install story and local HF defaults |
 
 ## Install Profiles
 
@@ -104,19 +104,21 @@ query: 'author:"Hawking, S*" OR citations(author:"Hawking, S*")'
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | bool | `true` | Skip translation when `false` |
-| `provider` | string | varies | `openrouter`, `nllb`, `llama_server`, or `huggingface_api` |
-| `model` | string \| null | varies | Model identifier for `openrouter`/`huggingface_api`, or an HF repo id / local path for `nllb` |
+| `provider` | string | varies | `openrouter`, `nllb`, `llama_server`, `huggingface_api`, or `transformers` |
+| `model` | string \| null | varies | Model identifier for `openrouter` / `huggingface_api` / `transformers`, or an HF repo id / local path for `nllb` |
 | `model_repo` | string \| null | `null` | HF repo for GGUF model download (`llama_server` provider) |
 | `model_file` | string \| null | `null` | Filename within the repo (`llama_server` provider) |
 | `model_path` | string \| null | `null` | Explicit local path to a GGUF file (`llama_server` provider) |
 | `api_key` | string \| null | `null` | Provider API key; falls back to env var |
-| `max_workers` | int | `10` | Concurrent translation requests; 1--2 for local providers |
+| `max_workers` | int | `10` | Concurrent translation requests for remote providers; local `transformers` translation currently runs sequentially |
 | `max_tokens` | int | `2048` | Maximum tokens per translation request |
 | `fasttext_model` | string \| null | `null` | Path to the fasttext language detection model; packaged presets set `data/models/lid.176.bin` |
 
 ## Llama Server
 
-Shared configuration for all pipeline stages that use `llama_server` as provider.
+Shared configuration for pipeline stages that use `llama_server` as provider.
+This is the default local labeling path for `local_cpu` and an optional local
+labeling path for `local_gpu`.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -128,6 +130,10 @@ Shared configuration for all pipeline stages that use `llama_server` as provider
 | `gpu_layers` | int | `-1` | GPU layers to offload; `-1` = GPU road default, `0` = CPU-managed local road. With the default `command: "llama-server"`, a PATH-resolved runtime may still be probed with `-1` first and fall back to `0` automatically. |
 | `startup_timeout_s` | float | `120.0` | Seconds to wait for the server to become ready |
 | `reasoning` | string | `"off"` | Reasoning mode; `"off"` for standard inference |
+
+For short-label GGUF naming, the package currently starts `llama-server` with
+an internal `--parallel 8` default. That is an implementation detail for the
+supported GGUF labeling path, not a public config key yet.
 
 ## Tokenize
 

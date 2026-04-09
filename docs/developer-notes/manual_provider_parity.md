@@ -141,18 +141,16 @@ Set in notebook section dicts:
 ```python
 TRANSLATE = {
     ...
-    "provider": "llama_server",
-    "model_repo": "mradermacher/translategemma-4b-it-GGUF",
-    "model_file": "translategemma-4b-it.Q4_K_M.gguf",
+    "provider": "transformers",
+    "model": "google/translategemma-4b-it",
 }
 TOPIC_MODEL = {
     ...
     "embedding_provider": "local",
     "embedding_model": "google/embeddinggemma-300m",
     "backend": "bertopic",
-    "llm_provider": "llama_server",
-    "llm_model_repo": "unsloth/gemma-3-4b-it-GGUF",
-    "llm_model_file": "gemma-3-4b-it-Q4_K_M.gguf",
+    "llm_provider": "local",
+    "llm_model": "google/gemma-3-1b-it",
 }
 ```
 

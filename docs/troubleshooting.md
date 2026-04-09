@@ -46,7 +46,7 @@ Fix:
 
 ## Missing `llama-server`
 
-Symptom: local GGUF translation or labeling fails before generation starts.
+Symptom: local GGUF labeling fails before generation starts.
 
 Fix:
 
@@ -55,6 +55,8 @@ Fix:
   package-managed runtime automatically.
 - If `ads-bib doctor ...` says the managed runtime will be auto-downloaded on
   run, that is only a warning, not a blocker.
+- `local_cpu` uses this path by default for labeling. `local_gpu` only needs it
+  when you explicitly switch topic labeling from local Transformers to GGUF.
 - If you set `llama_server.command` to an explicit path or custom command
   name, that override must resolve successfully; otherwise the run stops early.
 - If `Qwen3.5` fails with `unknown model architecture: 'qwen35'`, your active

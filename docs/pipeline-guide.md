@@ -95,10 +95,13 @@ After:   "On the Special and General Theory of Relativity"
 | --- | --- | --- | --- |
 | `openrouter` | Sends text to a remote chat model via API | Simple setup, high quality | Costs per token |
 | `nllb` | Runs Meta's NLLB-200 locally via CTranslate2 | Offline, zero cost, 200+ languages | Below chat model quality on scientific text |
-| `llama_server` | Runs a local GGUF model through the package-managed llama-server runtime path | Fast, high quality with local GGUF models | Heavier local runtime than remote APIs |
 | `huggingface_api` | Calls HF Inference API | HF-native model identifiers | Requires HF_TOKEN |
+| `transformers` | Runs the original local HF model directly through Transformers | Official local GPU path for TranslateGemma | Needs a compatible local Torch stack |
 
-`max_workers` controls concurrency: 8--20 for remote providers, 1--2 for local.
+The official local translation defaults are asymmetric: `local_cpu` uses `nllb`,
+while `local_gpu` uses original TranslateGemma through `transformers`.
+`max_workers` controls concurrency for remote providers; local `transformers`
+translation currently prioritizes correctness over aggressive request fan-out.
 `fasttext_model` points to `lid.176.bin` in `data/models/`; packaged starter
 presets download the default file automatically on run when it is missing. See
 [Configuration](configuration.md#translate) for all keys.
@@ -217,7 +220,7 @@ absorbs border points into nearby clusters.
 | Backend | Scope | When to use | LLM providers |
 | --- | --- | --- | --- |
 | `bertopic` | Flat clusters | A flat list of isolated topics representing the corpus | `local`, `llama_server`, `huggingface_api`, `openrouter` |
-| `toponymy` | Hierarchical layers | A semantically layered tree from meta-topics down to micro-niches | `local`, `llama_server`, `openrouter` |
+| `toponymy` | Hierarchical layers | A semantically layered tree from meta-topics down to micro-niches | `local`, `llama_server`, `huggingface_api`, `openrouter` |
 
 **BERTopic** produces a flat topic assignment (`topic_id`) and uses a
 representation pipeline to refine labels: POS filtering → KeyBERT → MMR → LLM.
@@ -239,9 +242,11 @@ fine-grained control over hierarchical agglomeration.
 
 ### Labeling
 
-Topic labeling uses an LLM to name each cluster. Provider choices mirror
-translation: `openrouter`, `llama_server`, `huggingface_api` (BERTopic only),
-or `local`.
+Topic labeling uses an LLM to name each cluster. `local_cpu` defaults to
+parallelized GGUF labeling through `llama_server`; `local_gpu` defaults to
+local Transformers labeling. Both local roads can still switch between
+`llama_server` and `local`. Remote roads stay uniform:
+`openrouter` uses OpenRouter everywhere and `hf_api` uses HF API everywhere.
 
 Choose a prompt via `llm_prompt_name` (`physics` for gravitational physics,
 `generic` for domain-agnostic) or override with `llm_prompt`. `min_df` sets

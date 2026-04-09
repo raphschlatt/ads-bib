@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LLAMA_SERVER_HOST = "127.0.0.1"
 DEFAULT_LLAMA_SERVER_COMMAND = "llama-server"
 DEFAULT_LLAMA_SERVER_CTX_SIZE = 4096
+DEFAULT_LLAMA_SERVER_PARALLEL = 8
 DEFAULT_LLAMA_SERVER_STARTUP_TIMEOUT_S = 120.0
 MANAGED_LLAMA_CPP_RELEASE_TAG = "b8705"
 MANAGED_LLAMA_CPP_RELEASE_BASE_URL = (
@@ -628,10 +629,11 @@ def _spawn_llama_server(
         str(port),
         "--ctx-size",
         str(config.ctx_size),
+        "--parallel",
+        str(DEFAULT_LLAMA_SERVER_PARALLEL),
         "-ngl",
         str(config.gpu_layers),
     ]
-    args.extend(_llama_server_model_args(model_path))
     if config.threads is not None:
         args.extend(["--threads", str(config.threads)])
     if config.reasoning:
@@ -662,15 +664,6 @@ def _spawn_llama_server(
         if log_handle is not None:
             log_handle.close()
         raise
-
-
-def _llama_server_model_args(model_path: str) -> list[str]:
-    """Return narrow model-specific startup overrides for known llama.cpp quirks."""
-    if "translategemma" in str(model_path).lower():
-        return ["--no-jinja", "--chat-template", "chatml"]
-    return []
-
-
 def _command_looks_like_path(raw: str) -> bool:
     path = Path(raw).expanduser()
     return path.is_absolute() or path.parent != Path(".") or any(sep in raw for sep in ("/", "\\"))
