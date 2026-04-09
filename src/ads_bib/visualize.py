@@ -13,6 +13,15 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.colors import rgb2hex
 
+# colorspacious currently emits a harmless SyntaxWarning on import under
+# Python 3.12 because of an upstream docstring escape sequence.
+warnings.filterwarnings(
+    "ignore",
+    message=r"invalid escape sequence '\\D'",
+    category=SyntaxWarning,
+    module=r"colorspacious\.comparison",
+)
+
 import datamapplot
 import datamapplot.selection_handlers as dmp_selection_handlers
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 import types
+import warnings
 
 import pandas as pd
 import pytest
@@ -98,6 +99,27 @@ def test_create_topic_map_uses_new_coordinate_and_topic_columns(monkeypatch):
     assert "topic_panel_flat_key" in calls["kwargs"]["extra_point_data"]
     assert '"mode":"flat"' in calls["kwargs"]["custom_js"]
     assert plot is not None
+
+
+def test_visualize_installs_colorspacious_syntaxwarning_filter(monkeypatch):
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    original = warnings.filterwarnings
+
+    def _record_filterwarnings(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(warnings, "filterwarnings", _record_filterwarnings)
+
+    _load_visualize_module(monkeypatch)
+
+    assert any(
+        args[:1] == ("ignore",)
+        and kwargs.get("message") == r"invalid escape sequence '\\D'"
+        and kwargs.get("category") is SyntaxWarning
+        and kwargs.get("module") == r"colorspacious\.comparison"
+        for args, kwargs in calls
+    )
 
 
 def test_create_topic_map_raises_if_new_coordinate_column_missing(monkeypatch):

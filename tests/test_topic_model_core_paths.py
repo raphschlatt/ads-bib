@@ -498,6 +498,8 @@ def test_fit_bertopic_skips_keybert_helper_model_when_keybert_disabled(monkeypat
     [
         "bertopic.representation._textgeneration",
         "bertopic.representation._litellm",
+        "bertopic.representation._openai",
+        "bertopic.representation._llamacpp",
     ],
 )
 def test_bridge_bertopic_label_progress_updates_reporter_incrementally(monkeypatch, module_name):
@@ -553,6 +555,51 @@ def test_bridge_bertopic_label_progress_updates_reporter_incrementally(monkeypat
     assert reporter.progress_bar.total == 4
     assert reporter.progress_bar.refreshed_totals == [4]
     assert fake_module.tqdm is original_tqdm
+
+
+def test_bridge_bertopic_label_progress_patches_local_backends_tqdm(monkeypatch):
+    original_tqdm = tm_backends.tqdm
+
+    class _FakeProgressBar:
+        def __init__(self, total: int | None) -> None:
+            self.total = total
+            self.updates: list[int] = []
+
+        def update(self, amount: int = 1) -> None:
+            self.updates.append(int(amount))
+
+        def refresh(self) -> None:
+            return None
+
+    class _FakeProgressContext:
+        def __init__(self, progress_bar: _FakeProgressBar) -> None:
+            self._progress_bar = progress_bar
+
+        def __enter__(self) -> _FakeProgressBar:
+            return self._progress_bar
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            del exc_type, exc, tb
+            return None
+
+    class _FakeReporter:
+        def __init__(self) -> None:
+            self.progress_bar: _FakeProgressBar | None = None
+
+        def progress(self, *, total: int | None, desc: str):
+            assert desc == "fit"
+            self.progress_bar = _FakeProgressBar(total)
+            return _FakeProgressContext(self.progress_bar)
+
+    reporter = _FakeReporter()
+
+    with tm_backends._bridge_bertopic_label_progress(reporter=reporter, desc="fit"):
+        for _ in tm_backends.tqdm(["topic-a", "topic-b"], disable=True):
+            pass
+
+    assert reporter.progress_bar is not None
+    assert reporter.progress_bar.updates == [1, 1]
+    assert tm_backends.tqdm is original_tqdm
 
 
 def test_bridge_bertopic_label_progress_keeps_modules_unchanged_without_reporter(monkeypatch):

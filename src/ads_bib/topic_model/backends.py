@@ -10,6 +10,7 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
+import sys
 import time
 from typing import Any, Literal, TypeAlias, cast
 import warnings
@@ -411,10 +412,15 @@ def _bridge_bertopic_label_progress(*, reporter: Any | None, desc: str):
             return None
 
     try:
+        current_module = sys.modules.get(__name__)
+        if current_module is not None:
+            patched.append((current_module, getattr(current_module, "tqdm", None)))
+            setattr(current_module, "tqdm", _bridge_tqdm)
         for module_name in (
             "bertopic.representation._textgeneration",
             "bertopic.representation._litellm",
             "bertopic.representation._openai",
+            "bertopic.representation._llamacpp",
         ):
             try:
                 module = importlib.import_module(module_name)
