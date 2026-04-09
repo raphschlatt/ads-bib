@@ -26,13 +26,13 @@ contract is one env per machine, not a preset-specific install matrix.
 | Preset | Translation | Embeddings | Labeling | Default Backend | Intended Use |
 | --- | --- | --- | --- | --- | --- |
 | `openrouter` | OpenRouter | OpenRouter | OpenRouter | `toponymy` | Official default remote setup with the smallest local footprint |
-| `hf_api` | HF API | HF API | HF API | `bertopic` | Alternative remote road for Hugging Face API users |
+| `hf_api` | HF API | HF API | HF API | `bertopic` | Alternative remote road for Hugging Face API users; Toponymy is also supported |
 | `local_cpu` | NLLB | Local | llama-server | `bertopic` | Package-managed local CPU road with auto-resolved NLLB and GGUF labeling by default |
 | `local_gpu` | Transformers | Local | Local | `bertopic` | Package-managed local GPU road with local HF defaults; NVIDIA/CUDA acceleration depends on the active Torch build |
 
 ## Install Contract
 
-The intended public install is:
+For published installs, the intended public install is:
 
 ```bash
 uv pip install ads-bib
@@ -208,7 +208,7 @@ supported GGUF labeling path, not a public config key yet.
 | `params_5d` | dict | see below | Parameters for the 5D clustering reduction |
 | `params_2d` | dict | see below | Parameters for the 2D visualization reduction |
 
-Default `params_5d` and `params_2d`:
+Default `params_5d` and `params_2d` used by the official presets:
 ```yaml
 params_5d:
   n_neighbors: 30

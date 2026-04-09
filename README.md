@@ -6,43 +6,46 @@ Python package and CLI for NASA ADS bibliometric analysis.
 
 `ads-bib` takes a NASA ADS search query and produces a clean, uniform dataset, topic model outputs, and ready-to-use citation networks. The primary runtime path is the CLI: install the package, choose an official preset, and run it from your working directory. The GitHub repository also ships `pipeline.ipynb` as an optional interactive companion.
 
-## Documentation
-
-Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
-
-- [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) — installation and your first CLI run
-- [Pipeline Guide](https://raphschlatt.github.io/ADS_Pipeline/pipeline-guide/) — each phase, its parameters, and tuning advice
-- [Configuration](https://raphschlatt.github.io/ADS_Pipeline/configuration/) — complete reference of all config keys and presets
-- [Troubleshooting](https://raphschlatt.github.io/ADS_Pipeline/troubleshooting/) — common issues and fixes
-
 ## Quickstart
 
-Create one Python environment for your machine and install `ads-bib` into it.
-`uv pip` is the recommended public installer because it resolves this stack
-much faster than plain `pip`; the hardware-specific Torch fallback for
-NVIDIA/CUDA machines is on the
-[Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) page.
+The published-package contract is one env per machine:
 
 ```bash
+uv venv .ads-bib
 uv pip install ads-bib
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
-Before `ads-bib run`, create `.env` in your working directory and add
-`ADS_TOKEN` plus any provider keys your preset needs, for example
-`OPENROUTER_API_KEY` for the default `openrouter` road. `ads-bib run` now does
-its own stage-aware preflight, creates `data/` and `runs/` on demand, and
-auto-downloads the default `data/models/lid.176.bin` when a packaged starter
-preset needs it. When a config uses `llama_server` and
-`llama_server.command` stays at the packaged default, `ads-bib run` also
-resolves a package-managed `llama-server` binary automatically instead of
-requiring a separate manual runtime install. The current local defaults are:
-`local_cpu` = NLLB translation + GGUF labeling, `local_gpu` = Transformers
-translation + local Transformers labeling. On standard CPU machines and for the
-remote roads, `uv pip install ads-bib` is the intended happy path. On
-NVIDIA/CUDA machines that should run the official `local_gpu` road with GPU
-acceleration, install the validated CUDA Torch wheel into the same env after
-`ads-bib`.
+These commands assume the published package is available on your configured
+package index. Before `ads-bib run`, create `.env` in your working directory
+and add `ADS_TOKEN` plus any provider keys your preset needs, for example
+`OPENROUTER_API_KEY` for the default `openrouter` road.
+
+`ads-bib run` performs its own stage-aware preflight, creates `data/` and
+`runs/` on demand, auto-downloads the default `data/models/lid.176.bin` when a
+starter preset needs it, and resolves a package-managed `llama-server` runtime
+when a config keeps `llama_server.command` at its packaged default. The current
+local defaults are:
+
+- `local_cpu` = NLLB translation + GGUF labeling
+- `local_gpu` = Transformers translation + local Transformers labeling
+
+For the NVIDIA/CUDA Torch fallback, runtime-road matrix, and first-run warmup
+behavior, use [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/)
+and [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/).
+
+## Documentation
+
+Full documentation: <https://raphschlatt.github.io/ADS_Pipeline/>
+
+- [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) — installation, `.env`, first run, and warm-cache behavior
+- [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/) — `openrouter`, `hf_api`, `local_cpu`, and `local_gpu`
+- [Search & Query Design](https://raphschlatt.github.io/ADS_Pipeline/search-query-design/) — ADS query patterns and corpus design
+- [Topic Modeling](https://raphschlatt.github.io/ADS_Pipeline/topic-modeling/) — embeddings, reduction, clustering, BERTopic, and Toponymy
+- [Citation Outputs](https://raphschlatt.github.io/ADS_Pipeline/citation-outputs/) — networks, artifacts, and downstream tools
+- [Configuration](https://raphschlatt.github.io/ADS_Pipeline/configuration/) — complete config key and preset reference
+- [Python API](https://raphschlatt.github.io/ADS_Pipeline/python-api/) — key Python entrypoints and examples
+- [Troubleshooting](https://raphschlatt.github.io/ADS_Pipeline/troubleshooting/) — common issues and fixes
 
 Optional support commands:
 

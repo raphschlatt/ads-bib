@@ -16,10 +16,16 @@ Copyright &copy; 2026 Raphael Schlattmann
 nav = [
   { Home = "index.md" },
   { "Get Started" = "get-started.md" },
+  { "Runtime Roads" = "runtime-roads.md" },
+  { "Search & Query Design" = "search-query-design.md" },
+  { "Topic Modeling" = "topic-modeling.md" },
   { "Pipeline Guide" = "pipeline-guide.md" },
+  { "Citation Outputs" = "citation-outputs.md" },
   { Configuration = "configuration.md" },
+  { "Python API" = "python-api.md" },
   { Troubleshooting = "troubleshooting.md" },
   { Reference = "reference.md" },
+  { "Advanced Integrations" = "advanced-integrations.md" },
   { "Developer Notes" = [{ Overview = "developer-notes/index.md" }, { "Manual Provider Parity" = "developer-notes/manual_provider_parity.md" }] },
 ]
 
@@ -58,4 +64,3 @@ toggle.name = "Switch to light mode"
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
 link = "https://github.com/raphschlatt/ADS_Pipeline"
-

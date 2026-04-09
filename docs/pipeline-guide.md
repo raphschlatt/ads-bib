@@ -1,7 +1,8 @@
 # Pipeline Guide
 
-Each pipeline phase, its configuration, and its output. For a compact
-reference of all config keys, see [Configuration](configuration.md).
+Each pipeline phase, its configuration, and its output. For the four official
+runtime roads, see [Runtime Roads](runtime-roads.md). For the raw config key
+reference, see [Configuration](configuration.md).
 
 ## How Iteration Works
 
@@ -177,7 +178,7 @@ Scale down for datasets under 200 documents.
 | --- | --- | --- |
 | `n_neighbors` | 30 | 15--80 range, higher for larger datasets |
 | `min_dist` | 0.05 | UMAP only, lower = tighter 2D clusters |
-| `metric` | `cosine` | PaCMAP auto-converts to `angular` |
+| `metric` | `angular` | Official presets use `angular`; UMAP overrides may still choose `cosine` explicitly |
 | `densmap` | `False` | UMAP only, enable for density estimation |
 
 ### Clustering
@@ -246,7 +247,8 @@ Topic labeling uses an LLM to name each cluster. `local_cpu` defaults to
 parallelized GGUF labeling through `llama_server`; `local_gpu` defaults to
 local Transformers labeling. Both local roads can still switch between
 `llama_server` and `local`. Remote roads stay uniform:
-`openrouter` uses OpenRouter everywhere and `hf_api` uses HF API everywhere.
+`openrouter` uses OpenRouter everywhere and `hf_api` uses HF API everywhere,
+including Toponymy.
 
 Choose a prompt via `llm_prompt_name` (`physics` for gravitational physics,
 `generic` for domain-agnostic) or override with `llm_prompt`. `min_df` sets

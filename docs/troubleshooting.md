@@ -39,6 +39,23 @@ uv pip install --upgrade ads-bib
   `uv pip install "ads-bib[hdbscan]"`.
 - Use `ads-bib doctor ...` if you want the full stage-aware report without starting a run.
 
+## First run is slower than expected
+
+Symptom: a fresh env or a fresh machine feels much slower than later runs.
+
+Fix:
+
+- Expect one-time warmup work on the first run.
+- Depending on the road, `ads-bib` may need to download or warm:
+  - `lid.176.bin`
+  - the spaCy tokenization model
+  - NLLB or TranslateGemma weights
+  - SentenceTransformer weights
+  - the package-managed `llama-server` runtime
+  - GGUF weights for local GGUF labeling
+- Re-run the same command once the caches are populated before treating the
+  slowdown as a regression.
+
 ## Missing `lid.176.bin`
 
 Symptom: translation fails before API or local model calls start.
@@ -72,6 +89,24 @@ Fix:
   exact executable you want.
 - Restart the notebook session or CLI run after changing the executable path.
 
+## `local_gpu` reports no CUDA support
+
+Symptom: `ads-bib doctor --preset local_gpu ...` reports Torch correctly but
+still says the official GPU road is unsupported.
+
+Fix:
+
+- Confirm `torch.cuda.is_available()` is `True` in the active env.
+- If not, install the validated CUDA Torch wheel into the same env:
+
+```bash
+uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+```
+
+- Re-run `ads-bib doctor --preset local_gpu ...`.
+- If CUDA is still unavailable, the local HF/Torch paths will fall back to CPU,
+  but that is no longer the official accelerated `local_gpu` contract.
+
 ## Unsupported local HF architecture
 
 Symptom: errors such as `Transformers does not recognize this architecture`
@@ -80,7 +115,7 @@ for models like `gemma3`, `qwen3`, or `gemma3_text`.
 Fix:
 
 ```bash
-pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
+uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
 ```
 
 Then restart the kernel or session.
@@ -140,6 +175,8 @@ Fix:
   already includes it for the official roads.
 - Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or
   `unsloth/Qwen2.5-72B-Instruct:featherless-ai`.
+- `hf_api` now supports both BERTopic and Toponymy; backend-specific errors are
+  therefore more likely to be model- or auth-related than matrix-related.
 
 ## spaCy model unavailable
 

@@ -37,3 +37,7 @@ Deployment behavior:
 ## Validation runbooks
 
 - [Manual Provider Parity](manual_provider_parity.md)
+
+These notes may still mention repo-local workflows, manual validation steps,
+and legacy env names. That is intentional here and should not leak back into
+the public user docs.

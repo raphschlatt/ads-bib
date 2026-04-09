@@ -1,10 +1,11 @@
 # ADS Pipeline
 
 `ads-bib` is a Python package and CLI for bibliometric analysis of NASA ADS
-data. Install the package, create `.env` with your ADS token and any provider
-keys, then run the pipeline from the CLI. The GitHub repository also includes
-`pipeline.ipynb` as an optional interactive companion. The interactive topic
-map below was generated from Stephen Hawking's ADS publications:
+data. The published-package happy path is: install the package, create `.env`
+with your ADS token and any provider keys, then run the pipeline from the CLI.
+The GitHub repository also includes `pipeline.ipynb` as an optional interactive
+companion. The interactive topic map below was generated from Stephen Hawking's
+ADS publications:
 
 <div style="width: 100%; height: 650px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
     <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
@@ -20,12 +21,26 @@ map below was generated from Stephen Hawking's ADS publications:
   Use the Search tool 🔍</em>
 </div>
 
-## Overview
+## Quickstart
+
+```bash
+uv venv .ads-bib
+uv pip install ads-bib
+ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
+```
+
+These commands describe the published-package contract. The same install can
+support the four official runtime roads; only keys, hardware, and the chosen
+preset change.
+
+## What the Package Adds
 
 A raw ADS export gives you metadata in mixed languages, without thematic
 structure and without network files. Before you can do bibliometric analysis in
-[Gephi](https://gephi.org/) or [CiteSpace](https://citespace.podia.com/), you need to homogenize languages, discover topical
-structure, and build the actual networks. That is what this pipeline automates.
+[Gephi](https://gephi.org/), [CiteSpace](https://citespace.podia.com/), or
+[VOSviewer](https://www.vosviewer.com/), you need to homogenize languages,
+discover topical structure, and build the actual networks. That is what this
+pipeline automates.
 
 ``` mermaid
 graph LR
@@ -72,13 +87,15 @@ runs/run_20260407_120000_ads_bib_openrouter/
     └── topic_map.html
 ```
 
-The `.gexf` files open in [Gephi](https://gephi.org/), the WOS export loads into
-[CiteSpace](https://citespace.podia.com/) and
+The `.gexf` files open in [Gephi](https://gephi.org/), the WOS export loads
+into [CiteSpace](https://citespace.podia.com/) and
 [VOSviewer](https://www.vosviewer.com/), and the topic map is a self-contained
 interactive HTML page.
 
-## Next
+## Read Next
 
-[Get Started](get-started.md) covers installation, `.env`, and your first run.
-The [Pipeline Guide](pipeline-guide.md) explains each phase and its parameters.
-The [Configuration](configuration.md) page is a complete reference of all config keys.
+- [Get Started](get-started.md) for installation, `.env`, your first run, and first-run warmup behavior
+- [Runtime Roads](runtime-roads.md) for the four official preset contracts
+- [Search & Query Design](search-query-design.md) for ADS query strategy
+- [Topic Modeling](topic-modeling.md) for embeddings, reduction, clustering, and labeling
+- [Citation Outputs](citation-outputs.md) for artifact interpretation and downstream tools

@@ -4,54 +4,22 @@
 
 ```python
 from ads_bib import (
-    NotebookSession,
     PipelineConfig,
-    PipelineContext,
-    RunManager,
-    StagePrerequisiteError,
-    apply_author_disambiguation,
-    build_all_nodes,
+    NotebookSession,
     build_topic_dataframe,
     compute_embeddings,
-    detect_languages,
     fit_bertopic,
     fit_toponymy,
-    get_cluster_summary,
-    get_hierarchy_cluster_summary,
-    get_notebook_session,
-    init_paths,
-    load_env,
-    normalize_cluster_targets,
     process_all_citations,
-    reduce_dimensions,
-    reduce_outliers,
-    remove_cluster_targets,
-    remove_clusters,
-    resolve_dataset,
     run_pipeline,
-    search_ads,
-    tokenize_texts,
-    translate_dataframe,
 )
 ```
 
-Topic-model imports:
-
-```python
-from ads_bib.topic_model import (
-    OpenRouterEmbedder,
-    build_topic_dataframe,
-    compute_embeddings,
-    fit_bertopic,
-    fit_toponymy,
-    reduce_dimensions,
-    reduce_outliers,
-)
-```
+For usage-focused examples and signatures, use [Python API](python-api.md).
 
 ## Output Schema
 
-### DataFrame Columns (curated_dataset.parquet)
+### `curated_dataset.parquet`
 
 Columns added by each stage:
 
@@ -66,7 +34,7 @@ Columns added by each stage:
 | Topic (BERTopic) | `topic_id`, `Name` |
 | Topic (Toponymy) | `topic_id`, `Name`, `topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`, `topic_layer_count` |
 
-**Schema conventions:**
+Schema conventions:
 
 - All pipeline-produced columns use `snake_case`.
 - `topic_id` is the document-topic membership column (int). `-1` = outlier.
@@ -76,7 +44,7 @@ Columns added by each stage:
   hierarchy is `topic_layer_<n>_id` and `topic_layer_<n>_label`, where layer 0
   is the finest and higher layers are coarser.
 
-### run_summary.yaml
+### `run_summary.yaml`
 
 Written at the end of each run:
 
@@ -131,7 +99,7 @@ costs:
       cost_usd: 0.0156
 ```
 
-### GEXF Node Attributes
+### `.gexf` node attributes
 
 Every publication node in the exported `.gexf` files carries:
 
@@ -172,20 +140,6 @@ Mapped pipeline outputs normalize these into:
 
 - `author_uids`
 - `author_display_names`
-
-## Stability
-
-### Stable for regular pipeline use
-
-- `search`, `export`, `translate`, `tokenize`, `curate`, `citations`
-- Topic-model core: embeddings → reduction → BERTopic or Toponymy → outlier
-  refresh where applicable
-- Schema contracts: `topic_id`, `embedding_2d_x`, `embedding_2d_y`
-
-### More experimental or dependency-sensitive
-
-- Optional hierarchy-only visualization extras (topic tree panel)
-- The optional external AND step
 
 ## Quality Checks
 

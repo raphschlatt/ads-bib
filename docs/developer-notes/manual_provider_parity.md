@@ -1,6 +1,7 @@
 # Manual Provider Parity Runbook
 
-Use this runbook to verify that the notebook pipeline works across all four official config roads.
+Use this runbook to verify that the notebook pipeline works across all four
+official roads and both supported topic backends.
 
 Scope:
 
@@ -10,13 +11,7 @@ Scope:
 
 ## Shared Baseline
 
-1. Activate your repo dev environment. `ADS_env` is still a common legacy
-   choice for this manual runbook:
-
-```bash
-conda activate ADS_env
-```
-
+1. Activate your active repo dev environment.
 2. Open `pipeline.ipynb`.
 3. Set `RESET_SESSION = True` for a clean run directory.
 4. Preflight for local HF models:
@@ -31,7 +26,7 @@ If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local 
 pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
 ```
 
-Parity runs cover `bertopic` and `toponymy`.
+Parity runs should cover all four roads and both supported backends.
 
 ## Profile A: OpenRouter + BERTopic
 
@@ -79,7 +74,39 @@ the full hierarchy path.
 If `visualization.topic_tree` is explicitly enabled, verify the tree appears as
 an extra expert panel with color-coded bullets.
 
-## Profile C: Local CPU + BERTopic
+## Profile C: HF API + BERTopic
+
+Set in notebook section dicts:
+
+```python
+TRANSLATE = {
+    ...
+    "provider": "huggingface_api",
+    "model": "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+}
+TOPIC_MODEL = {
+    ...
+    "embedding_provider": "huggingface_api",
+    "embedding_model": "Qwen/Qwen3-Embedding-8B",
+    "backend": "bertopic",
+    "llm_provider": "huggingface_api",
+    "llm_model": "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
+}
+```
+
+Run notebook top-to-bottom and record the same checks.
+
+## Profile D: HF API + Toponymy
+
+Same as Profile C, except:
+
+```python
+TOPIC_MODEL = { ..., "backend": "toponymy" }
+```
+
+Run notebook top-to-bottom and record the same checks.
+
+## Profile E: Local CPU + BERTopic
 
 Set in notebook section dicts:
 
@@ -123,9 +150,9 @@ managed runtime.
 
 Run notebook top-to-bottom and record the same checks.
 
-## Profile D: Local CPU + Toponymy
+## Profile F: Local CPU + Toponymy
 
-Same as Profile C, except:
+Same as Profile E, except:
 
 ```python
 TOPIC_MODEL = { ..., "backend": "toponymy" }
@@ -135,7 +162,7 @@ Run notebook top-to-bottom and record the same checks.
 
 
 
-## Profile E: Local GPU + BERTopic
+## Profile G: Local GPU + BERTopic
 
 Set in notebook section dicts:
 
@@ -153,6 +180,16 @@ TOPIC_MODEL = {
     "llm_provider": "local",
     "llm_model": "google/gemma-3-1b-it",
 }
+```
+
+Run notebook top-to-bottom and record the same checks.
+
+## Profile H: Local GPU + Toponymy
+
+Same as Profile G, except:
+
+```python
+TOPIC_MODEL = { ..., "backend": "toponymy" }
 ```
 
 Run notebook top-to-bottom and record the same checks.

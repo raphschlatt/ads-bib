@@ -1,6 +1,7 @@
 # Get Started
 
-This guide takes you from package install to a completed CLI run.
+This guide takes you from the published-package install contract to a completed
+CLI run.
 
 ## Install
 
@@ -14,9 +15,11 @@ The public contract is one env per machine, not one install profile per road.
 
 ### Install `ads-bib`
 
-Start with the base package:
+Create one env for the machine, activate it in your shell, then install the
+base package:
 
 ```bash
+uv venv .ads-bib
 uv pip install ads-bib
 ```
 
@@ -119,6 +122,21 @@ Use `--from`, `--to`, and additional `--set key=value` overrides to constrain
 stages or tweak a preset. The [Configuration](configuration.md) page is the
 single detailed reference for the four runtime roads and all config keys.
 
+## First Run vs Later Runs
+
+The first run on a fresh machine or in a fresh env can be noticeably slower
+than later runs. `ads-bib run` may need to resolve or download:
+
+- `data/models/lid.176.bin` for fastText language detection
+- the spaCy model used by tokenization
+- NLLB or TranslateGemma model weights
+- SentenceTransformer model weights
+- the package-managed `llama-server` runtime
+- GGUF weights if you use `llama_server`
+
+None of those actions add a new pipeline stage. They are warmup and cache
+population for the normal stages you already asked to run.
+
 ## Optional Notebook Workflow
 
 `pipeline.ipynb` is not part of the installed runtime contract. If you want the
@@ -154,5 +172,7 @@ Open `topic_map.html` in a browser, load the `.gexf` files in
 directly as a CLI config for future runs.
 
 To customize the pipeline beyond the defaults, read the
-[Pipeline Guide](pipeline-guide.md). For a complete reference of all
-configuration keys, see [Configuration](configuration.md).
+[Runtime Roads](runtime-roads.md) page explains the four official preset
+contracts. Use the [Pipeline Guide](pipeline-guide.md) for deeper stage and
+tuning advice, and [Configuration](configuration.md) for the raw config
+reference.
