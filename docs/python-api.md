@@ -1,23 +1,26 @@
 # Python API
 
-The CLI (`ads-bib run --preset ...`) is the supported way to execute the
-full pipeline. The Python API is for everything the CLI cannot express
-cleanly: notebook-driven exploration, programmatic integration in your own
-tools, and low-level experiments on top of the topic-model primitives.
+The CLI (`ads-bib run --preset ...`) and the high-level Python function
+(`ads_bib.run(...)`) share the same preset-driven run path. Use the lower-level
+APIs when you need a custom `PipelineConfig`, notebook-driven exploration, or
+experiments on top of the topic-model primitives.
 
 ## Pick an Entry Point
 
 | Goal | Use |
 | --- | --- |
-| Reproducible production run | [`ads-bib run`](get-started.md#run-the-cli) (CLI) |
+| Reproducible terminal run | [`ads-bib run`](get-started.md#run-the-cli) (CLI) |
+| Programmatic full run | [`ads_bib.run`](#ads_bibrun) |
 | Interactive, stage-by-stage exploration | [`NotebookSession`](#notebooksession) |
-| Programmatic integration in your own tool | [`PipelineConfig.from_dict`](#pipelineconfig) + [`run_pipeline`](#run_pipeline) |
+| Advanced integration with a prepared config | [`PipelineConfig.from_dict`](#pipelineconfig) + [`run_pipeline`](#run_pipeline) |
 | Custom experiments on your own data | low-level: [`compute_embeddings`](#compute_embeddings) → [`reduce_dimensions`](#reduce_dimensions) → [`fit_bertopic`](#fit_bertopic) / [`fit_toponymy`](#fit_toponymy) → [`build_topic_dataframe`](#build_topic_dataframe) → [`process_all_citations`](#process_all_citations) |
 
 ## Stable Top-Level Imports
 
 ```python
 from ads_bib import (
+    run,
+    RunBlockedError,
     PipelineConfig,
     NotebookSession,
     run_pipeline,
@@ -36,34 +39,70 @@ The full public list lives in
 
 ## End-to-End Example
 
-The simplest programmatic run — one `PipelineConfig.from_dict`, one
-`run_pipeline`, one returned `PipelineContext`:
+The simplest programmatic run mirrors `ads-bib run --preset ...`:
 
 ```python
-from ads_bib import PipelineConfig, run_pipeline
+import ads_bib
 
-cfg = PipelineConfig.from_dict({
-    "search": {"query": 'author:"Hawking, S*"'},
-    "topic_model": {
-        "backend": "bertopic",
-        "embedding_provider": "local",
-        "embedding_model": "google/embeddinggemma-300m",
-        "llm_provider": "llama_server",
-    },
-})
-
-ctx = run_pipeline(cfg, project_root=".")
-
-# PipelineContext exposes the materialized dataframes:
-print(ctx.publications.shape)
-print(ctx.topic_df.columns)
-print(ctx.curated_df.head())
+ads_bib.run(
+    preset="openrouter",
+    query='author:"Hawking, S*"',
+)
 ```
 
-`run_pipeline` creates the usual `data/` and `runs/` directories under
+Keep the return value only when you want the in-memory outputs:
+
+```python
+result = ads_bib.run(
+    preset="openrouter",
+    query='author:"Hawking, S*"',
+)
+
+print(result.publications.shape)
+print(result.topic_df.columns)
+print(result.curated_df.head())
+```
+
+`ads_bib.run` creates the usual `data/` and `runs/` directories under
 `project_root`, writes `config_used.yaml` and `run_summary.yaml`, and persists
-every stage artifact under the run directory — the same contract the CLI
-uses.
+every stage artifact under the run directory.
+
+## `ads_bib.run`
+
+Source:
+[`src/ads_bib/runner.py`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/runner.py)
+
+```python
+run(
+    *,
+    preset: str | None = None,
+    config: PipelineConfig | Mapping[str, Any] | Path | str | None = None,
+    query: str | None = None,
+    overrides: Mapping[str, Any] | None = None,
+    start_stage: StageName | None = None,
+    stop_stage: StageName | None = None,
+    run_name: str | None = None,
+    project_root: Path | str | None = None,
+    preflight: bool = True,
+) -> PipelineContext
+```
+
+Use either `preset` or `config`. `query` is a shortcut for `search.query`, and
+`overrides` accepts the same dotted keys as CLI `--set`:
+
+```python
+result = ads_bib.run(
+    preset="local_cpu",
+    query='author:"Hawking, S*"',
+    overrides={"topic_model.backend": "bertopic"},
+    start_stage="search",
+    stop_stage="citations",
+)
+```
+
+With `preflight=True`, the function performs the same run preflight as the CLI
+and raises `RunBlockedError` if required keys, dependencies, or managed runtime
+preparation block the run.
 
 ## `PipelineConfig`
 

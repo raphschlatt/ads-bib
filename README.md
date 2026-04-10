@@ -59,10 +59,12 @@ Full setup details: [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get
 ## Python API
 
 ```python
-from ads_bib import PipelineConfig, run_pipeline
+import ads_bib
 
-cfg = PipelineConfig.from_dict({"search": {"query": 'author:"Hawking, S*"'}})
-run_pipeline(cfg)
+ads_bib.run(
+    preset="openrouter",
+    query='author:"Hawking, S*"',
+)
 ```
 
 More examples and the `NotebookSession` interface: [Python API docs](https://raphschlatt.github.io/ADS_Pipeline/python-api/)

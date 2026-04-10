@@ -3,8 +3,10 @@ from __future__ import annotations
 from ads_bib import (
     PipelineConfig,
     RunManager,
+    RunBlockedError,
     apply_author_disambiguation,
     compute_embeddings,
+    run,
     run_pipeline,
     search_ads,
 )
@@ -16,4 +18,6 @@ def test_public_re_exports_are_importable_and_callable():
     assert callable(search_ads)
     assert callable(compute_embeddings)
     assert PipelineConfig is not None
+    assert RunBlockedError is not None
+    assert callable(run)
     assert callable(run_pipeline)

@@ -27,6 +27,7 @@ from ads_bib.curate import (
 )
 from ads_bib.export import resolve_dataset
 from ads_bib.run_manager import RunManager
+from ads_bib.runner import RunBlockedError, run
 from ads_bib.search import search_ads
 from ads_bib.tokenize import tokenize_texts
 from ads_bib.topic_model import (
@@ -51,6 +52,7 @@ __all__ = [
     "PipelineContext",
     "NotebookSession",
     "RunManager",
+    "RunBlockedError",
     "StagePrerequisiteError",
     "build_all_nodes",
     "build_topic_dataframe",
@@ -71,6 +73,7 @@ __all__ = [
     "remove_clusters",
     "resolve_dataset",
     "search_ads",
+    "run",
     "run_pipeline",
     "tokenize_texts",
     "translate_dataframe",

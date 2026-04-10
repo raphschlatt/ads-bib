@@ -14,6 +14,17 @@ ads-bib preset write openrouter --output ads-bib.yaml
 ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
+From Python, the same preset contract is available through `ads_bib.run(...)`:
+
+```python
+import ads_bib
+
+ads_bib.run(
+    preset="openrouter",
+    query='author:"Hawking, S*"',
+)
+```
+
 Each preset defines one runtime road. They are generic starter configs, so you
 must set `search.query` before running. `ads-bib run` is the primary public
 entrypoint. `preset write` is optional when you want one editable YAML file, and

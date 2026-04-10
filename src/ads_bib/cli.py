@@ -9,19 +9,22 @@ import sys
 from pathlib import Path
 from collections.abc import Callable, Sequence
 
-from ads_bib._utils.llama_server import prepare_llama_server_runtime
-from ads_bib.bootstrap import bootstrap_workspace, ensure_default_fasttext_model
+from ads_bib.bootstrap import bootstrap_workspace
 from ads_bib.doctor import collect_doctor_report, format_doctor_report
-from ads_bib.pipeline import PipelineConfig, run_pipeline
+from ads_bib.pipeline import PipelineConfig
 from ads_bib.presets import (
     get_preset_names,
     get_preset_summary,
-    load_preset_config,
     write_preset,
+)
+from ads_bib.runner import (
+    RunBlockedError,
+    load_run_config,
+    parse_override as _parse_override,
+    run_resolved_config,
 )
 
 CommandRunner = Callable[[Sequence[str], dict[str, str] | None], int]
-_TOPIC_STAGES = frozenset({"embeddings", "reduction", "topic_fit", "topic_dataframe", "visualize", "curate"})
 
 
 def _run_command(command: Sequence[str], env: dict[str, str] | None = None) -> int:
@@ -51,122 +54,28 @@ def _handle_check(_args: argparse.Namespace) -> int:
     return run_quality_checks()
 
 
-def _parse_override(raw: str) -> tuple[str, object]:
-    if "=" not in raw:
-        raise ValueError(f"Invalid override '{raw}'. Expected key=value.")
-    key, value = raw.split("=", 1)
-    import yaml
-
-    return key.strip(), yaml.safe_load(value)
-
-
-def _apply_override(data: dict[str, object], key: str, value: object) -> None:
-    current: dict[str, object] = data
-    parts = [part for part in key.split(".") if part]
-    if not parts:
-        raise ValueError("Override key cannot be empty.")
-    for part in parts[:-1]:
-        next_value = current.get(part)
-        if not isinstance(next_value, dict):
-            next_value = {}
-            current[part] = next_value
-        current = next_value
-    current[parts[-1]] = value
-
-
-def _maybe_raise_legacy_config_hint(raw_path: str, exc: FileNotFoundError) -> None:
-    config_path = Path(raw_path)
-    preset_names = set(get_preset_names())
-    stem = config_path.stem
-    legacy_parent = tuple(part.lower() for part in config_path.parent.parts[-2:])
-    looks_like_legacy_preset = stem in preset_names and legacy_parent == ("configs", "pipeline")
-
-    if looks_like_legacy_preset:
-        raise FileNotFoundError(
-            f"Legacy preset file '{raw_path}' no longer exists. "
-            f"Use 'ads-bib run --preset {stem} ...' directly, or write it first via "
-            f"'ads-bib preset write {stem} --output {stem}.yaml'."
-        ) from exc
-
-    raise exc
-
-
 def _load_config_from_args(args: argparse.Namespace) -> PipelineConfig:
-    if getattr(args, "config", None) is not None:
-        try:
-            config = PipelineConfig.from_yaml(args.config)
-        except FileNotFoundError as exc:
-            _maybe_raise_legacy_config_hint(args.config, exc)
-    else:
-        config = load_preset_config(args.preset)
-    config_data = config.to_dict()
-
-    for raw in getattr(args, "set_values", []) or []:
-        key, value = _parse_override(raw)
-        _apply_override(config_data, key, value)
-
-    return PipelineConfig.from_dict(config_data)
-
-
-def _format_run_preflight_report(report) -> str:
-    start_stage = report.active_stages[0]
-    end_stage = report.active_stages[-1]
-    lines = [f"Run blocked by preflight checks for stages {start_stage} -> {end_stage}"]
-    for check in report.failing_checks():
-        lines.append(f"[FAIL] {check.name}: {check.detail}")
-    lines.append(
-        "Summary: "
-        f"{report.ok_count} ok, {report.warn_count} warn, {report.fail_count} fail"
+    overrides = dict(_parse_override(raw) for raw in getattr(args, "set_values", []) or [])
+    return load_run_config(
+        preset=getattr(args, "preset", None),
+        config=getattr(args, "config", None),
+        overrides=overrides,
     )
-    lines.append("Tip: run 'ads-bib doctor ...' for the full stage-aware report.")
-    return "\n".join(lines) + "\n"
-
-
-def _run_requires_llama_server(config: PipelineConfig, active_stages: tuple[str, ...]) -> bool:
-    if "translate" in active_stages and config.translate.enabled and config.translate.provider == "llama_server":
-        return True
-    return bool(_TOPIC_STAGES.intersection(active_stages)) and config.topic_model.llm_provider == "llama_server"
 
 
 def _handle_run(args: argparse.Namespace) -> int:
     config = _load_config_from_args(args)
-    if config.translate.enabled:
-        try:
-            downloaded_fasttext = ensure_default_fasttext_model(
-                project_root=config.run.project_root,
-                configured_path=config.translate.fasttext_model,
-            )
-        except Exception as exc:
-            sys.stderr.write(f"Run blocked while preparing translate.fasttext_model: {exc}\n")
-            return 1
-        if downloaded_fasttext is not None:
-            sys.stdout.write(f"Prepared translate.fasttext_model at {downloaded_fasttext}\n")
-
-    report = collect_doctor_report(
-        config,
-        start_stage=args.from_stage,
-        stop_stage=args.to_stage,
-    )
-    if report.has_failures():
-        sys.stderr.write(_format_run_preflight_report(report))
+    try:
+        run_resolved_config(
+            config,
+            start_stage=args.from_stage,
+            stop_stage=args.to_stage,
+            run_name=args.run_name,
+            notify=lambda message: sys.stdout.write(f"{message}\n"),
+        )
+    except RunBlockedError as exc:
+        sys.stderr.write(f"{exc}\n")
         return 1
-    if _run_requires_llama_server(config, report.active_stages):
-        try:
-            runtime = prepare_llama_server_runtime(
-                config=config.llama_server,
-                project_root=config.run.project_root,
-            )
-        except Exception as exc:
-            sys.stderr.write(f"Run blocked while preparing llama_server.command: {exc}\n")
-            return 1
-        if runtime.source == "managed_downloaded" and runtime.command is not None:
-            sys.stdout.write(f"Prepared llama_server.command at {runtime.command}\n")
-    run_pipeline(
-        config,
-        start_stage=args.from_stage,
-        stop_stage=args.to_stage,
-        run_name=args.run_name,
-    )
     return 0
 
 

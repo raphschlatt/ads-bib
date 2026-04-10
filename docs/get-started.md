@@ -66,6 +66,17 @@ The primary public path is preset-driven:
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
+The same preset path is available from Python:
+
+```python
+import ads_bib
+
+ads_bib.run(
+    preset="openrouter",
+    query='author:"Hawking, S*"',
+)
+```
+
 `ads-bib run` performs a stage-aware preflight before the pipeline starts. It
 creates `data/` and `runs/` on demand, downloads the default
 `data/models/lid.176.bin` when needed, and resolves the package-managed

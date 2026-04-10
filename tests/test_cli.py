@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
 
 import ads_bib.cli as cli
 import ads_bib.doctor as doctor
+import ads_bib.runner as runner
 import pytest
 
 
@@ -56,17 +56,11 @@ def test_main_dispatches_run(monkeypatch, tmp_path):
     config_path.write_text("run:\n  run_name: test\nsearch:\n  query: q\n", encoding="utf-8")
     calls: dict[str, object] = {}
 
-    def _fake_run_pipeline(config, **kwargs):
+    def _fake_run_resolved_config(config, **kwargs):
         calls["config"] = config
         calls["kwargs"] = kwargs
 
-    monkeypatch.setattr(cli, "run_pipeline", _fake_run_pipeline)
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
-    monkeypatch.setattr(
-        cli,
-        "collect_doctor_report",
-        lambda *args, **kwargs: _passing_report(stages=("translate", "citations")),
-    )
+    monkeypatch.setattr(cli, "run_resolved_config", _fake_run_resolved_config)
     rc = cli.main(
         [
             "run",
@@ -85,6 +79,7 @@ def test_main_dispatches_run(monkeypatch, tmp_path):
 
     assert rc == 0
     assert calls["config"].search.query == "author:test"
+    assert callable(calls["kwargs"].pop("notify"))
     assert calls["kwargs"] == {
         "start_stage": "translate",
         "stop_stage": "citations",
@@ -95,13 +90,11 @@ def test_main_dispatches_run(monkeypatch, tmp_path):
 def test_main_dispatches_run_with_preset(monkeypatch):
     calls: dict[str, object] = {}
 
-    def _fake_run_pipeline(config, **kwargs):
+    def _fake_run_resolved_config(config, **kwargs):
         calls["config"] = config
         calls["kwargs"] = kwargs
 
-    monkeypatch.setattr(cli, "run_pipeline", _fake_run_pipeline)
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
-    monkeypatch.setattr(cli, "collect_doctor_report", lambda *args, **kwargs: _passing_report())
+    monkeypatch.setattr(cli, "run_resolved_config", _fake_run_resolved_config)
     rc = cli.main(
         [
             "run",
@@ -115,6 +108,7 @@ def test_main_dispatches_run_with_preset(monkeypatch):
     assert rc == 0
     assert calls["config"].search.query == "author:test"
     assert calls["config"].run.run_name == "ads_bib_openrouter"
+    assert callable(calls["kwargs"].pop("notify"))
     assert calls["kwargs"] == {
         "start_stage": None,
         "stop_stage": None,
@@ -125,9 +119,9 @@ def test_main_dispatches_run_with_preset(monkeypatch):
 def test_main_run_requires_search_query(monkeypatch, tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("run:\n  run_name: test\nsearch:\n  query: ''\n", encoding="utf-8")
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", lambda **kwargs: None)
     monkeypatch.setattr(
-        cli,
+        runner,
         "collect_doctor_report",
         lambda *args, **kwargs: doctor.DoctorReport(
             checks=(doctor.DoctorCheck(name="search.query", status="fail", detail="missing"),),
@@ -142,13 +136,13 @@ def test_main_run_returns_nonzero_with_preflight_report(monkeypatch, tmp_path, c
     config_path = tmp_path / "config.yaml"
     config_path.write_text("run:\n  run_name: test\nsearch:\n  query: q\n", encoding="utf-8")
     monkeypatch.setattr(
-        cli,
+        runner,
         "run_pipeline",
         lambda *args, **kwargs: pytest.fail("run_pipeline should not be called"),
     )
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", lambda **kwargs: None)
     monkeypatch.setattr(
-        cli,
+        runner,
         "collect_doctor_report",
         lambda *args, **kwargs: doctor.DoctorReport(
             checks=(
@@ -184,9 +178,9 @@ def test_main_run_reports_prepared_fasttext(monkeypatch, tmp_path, capsys):
         encoding="utf-8",
     )
     prepared_path = tmp_path / "data" / "models" / "lid.176.bin"
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: prepared_path)
-    monkeypatch.setattr(cli, "collect_doctor_report", lambda *args, **kwargs: _passing_report())
-    monkeypatch.setattr(cli, "run_pipeline", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", lambda **kwargs: prepared_path)
+    monkeypatch.setattr(runner, "collect_doctor_report", lambda *args, **kwargs: _passing_report())
+    monkeypatch.setattr(runner, "run_pipeline", lambda *args, **kwargs: None)
 
     rc = cli.main(["run", "--config", str(config_path)])
 
@@ -195,14 +189,14 @@ def test_main_run_reports_prepared_fasttext(monkeypatch, tmp_path, capsys):
 
 
 def test_main_run_reports_prepared_managed_llama_server(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", lambda **kwargs: None)
     monkeypatch.setattr(
-        cli,
+        runner,
         "collect_doctor_report",
         lambda *args, **kwargs: _passing_report(stages=("topic_fit",)),
     )
     monkeypatch.setattr(
-        cli,
+        runner,
         "prepare_llama_server_runtime",
         lambda **kwargs: type(
             "_Runtime",
@@ -214,7 +208,7 @@ def test_main_run_reports_prepared_managed_llama_server(monkeypatch, capsys):
             },
         )(),
     )
-    monkeypatch.setattr(cli, "run_pipeline", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "run_pipeline", lambda *args, **kwargs: None)
 
     rc = cli.main(
         [
@@ -231,19 +225,19 @@ def test_main_run_reports_prepared_managed_llama_server(monkeypatch, capsys):
 
 
 def test_main_run_blocks_when_managed_llama_server_prepare_fails(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "ensure_default_fasttext_model", lambda **kwargs: None)
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", lambda **kwargs: None)
     monkeypatch.setattr(
-        cli,
+        runner,
         "collect_doctor_report",
         lambda *args, **kwargs: _passing_report(stages=("topic_fit",)),
     )
     monkeypatch.setattr(
-        cli,
+        runner,
         "prepare_llama_server_runtime",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("managed runtime failed")),
     )
     monkeypatch.setattr(
-        cli,
+        runner,
         "run_pipeline",
         lambda *args, **kwargs: pytest.fail("run_pipeline should not be called"),
     )
