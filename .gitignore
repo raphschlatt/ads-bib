@@ -29,6 +29,7 @@ runs/**
 .claude/
 
 # Maintainer-only backlog (optional local file; not versioned)
+AGENTS.md
 Package_ToDo.md
 
 # Python
