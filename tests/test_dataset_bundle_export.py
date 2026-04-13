@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import ads_bib._dataset_bundle as dataset_bundle
 import ads_bib.pipeline as pipeline
 
 
@@ -22,8 +24,21 @@ def _topic_input_df(*, with_author_ids: bool) -> pd.DataFrame:
             "Author": ["Hawking, S. W."],
             "References": ["1962RSPSA.269...21B", "1962RSPSA.270..103S"],
             "tokens": ["particle", "creation", "black", "hole"],
+            "full_text": "Particle Creation by Black Holes. Black hole radiation.",
+            "Title": "Particle creation by black holes",
             "Title_en": "Particle Creation by Black Holes",
+            "Abstract": "Black hole radiation.",
             "Abstract_en": "Black hole radiation.",
+            "Journal": "Communications in Mathematical Physics",
+            "Citation Count": 1200,
+            "DOI": "10.1007/BF02345020",
+            "Volume": "43",
+            "Issue": "3",
+            "First Page": 199,
+            "Last Page": 220,
+            "Keywords": "black holes; hawking radiation",
+            "Category": "Article",
+            "Affiliation": "DAMTP, Cambridge",
         },
         {
             "Bibcode": "1975CMaPh..43..200D",
@@ -31,8 +46,21 @@ def _topic_input_df(*, with_author_ids: bool) -> pd.DataFrame:
             "Author": ["Doe, A."],
             "References": ["1962RSPSA.269...21B", "1962RSPSA.270..103S"],
             "tokens": ["classical", "gravity", "field"],
+            "full_text": "Gravity Notes. Classical field theory.",
+            "Title": "Gravity Notes",
             "Title_en": "Gravity Notes",
+            "Abstract": "Classical field theory.",
             "Abstract_en": "Classical field theory.",
+            "Journal": "Communications in Mathematical Physics",
+            "Citation Count": 12,
+            "DOI": "10.1007/example-doi",
+            "Volume": "43",
+            "Issue": "3",
+            "First Page": 221,
+            "Last Page": 240,
+            "Keywords": "gravity; field theory",
+            "Category": "Article",
+            "Affiliation": "Institute for Tests",
         },
     ]
     if with_author_ids:
@@ -134,6 +162,19 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
     assert set(publications.columns) >= {
         "Bibcode",
         "References",
+        "Journal",
+        "Title_en",
+        "Abstract_en",
+        "Citation Count",
+        "DOI",
+        "Volume",
+        "Issue",
+        "First Page",
+        "Last Page",
+        "Keywords",
+        "Category",
+        "Affiliation",
+        "full_text",
         "tokens",
         "embedding_2d_x",
         "embedding_2d_y",
@@ -168,9 +209,7 @@ def test_run_curate_stage_refreshes_dataset_bundle_and_manifest(tmp_path):
     ctx.refs = _references_df(with_author_ids=False)
 
     stale_publications = pd.DataFrame([{"Bibcode": "stale-publication"}])
-    stale_references = pd.DataFrame([{"Bibcode": "stale-reference"}])
     stale_publications.to_parquet(ctx.run.paths["data"] / "publications.parquet")
-    stale_references.to_parquet(ctx.run.paths["data"] / "references.parquet")
     (ctx.run.paths["data"] / "dataset_manifest.json").write_text("{}", encoding="utf-8")
 
     pipeline.run_curate_stage(ctx)
@@ -186,6 +225,64 @@ def test_run_curate_stage_refreshes_dataset_bundle_and_manifest(tmp_path):
     assert manifest["and_enabled"] is False
     assert manifest["has_author_uids"] is False
     assert manifest["has_author_display_names"] is False
+
+
+def test_run_topic_dataframe_stage_reuses_existing_references_artifact(tmp_path, monkeypatch):
+    ctx = _make_context(tmp_path, and_enabled=False)
+    ctx.topic_input_df = _topic_input_df(with_author_ids=False)
+    ctx.refs = _references_df(with_author_ids=False)
+    ctx.topic_model = _DummyTopicModel()
+    ctx.topics = np.asarray([0, 1])
+    ctx.reduced_2d = np.asarray([[0.1, 0.2], [1.1, 1.2]])
+
+    existing_references = pd.DataFrame([{"Bibcode": "stale-reference"}])
+    existing_references.to_parquet(ctx.run.paths["data"] / "references.parquet")
+    writes: list[str] = []
+
+    monkeypatch.setattr(pipeline, "build_topic_dataframe", _fake_topic_dataframe)
+
+    def _tracking_save_parquet(df: pd.DataFrame, path):
+        writes.append(Path(path).name)
+        df.to_parquet(path)
+
+    monkeypatch.setattr(dataset_bundle, "save_parquet", _tracking_save_parquet)
+
+    pipeline.run_topic_dataframe_stage(ctx)
+
+    references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
+
+    assert "publications.parquet" in writes
+    assert "references.parquet" not in writes
+    assert _normalized_records(references) == _normalized_records(existing_references)
+
+
+def test_run_curate_stage_reuses_existing_references_artifact(tmp_path, monkeypatch):
+    ctx = _make_context(tmp_path, and_enabled=False)
+    ctx.topic_df = _fake_topic_dataframe(
+        _topic_input_df(with_author_ids=False),
+        _DummyTopicModel(),
+        np.asarray([0, 1]),
+        np.asarray([[0.2, 0.3], [1.2, 1.3]]),
+    )
+    ctx.refs = _references_df(with_author_ids=False)
+
+    existing_references = pd.DataFrame([{"Bibcode": "stale-reference"}])
+    existing_references.to_parquet(ctx.run.paths["data"] / "references.parquet")
+    writes: list[str] = []
+
+    def _tracking_save_parquet(df: pd.DataFrame, path):
+        writes.append(Path(path).name)
+        df.to_parquet(path)
+
+    monkeypatch.setattr(dataset_bundle, "save_parquet", _tracking_save_parquet)
+
+    pipeline.run_curate_stage(ctx)
+
+    references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
+
+    assert "publications.parquet" in writes
+    assert "references.parquet" not in writes
+    assert _normalized_records(references) == _normalized_records(existing_references)
 
 
 def test_exported_dataset_bundle_loads_in_trajectories(tmp_path, monkeypatch):

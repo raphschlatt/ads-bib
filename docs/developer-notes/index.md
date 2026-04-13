@@ -6,13 +6,19 @@ new-user path.
 
 ## Docs maintenance
 
-Build and preview the site in your active repo dev env. `ADS_env` is still a
-common legacy choice, but it is no longer the public package contract:
+Repo-internal standard env is the repo-local `.venv`, built with `uv` and
+Python 3.12:
 
 ```bash
-python -m pip install zensical
-zensical serve
-zensical build --clean
+uv sync --python 3.12 --group dev
+uv run zensical serve
+uv run zensical build --clean
+```
+
+Register the notebook kernel from the same env when needed:
+
+```bash
+.venv/bin/python -m ipykernel install --user --name ads-bib --display-name "Python (ads-bib)"
 ```
 
 The docs site uses:

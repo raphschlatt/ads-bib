@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import ads_bib._dataset_bundle as dataset_bundle
 import ads_bib.pipeline as pipeline
 from ads_bib.presets import get_preset_names, get_preset_summary, load_preset_config
 from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS
@@ -830,7 +831,7 @@ def test_run_tokenize_stage_prefers_current_translated_results_over_snapshot(tmp
         ),
     )
     monkeypatch.setattr(pipeline, "save_tokenized_snapshot", lambda *args, **kwargs: None)
-    monkeypatch.setattr(pipeline, "save_parquet", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dataset_bundle, "save_parquet", lambda *args, **kwargs: None)
 
     pipeline.run_tokenize_stage(ctx)
 
@@ -990,6 +991,62 @@ def test_run_embeddings_stage_uses_reporter_progress(tmp_path, monkeypatch):
     assert ctx.reporter.progress_bar.updates == [2, 1]
     assert ctx.embeddings is not None
     assert ctx.embeddings.shape == (3, 4)
+
+
+def test_run_embeddings_stage_projects_topic_workframe_columns(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "topic_model": {
+                "embedding_provider": "local",
+                "embedding_model": "mini",
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "b1",
+                "References": ["r1"],
+                "Author": ["Doe, A."],
+                "Year": 2020,
+                "Journal": "Journal A",
+                "Title_en": "Alpha",
+                "Abstract_en": "Alpha abstract",
+                "full_text": "alpha",
+                "tokens": [["alpha"]],
+                "Citation Count": 3,
+                "Internal Note": "drop-me",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "compute_embeddings",
+        lambda documents, **kwargs: np.ones((len(documents), 4), dtype=np.float32),
+    )
+
+    pipeline.run_embeddings_stage(ctx)
+
+    assert ctx.topic_input_df is not None
+    assert list(ctx.topic_input_df.columns) == [
+        "Bibcode",
+        "References",
+        "Author",
+        "Year",
+        "Journal",
+        "Title_en",
+        "Abstract_en",
+        "Citation Count",
+        "full_text",
+        "tokens",
+    ]
+    assert "Internal Note" not in ctx.topic_input_df.columns
+    assert ctx.documents == ["alpha"]
 
 
 def test_run_pipeline_topic_fit_uses_tokenized_snapshot_and_caches(tmp_path, monkeypatch):

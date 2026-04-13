@@ -11,18 +11,19 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
+from ads_bib._stage_state import (
+    StageName,
+    _earliest_invalidation_stage,
+    _invalidate_context_from,
+    validate_stage_name,
+)
 from ads_bib._utils.costs import CostTracker
 from ads_bib.pipeline import (
     _execute_stage,
     _finalize_run_summary,
-    _set_resume_block,
     PipelineConfig,
     PipelineContext,
-    STAGE_ORDER,
-    StageName,
     prepare_pipeline_config,
-    snapshot_block_from_invalidation,
-    validate_stage_name,
 )
 from ads_bib.run_manager import RunManager
 
@@ -49,209 +50,6 @@ def _default_sections(project_root: Path, run_name: str) -> dict[str, dict[str, 
     data["run"]["run_name"] = run_name
     data["run"]["project_root"] = str(project_root)
     return data
-
-
-def _nested_get(data: dict[str, Any], path: tuple[str, ...]) -> Any:
-    current: Any = data
-    for key in path:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(key)
-    return current
-
-
-def _earliest_invalidation_stage(
-    previous: dict[str, Any] | None,
-    current: dict[str, Any],
-) -> StageName | None:
-    if previous is None:
-        return None
-
-    stage_checks: list[tuple[StageName, list[tuple[str, ...]]]] = [
-        ("search", [("search",)]),
-        (
-            "translate",
-            [
-                ("translate",),
-                ("translate", "model_repo"),
-                ("translate", "model_file"),
-                ("translate", "model_path"),
-                ("run", "openrouter_cost_mode"),
-            ],
-        ),
-        ("tokenize", [("tokenize",)]),
-        ("author_disambiguation", [("author_disambiguation",)]),
-        (
-            "embeddings",
-            [
-                ("run", "random_seed"),
-                ("topic_model", "sample_size"),
-                ("topic_model", "embedding_provider"),
-                ("topic_model", "embedding_model"),
-                ("topic_model", "embedding_api_key"),
-                ("topic_model", "embedding_batch_size"),
-                ("topic_model", "embedding_max_workers"),
-            ],
-        ),
-        (
-            "reduction",
-            [
-                ("topic_model", "reduction_method"),
-                ("topic_model", "params_5d"),
-                ("topic_model", "params_2d"),
-            ],
-        ),
-        (
-            "topic_fit",
-            [
-                ("topic_model", "backend"),
-                ("topic_model", "clustering_method"),
-                ("topic_model", "cluster_params"),
-                ("topic_model", "toponymy_cluster_params"),
-                ("topic_model", "toponymy_layer_index"),
-                ("topic_model", "llm_prompt_name"),
-                ("topic_model", "llm_prompt"),
-                ("topic_model", "llm_provider"),
-                ("topic_model", "llm_model"),
-                ("topic_model", "llm_model_repo"),
-                ("topic_model", "llm_model_file"),
-                ("topic_model", "llm_model_path"),
-                ("topic_model", "llm_api_key"),
-                ("topic_model", "bertopic_label_max_tokens"),
-                ("topic_model", "toponymy_local_label_max_tokens"),
-                ("topic_model", "pipeline_models"),
-                ("topic_model", "parallel_models"),
-                ("topic_model", "toponymy_embedding_model"),
-                ("topic_model", "toponymy_max_workers"),
-                ("topic_model", "min_df"),
-                ("topic_model", "outlier_threshold"),
-            ],
-        ),
-        ("topic_fit", [("llama_server",)]),
-        ("visualize", [("visualization",)]),
-        ("curate", [("curation",)]),
-        ("citations", [("citations",)]),
-    ]
-
-    for stage, paths_to_check in stage_checks:
-        if any(_nested_get(previous, path) != _nested_get(current, path) for path in paths_to_check):
-            return stage
-    return None
-
-
-def _invalidate_context_from(context: PipelineContext, stage: StageName) -> None:
-    stage_name = validate_stage_name(stage)
-    stage_index = STAGE_ORDER.index(stage_name)
-    _set_resume_block(context, snapshot_block_from_invalidation(stage_name))
-
-    if stage_index <= STAGE_ORDER.index("search"):
-        context.bibcodes = None
-        context.references = None
-        context.esources = None
-        context.fulltext_urls = None
-        context.publications = None
-        context.refs = None
-    elif stage_name == "translate":
-        context.publications = _drop_columns(
-            context.publications,
-            (
-                "Title_lang",
-                "Abstract_lang",
-                "Title_en",
-                "Abstract_en",
-                "full_text",
-                "tokens",
-                "author_uids",
-                "author_display_names",
-            ),
-        )
-        context.refs = _drop_columns(
-            context.refs,
-            (
-                "Title_lang",
-                "Abstract_lang",
-                "Title_en",
-                "Abstract_en",
-                "author_uids",
-                "author_display_names",
-            ),
-        )
-    elif stage_name == "tokenize":
-        context.publications = _drop_columns(
-            context.publications,
-            ("full_text", "tokens", "author_uids", "author_display_names"),
-        )
-        context.refs = _drop_columns(
-            context.refs,
-            ("author_uids", "author_display_names"),
-        )
-    elif stage_name == "author_disambiguation":
-        context.publications = _drop_columns(
-            context.publications,
-            ("author_uids", "author_display_names"),
-        )
-        context.refs = _drop_columns(
-            context.refs,
-            ("author_uids", "author_display_names"),
-        )
-
-    if stage_index <= STAGE_ORDER.index("embeddings"):
-        context.topic_input_df = None
-        context.documents = None
-        context.embeddings = None
-        context.reduced_5d = None
-        context.reduced_2d = None
-        context.topic_model = None
-        context.topics = None
-        context.topic_info = None
-        context.topic_df = None
-        context.curated_df = None
-        context.citation_results = None
-        return
-
-    if stage_index <= STAGE_ORDER.index("reduction"):
-        context.reduced_5d = None
-        context.reduced_2d = None
-        context.topic_model = None
-        context.topics = None
-        context.topic_info = None
-        context.topic_df = None
-        context.curated_df = None
-        context.citation_results = None
-        return
-
-    if stage_index <= STAGE_ORDER.index("topic_fit"):
-        context.topic_model = None
-        context.topics = None
-        context.topic_info = None
-        context.topic_df = None
-        context.curated_df = None
-        context.citation_results = None
-        return
-
-    if stage_index <= STAGE_ORDER.index("topic_dataframe"):
-        context.topic_df = None
-        context.curated_df = None
-        context.citation_results = None
-        return
-
-    if stage_index <= STAGE_ORDER.index("curate"):
-        context.curated_df = None
-        context.citation_results = None
-        return
-
-    if stage_index <= STAGE_ORDER.index("citations"):
-        context.citation_results = None
-
-
-
-def _drop_columns(
-    frame: pd.DataFrame | None,
-    columns: tuple[str, ...],
-) -> pd.DataFrame | None:
-    if frame is None:
-        return None
-    return frame.drop(columns=list(columns), errors="ignore")
 
 
 class NotebookSession:

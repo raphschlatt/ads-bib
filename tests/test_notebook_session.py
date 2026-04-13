@@ -54,6 +54,7 @@ def test_config_change_invalidates_from_correct_stage(tmp_path):
     context.embeddings = np.ones((2, 3))
     context.reduced_5d = np.ones((2, 5))
     context.topic_model = object()
+    context.topic_hierarchy = {"topic_primary_layer_index": 1}
     context.topic_df = object()
     context.curated_df = object()
 
@@ -70,8 +71,14 @@ def test_config_change_invalidates_from_correct_stage(tmp_path):
     assert context.embeddings is not None
     assert context.reduced_5d is not None
     assert context.topic_model is None
+    assert context.topic_hierarchy is None
     assert context.topic_df is None
     assert context.curated_df is None
+
+
+def test_notebook_uses_shared_pipeline_invalidation_helpers():
+    assert notebook_module._earliest_invalidation_stage is pipeline._earliest_invalidation_stage
+    assert notebook_module._invalidate_context_from is pipeline._invalidate_context_from
 
 
 def test_llama_server_section_change_invalidates_topic_fit_stage(tmp_path):

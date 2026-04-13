@@ -70,7 +70,15 @@ ads-bib = "ads_bib.cli:main"
 [project.optional-dependencies]
 umap = ["umap-learn"]
 hdbscan = ["hdbscan"]
-test = ["pytest>=7", "ruff>=0.6", "openai", "huggingface-hub"]
+test = ["pytest>=7", "ruff>=0.6"]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6",
+    "pytest>=7",
+    "ruff>=0.6",
+    "zensical",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ads_bib"]

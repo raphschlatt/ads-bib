@@ -29,6 +29,8 @@ Each run produces a self-contained output directory:
 
 ## Installation
 
+Install into an active Python environment of your choice:
+
 ```bash
 uv pip install ads-bib
 # or: pip install ads-bib

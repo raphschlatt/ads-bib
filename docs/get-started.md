@@ -9,19 +9,12 @@ sure which road fits your setup, read [Runtime Roads](runtime-roads.md) first.
 once via `python -m pip install uv`, `pipx install uv`, or the platform
 installer from Astral.
 
-The contract is one env per machine, not one install per road:
+Install `ads-bib` into the Python environment you want to use. The same
+install covers all four official runtime roads:
 
 ```bash
-uv venv .ads-bib
 uv pip install ads-bib
 ```
-
-Activate the env in your shell before continuing. That one install covers:
-
-- `openrouter`
-- `hf_api`
-- `local_cpu`
-- the CPU fallback of the local HF/Torch paths
 
 If you are on an NVIDIA / CUDA machine and want the official accelerated
 `local_gpu` road, install the validated CUDA Torch wheel into the same env:

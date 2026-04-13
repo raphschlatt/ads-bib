@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
-import json
 import logging
 import os
 from pathlib import Path
@@ -17,6 +16,19 @@ import pandas as pd
 import yaml
 
 from . import prompts
+from ads_bib._dataset_bundle import (
+    ensure_run_references_artifact as _ensure_run_references_artifact,
+    write_dataset_bundle as _write_dataset_bundle,
+)
+from ads_bib._stage_state import (
+    STAGE_ORDER,
+    StageName,
+    _advance_resume_block,
+    _earliest_invalidation_stage,
+    _invalidate_context_from,
+    _snapshot_allowed,
+    validate_stage_name,
+)
 from ads_bib._utils.huggingface_api import resolve_huggingface_api_key
 from ads_bib._utils.llama_server import LlamaServerConfig
 from ads_bib._utils.model_specs import ModelSpec
@@ -29,7 +41,6 @@ from ads_bib._utils.checkpoints import (
     save_translated_snapshot,
 )
 from ads_bib._utils.costs import CostTracker
-from ads_bib._utils.io import load_parquet, save_parquet
 from ads_bib._utils.logging import (
     OutputMode,
     StageReporter,
@@ -64,6 +75,7 @@ from ads_bib.topic_model import (
     reduce_outliers,
 )
 from ads_bib.topic_model import backends as topic_model_backends
+from ads_bib.topic_model.input import project_topic_input_frame as _project_topic_input_frame
 from ads_bib.topic_model._runtime import (
     BERTOPIC_LLM_PROVIDERS,
     EMBEDDING_PROVIDERS,
@@ -74,35 +86,7 @@ from ads_bib.translate import detect_languages, translate_dataframe
 
 logger = logging.getLogger(__name__)
 
-StageName = Literal[
-    "search",
-    "export",
-    "translate",
-    "tokenize",
-    "author_disambiguation",
-    "embeddings",
-    "reduction",
-    "topic_fit",
-    "topic_dataframe",
-    "visualize",
-    "curate",
-    "citations",
-]
 
-STAGE_ORDER: tuple[StageName, ...] = (
-    "search",
-    "export",
-    "translate",
-    "tokenize",
-    "author_disambiguation",
-    "embeddings",
-    "reduction",
-    "topic_fit",
-    "topic_dataframe",
-    "visualize",
-    "curate",
-    "citations",
-)
 class StagePrerequisiteError(RuntimeError):
     """Raised when a strict stage is missing its required upstream state."""
 
@@ -483,60 +467,6 @@ class PipelineContext:
         )
 
 
-def validate_stage_name(stage: StageName | str) -> StageName:
-    value = str(stage)
-    if value not in STAGE_ORDER:
-        allowed = ", ".join(STAGE_ORDER)
-        raise ValueError(f"Invalid stage '{stage}'. Expected one of: {allowed}.")
-    return value  # type: ignore[return-value]
-
-
-def snapshot_block_from_invalidation(stage: StageName | str) -> StageName | None:
-    stage_name = validate_stage_name(stage)
-    if stage_name in {"search", "translate"}:
-        return "translate"
-    if stage_name == "tokenize":
-        return "tokenize"
-    if stage_name == "author_disambiguation":
-        return "author_disambiguation"
-    return None
-
-
-def _set_resume_block(ctx: PipelineContext, candidate: StageName | None) -> None:
-    if candidate is None:
-        return
-    if (
-        ctx.resume_blocked_from is None
-        or STAGE_ORDER.index(candidate) < STAGE_ORDER.index(ctx.resume_blocked_from)
-    ):
-        ctx.resume_blocked_from = candidate
-
-
-def _snapshot_allowed(ctx: PipelineContext, snapshot_stage: StageName) -> bool:
-    blocked_from = ctx.resume_blocked_from
-    if blocked_from is None:
-        return True
-    return STAGE_ORDER.index(snapshot_stage) < STAGE_ORDER.index(blocked_from)
-
-
-def _advance_resume_block(ctx: PipelineContext, completed_stage: StageName) -> None:
-    blocked_from = ctx.resume_blocked_from
-    if blocked_from is None:
-        return
-    if completed_stage == "translate" and blocked_from == "translate":
-        ctx.resume_blocked_from = "tokenize"
-        return
-    if completed_stage == "tokenize" and blocked_from in {"translate", "tokenize"}:
-        ctx.resume_blocked_from = "author_disambiguation"
-        return
-    if completed_stage == "author_disambiguation" and blocked_from in {
-        "translate",
-        "tokenize",
-        "author_disambiguation",
-    }:
-        ctx.resume_blocked_from = None
-
-
 def _has_source_frames(ctx: PipelineContext) -> bool:
     return ctx.publications is not None and ctx.refs is not None
 
@@ -908,85 +838,6 @@ def _resolve_topic_defaults(ctx: PipelineContext) -> dict[str, Any]:
     }
 
 
-def _save_curated_dataset(ctx: PipelineContext) -> Path:
-    if ctx.curated_df is None:
-        raise ValueError("curated_df is not available.")
-    return _write_dataset_bundle(
-        ctx,
-        publications=ctx.curated_df,
-        source_stage="curate",
-    )
-
-
-def _write_dataset_bundle(
-    ctx: PipelineContext,
-    *,
-    publications: pd.DataFrame,
-    source_stage: str,
-) -> Path:
-    if ctx.refs is None:
-        logger.info("Skipping dataset bundle export at %s: refs are not available.", source_stage)
-        return ctx.run.paths["data"] / "publications.parquet"
-
-    publications_path = ctx.run.paths["data"] / "publications.parquet"
-    references_path = ctx.run.paths["data"] / "references.parquet"
-    manifest_path = ctx.run.paths["data"] / "dataset_manifest.json"
-
-    save_parquet(publications, publications_path)
-    save_parquet(ctx.refs, references_path)
-
-    try:
-        from ads_bib import __version__ as ads_bib_version
-    except Exception:
-        ads_bib_version = "0.0.0"
-
-    coordinate_columns = [
-        column
-        for column in ("embedding_2d_x", "embedding_2d_y")
-        if column in publications.columns
-    ]
-    manifest = {
-        "schema_version": 1,
-        "producer": "ads_bib",
-        "producer_version": ads_bib_version,
-        "run_id": ctx.run.run_id,
-        "source_stage": source_stage,
-        "and_enabled": bool(ctx.config.author_disambiguation.enabled),
-        "publications_path": publications_path.name,
-        "references_path": references_path.name,
-        "coordinate_columns": coordinate_columns,
-        "counts": {
-            "publications": int(len(publications)),
-            "references": int(len(ctx.refs)),
-        },
-        "has_author_uids": bool(
-            "author_uids" in publications.columns and "author_uids" in ctx.refs.columns
-        ),
-        "has_author_display_names": bool(
-            "author_display_names" in publications.columns and "author_display_names" in ctx.refs.columns
-        ),
-    }
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-    logger.info(
-        "Dataset bundle exported at %s | publications=%s | references=%s",
-        source_stage,
-        f"{len(publications):,}",
-        f"{len(ctx.refs):,}",
-    )
-    return publications_path
-
-
-def _load_curated_dataset(ctx: PipelineContext) -> pd.DataFrame:
-    curated_path = ctx.run.paths["data"] / "publications.parquet"
-    if curated_path.exists():
-        return load_parquet(curated_path)
-    raise FileNotFoundError(f"Curated dataset not found at {curated_path}")
-
-
 def _require_stage(stage: StageName, required_stage: StageName, message: str) -> StagePrerequisiteError:
     return StagePrerequisiteError(stage, required_stage, message)
 
@@ -1281,11 +1132,14 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
                 show_progress=False,
                 progress_callback=progress_callback,
             )
-    save_parquet(ctx.refs, ctx.run.paths["data"] / "references.parquet")
     save_tokenized_snapshot(
         ctx.publications,
         ctx.refs,
         cache_dir=ctx.paths["cache"],
+        run_data_dir=ctx.run.paths["data"],
+    )
+    _ensure_run_references_artifact(
+        refs=ctx.refs,
         run_data_dir=ctx.run.paths["data"],
     )
     _advance_resume_block(ctx, "tokenize")
@@ -1344,6 +1198,11 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
             cache_dir=ctx.paths["cache"],
             run_data_dir=ctx.run.paths["data"],
         )
+    _ensure_run_references_artifact(
+        refs=ctx.refs,
+        run_data_dir=ctx.run.paths["data"],
+        force=cfg.enabled,
+    )
     _advance_resume_block(ctx, "author_disambiguation")
     return ctx
 
@@ -1360,7 +1219,7 @@ def run_embeddings_stage(ctx: PipelineContext) -> PipelineContext:
             "Run the author_disambiguation stage first.",
         )
     cfg = ctx.config.topic_model
-    df = ctx.publications.copy()
+    df = _project_topic_input_frame(ctx.publications)
     if cfg.sample_size is not None:
         df = df.sample(
             n=min(cfg.sample_size, len(df)),
@@ -1660,9 +1519,12 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         topic_info=ctx.topic_info,
     )
     _write_dataset_bundle(
-        ctx,
         publications=ctx.topic_df,
+        refs=ctx.refs,
+        run_data_dir=ctx.run.paths["data"],
+        run_id=ctx.run.run_id,
         source_stage="topic_dataframe",
+        and_enabled=ctx.config.author_disambiguation.enabled,
     )
     return ctx
 
@@ -1765,7 +1627,14 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.curated_df,
             ctx.config.curation.clusters_to_remove,
         )
-    _save_curated_dataset(ctx)
+    _write_dataset_bundle(
+        publications=ctx.curated_df,
+        refs=ctx.refs,
+        run_data_dir=ctx.run.paths["data"],
+        run_id=ctx.run.run_id,
+        source_stage="curate",
+        and_enabled=ctx.config.author_disambiguation.enabled,
+    )
     return ctx
 
 

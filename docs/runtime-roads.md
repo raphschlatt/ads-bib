@@ -31,7 +31,6 @@ local_gpu   — you have an NVIDIA / CUDA GPU and want local acceleration
 The happy path is always:
 
 ```bash
-uv venv .ads-bib
 uv pip install ads-bib
 ads-bib run --preset <road> --set search.query='author:"Hawking, S*"'
 ```

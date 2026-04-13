@@ -47,7 +47,7 @@ def test_parquet_roundtrip_or_skip(tmp_path):
         io_utils.save_parquet(df, path)
         loaded = io_utils.load_parquet(path)
     except ImportError:
-        pytest.skip("No parquet backend (pyarrow/fastparquet) available in ADS_env.")
+        pytest.skip("No parquet backend (pyarrow/fastparquet) available in the active Python env.")
 
     assert path.exists()
     assert_frame_equal(loaded.reset_index(drop=True), df.reset_index(drop=True), check_like=False)

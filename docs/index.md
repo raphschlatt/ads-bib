@@ -15,8 +15,9 @@ pipeline from the CLI.
 
 ## Quickstart
 
+In an active Python environment:
+
 ```bash
-uv venv .ads-bib
 uv pip install ads-bib
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
