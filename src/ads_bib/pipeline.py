@@ -140,7 +140,7 @@ class RunConfig:
 @dataclass
 class SearchConfig:
     query: str = ""
-    ads_token: str | None = None
+    ads_token: str | None = field(default=None, repr=False)
     refresh_search: bool = True
     refresh_export: bool = True
 
@@ -153,7 +153,7 @@ class TranslateConfig:
     model_repo: str | None = None
     model_file: str | None = None
     model_path: str | None = None
-    api_key: str | None = None
+    api_key: str | None = field(default=None, repr=False)
     max_workers: int = 10
     max_tokens: int = 2048
     fasttext_model: str | None = None
@@ -184,7 +184,7 @@ class TopicModelConfig:
     sample_size: int | None = None
     embedding_provider: str = "openrouter"
     embedding_model: str = "google/gemini-embedding-001"
-    embedding_api_key: str | None = None
+    embedding_api_key: str | None = field(default=None, repr=False)
     embedding_batch_size: int = 64
     embedding_max_workers: int = 20
     reduction_method: str = "pacmap"
@@ -202,7 +202,7 @@ class TopicModelConfig:
     llm_model_repo: str | None = None
     llm_model_file: str | None = None
     llm_model_path: str | None = None
-    llm_api_key: str | None = None
+    llm_api_key: str | None = field(default=None, repr=False)
     bertopic_label_max_tokens: int = 128
     toponymy_local_label_max_tokens: int = 128
     pipeline_models: list[str] = field(default_factory=lambda: ["POS", "KeyBERT", "MMR"])
@@ -391,6 +391,18 @@ class PipelineConfig:
         return cls.from_dict(payload)
 
 
+def _shape_repr(value: object) -> str:
+    if value is None:
+        return "None"
+    shape = getattr(value, "shape", None)
+    if isinstance(shape, tuple):
+        return "x".join(str(part) for part in shape)
+    try:
+        return str(len(value))  # type: ignore[arg-type]
+    except TypeError:
+        return type(value).__name__
+
+
 @dataclass
 class PipelineContext:
     config: PipelineConfig
@@ -421,6 +433,18 @@ class PipelineContext:
     curated_df: pd.DataFrame | None = None
     citation_results: dict[str, pd.DataFrame] | None = None
     resume_blocked_from: StageName | None = None
+
+    def __repr__(self) -> str:
+        """Keep notebook display compact and avoid leaking config secrets."""
+        run_root = getattr(self.run, "paths", {}).get("root") if self.run is not None else None
+        parts = [
+            f"run_dir={str(run_root)!r}",
+            f"output_mode={self.output_mode!r}",
+            f"publications={_shape_repr(self.publications)}",
+            f"topic_df={_shape_repr(self.topic_df)}",
+            f"curated_df={_shape_repr(self.curated_df)}",
+        ]
+        return f"PipelineContext({', '.join(parts)})"
 
     @classmethod
     def create(
@@ -1859,6 +1883,7 @@ def run_pipeline(
     tracker: CostTracker | None = None,
     start_time: float | None = None,
     load_environment: bool = True,
+    output_mode: OutputMode = "cli",
 ) -> PipelineContext:
     prepared_config = prepare_pipeline_config(config)
     effective_start_time = start_time if start_time is not None else time.time()
@@ -1876,7 +1901,7 @@ def run_pipeline(
         tracker=tracker,
         start_time=effective_start_time,
         load_environment=load_environment,
-        output_mode="cli",
+        output_mode=output_mode,
     )
     ctx.run.save_config(prepared_config)
     reporter = getattr(ctx, "reporter", None)

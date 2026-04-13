@@ -72,6 +72,7 @@ def _handle_run(args: argparse.Namespace) -> int:
             stop_stage=args.to_stage,
             run_name=args.run_name,
             notify=lambda message: sys.stdout.write(f"{message}\n"),
+            output_mode="cli",
         )
     except RunBlockedError as exc:
         sys.stderr.write(f"{exc}\n")

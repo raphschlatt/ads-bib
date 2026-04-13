@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from ads_bib._utils.logging import OutputMode
 from ads_bib._utils.llama_server import prepare_llama_server_runtime
 from ads_bib.bootstrap import ensure_default_fasttext_model
 from ads_bib.doctor import DoctorReport, collect_doctor_report
@@ -120,17 +121,52 @@ def run_resolved_config(
     project_root: Path | str | None = None,
     preflight: bool = True,
     notify: Notify | None = None,
+    output_mode: OutputMode | None = None,
 ) -> PipelineContext:
     """Run an already resolved config through the shared high-level path."""
     if preflight:
         _prepare_run(config, start_stage=start_stage, stop_stage=stop_stage, notify=notify)
+    resolved_output_mode = _resolve_output_mode(output_mode)
     return run_pipeline(
         config,
         start_stage=start_stage,
         stop_stage=stop_stage,
         project_root=project_root,
         run_name=run_name,
+        output_mode=resolved_output_mode,
     )
+
+
+def _resolve_output_mode(output_mode: OutputMode | None) -> OutputMode:
+    if output_mode is not None:
+        return output_mode
+    return _detect_output_mode()
+
+
+def _detect_output_mode() -> OutputMode:
+    shell = _safe_get_ipython()
+    if shell is None:
+        return "cli"
+
+    shell_type = type(shell)
+    shell_name = shell_type.__name__
+    shell_module = shell_type.__module__.lower()
+    if shell_name == "ZMQInteractiveShell" or "zmqshell" in shell_module or shell_module.startswith(
+        "ipykernel."
+    ):
+        return "notebook"
+    return "cli"
+
+
+def _safe_get_ipython() -> object | None:
+    try:
+        from IPython import get_ipython
+    except Exception:
+        return None
+    try:
+        return get_ipython()
+    except Exception:
+        return None
 
 
 def format_run_preflight_report(report: DoctorReport) -> str:

@@ -84,6 +84,7 @@ def test_main_dispatches_run(monkeypatch, tmp_path):
         "start_stage": "translate",
         "stop_stage": "citations",
         "run_name": "cli-test",
+        "output_mode": "cli",
     }
 
 
@@ -113,6 +114,7 @@ def test_main_dispatches_run_with_preset(monkeypatch):
         "start_stage": None,
         "stop_stage": None,
         "run_name": None,
+        "output_mode": "cli",
     }
 
 

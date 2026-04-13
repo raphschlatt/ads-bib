@@ -4,6 +4,7 @@ from pathlib import Path
 
 import ads_bib
 import ads_bib.doctor as doctor
+import ads_bib.pipeline as pipeline
 import ads_bib.runner as runner
 import pytest
 
@@ -25,6 +26,7 @@ def test_run_with_preset_query_uses_preflight_and_pipeline(monkeypatch):
 
     monkeypatch.setattr(runner, "ensure_default_fasttext_model", lambda **kwargs: None)
     monkeypatch.setattr(runner, "collect_doctor_report", lambda *args, **kwargs: _passing_report())
+    monkeypatch.setattr(runner, "_detect_output_mode", lambda: "notebook")
     monkeypatch.setattr(runner, "run_pipeline", _fake_run_pipeline)
 
     result = ads_bib.run(
@@ -43,6 +45,7 @@ def test_run_with_preset_query_uses_preflight_and_pipeline(monkeypatch):
         "stop_stage": "search",
         "project_root": None,
         "run_name": "api-test",
+        "output_mode": "notebook",
     }
 
 
@@ -59,6 +62,7 @@ def test_run_with_yaml_config_applies_dotted_overrides(monkeypatch, tmp_path):
         calls["kwargs"] = kwargs
         return "ctx"
 
+    monkeypatch.setattr(runner, "_detect_output_mode", lambda: "cli")
     monkeypatch.setattr(runner, "run_pipeline", _fake_run_pipeline)
 
     result = ads_bib.run(
@@ -75,6 +79,7 @@ def test_run_with_yaml_config_applies_dotted_overrides(monkeypatch, tmp_path):
     assert calls["config"].search.query == "author:new"
     assert calls["config"].topic_model.backend == "toponymy"
     assert calls["config"].topic_model.llm_provider == "openrouter"
+    assert calls["kwargs"]["output_mode"] == "cli"
 
 
 def test_run_requires_exactly_one_config_source():
@@ -117,6 +122,47 @@ def test_run_preflight_failure_raises_run_blocked_error(monkeypatch):
     assert "Run blocked by preflight checks" in str(exc_info.value)
     assert "search.ads_token" in str(exc_info.value)
     assert exc_info.value.report is report
+
+
+def test_detect_output_mode_uses_notebook_for_zmq_shell(monkeypatch):
+    class ZMQInteractiveShell:
+        pass
+
+    monkeypatch.setattr(runner, "_safe_get_ipython", lambda: ZMQInteractiveShell())
+
+    assert runner._detect_output_mode() == "notebook"
+
+
+def test_detect_output_mode_uses_cli_for_terminal_shell(monkeypatch):
+    class TerminalInteractiveShell:
+        pass
+
+    monkeypatch.setattr(runner, "_safe_get_ipython", lambda: TerminalInteractiveShell())
+
+    assert runner._detect_output_mode() == "cli"
+
+
+def test_pipeline_context_repr_is_compact_and_hides_secrets(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "ads-secret"},
+            "translate": {"api_key": "translate-secret"},
+            "topic_model": {
+                "embedding_api_key": "embedding-secret",
+                "llm_api_key": "llm-secret",
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    text = repr(ctx)
+    config_text = repr(config)
+
+    assert "PipelineContext(" in text
+    assert "config=" not in text
+    for secret in ("ads-secret", "translate-secret", "embedding-secret", "llm-secret"):
+        assert secret not in text
+        assert secret not in config_text
 
 
 def test_load_run_config_keeps_legacy_preset_migration_hint():

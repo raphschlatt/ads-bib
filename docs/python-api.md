@@ -103,6 +103,9 @@ result = ads_bib.run(
 With `preflight=True`, the function performs the same run preflight as the CLI
 and raises `RunBlockedError` if required keys, dependencies, or managed runtime
 preparation block the run.
+It auto-selects notebook-friendly progress output under Jupyter and CLI-style
+output in terminal Python runs. The return value is still a `PipelineContext`,
+even if the simple examples ignore it.
 
 ## `PipelineConfig`
 
@@ -155,12 +158,14 @@ run_pipeline(
     tracker: CostTracker | None = None,
     start_time: float | None = None,
     load_environment: bool = True,
+    output_mode: OutputMode = "cli",
 ) -> PipelineContext
 ```
 
 Runs the full pipeline or a stage-bounded slice. `start_stage` and
 `stop_stage` accept the same names the CLI uses (`search`, `translate`, ...,
 `citations`). `load_environment=True` reads `.env` from `project_root`.
+`output_mode="notebook"` uses notebook-friendly progress display.
 
 Returns a `PipelineContext` whose attributes expose the materialized stage
 outputs: `publications`, `refs`, `documents`, `embeddings`, `reduced_5d`,
