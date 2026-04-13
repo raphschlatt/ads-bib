@@ -27,21 +27,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
+          enable-cache: true
 
-      - name: Install Zensical
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install zensical
+      - name: Install dependencies
+        run: uv sync --frozen --group dev
 
       - name: Build docs
-        run: zensical build --clean
+        run: uv run zensical build --clean
 
       - name: Skip Pages publish while repository is private
         if: ${{ github.event.repository.private }}
