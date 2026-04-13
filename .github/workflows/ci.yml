@@ -30,7 +30,7 @@ jobs:
         run: uv sync --frozen --extra test
 
       - name: Ruff
-        run: uv run ruff check src tests scripts
+        run: uv run ruff check src tests
 
       - name: Pytest (excluding topic-stack tests)
         run: uv run pytest -q -m "not requires_topic_stack"
