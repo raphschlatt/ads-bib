@@ -18,10 +18,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -43,10 +43,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -94,14 +94,14 @@ jobs:
           python -c "import ads_bib; print(ads_bib.__version__)"
           python -c "import ads_bib.search, ads_bib.export, ads_bib.tokenize, ads_bib.translate, ads_bib.citations"
           ads-bib preset list
-          ads-bib preset write openrouter --output /tmp/ads_smoke/ads-bib.yaml
-          test -f /tmp/ads_smoke/ads-bib.yaml
-          grep -q "run_name: ads_bib_openrouter" /tmp/ads_smoke/ads-bib.yaml
+          ads-bib preset write openrouter --output /tmp/ads-bib-smoke.yaml
+          test -f /tmp/ads-bib-smoke.yaml
+          grep -q "run_name: ads_bib_openrouter" /tmp/ads-bib-smoke.yaml
           ads-bib bootstrap --project-root /tmp/ads_bootstrap_smoke --env-file .env
           test -d /tmp/ads_bootstrap_smoke/data/raw
           test -d /tmp/ads_bootstrap_smoke/runs
           grep -q "ADS_TOKEN=" /tmp/ads_bootstrap_smoke/.env
-          ADS_TOKEN=dummy ads-bib doctor --config /tmp/ads_smoke/ads-bib.yaml --to search --set search.query='author:"test"'
+          ADS_TOKEN=dummy ads-bib doctor --config /tmp/ads-bib-smoke.yaml --to search --set search.query='author:"test"'
 
       - name: Wheel smoke (optional overrides)
         run: |
