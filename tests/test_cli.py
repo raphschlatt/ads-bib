@@ -258,11 +258,9 @@ def test_main_run_blocks_when_managed_llama_server_prepare_fails(monkeypatch, ca
     assert "Run blocked while preparing llama_server.command" in capsys.readouterr().err
 
 
-def test_main_run_missing_legacy_config_path_shows_preset_migration_hint():
-    with pytest.raises(FileNotFoundError, match="Legacy preset file") as exc_info:
-        cli.main(["run", "--config", "configs/pipeline/local_cpu.yaml"])
-
-    assert "--preset local_cpu" in str(exc_info.value)
+def test_main_run_missing_config_path_keeps_normal_file_not_found():
+    with pytest.raises(FileNotFoundError, match="missing.yaml"):
+        cli.main(["run", "--config", "missing.yaml"])
 
 
 def test_main_run_missing_arbitrary_config_path_keeps_normal_file_not_found():

@@ -14,7 +14,7 @@ from ads_bib._utils.llama_server import prepare_llama_server_runtime
 from ads_bib.bootstrap import ensure_default_fasttext_model
 from ads_bib.doctor import DoctorReport, collect_doctor_report
 from ads_bib.pipeline import PipelineConfig, PipelineContext, StageName, run_pipeline
-from ads_bib.presets import get_preset_names, load_preset_config
+from ads_bib.presets import load_preset_config
 
 Notify = Callable[[str], None]
 
@@ -194,26 +194,9 @@ def _load_config(
     if isinstance(config, (Path, str)):
         try:
             return PipelineConfig.from_yaml(config)
-        except FileNotFoundError as exc:
-            _maybe_raise_legacy_config_hint(config, exc)
+        except FileNotFoundError:
+            raise
     raise TypeError("config must be a PipelineConfig, mapping, or YAML path.")
-
-
-def _maybe_raise_legacy_config_hint(raw_path: Path | str, exc: FileNotFoundError) -> None:
-    config_path = Path(raw_path)
-    preset_names = set(get_preset_names())
-    stem = config_path.stem
-    legacy_parent = tuple(part.lower() for part in config_path.parent.parts[-2:])
-    looks_like_legacy_preset = stem in preset_names and legacy_parent == ("configs", "pipeline")
-
-    if looks_like_legacy_preset:
-        raise FileNotFoundError(
-            f"Legacy preset file '{raw_path}' no longer exists. "
-            f"Use 'ads-bib run --preset {stem} ...' directly, or write it first via "
-            f"'ads-bib preset write {stem} --output {stem}.yaml'."
-        ) from exc
-
-    raise exc
 
 
 def _overrides_search_query(overrides: Mapping[str, Any] | None) -> bool:

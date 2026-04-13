@@ -165,8 +165,6 @@ def test_pipeline_context_repr_is_compact_and_hides_secrets(tmp_path):
         assert secret not in config_text
 
 
-def test_load_run_config_keeps_legacy_preset_migration_hint():
-    with pytest.raises(FileNotFoundError, match="Legacy preset file") as exc_info:
-        runner.load_run_config(config=Path("configs/pipeline/local_cpu.yaml"))
-
-    assert "--preset local_cpu" in str(exc_info.value)
+def test_load_run_config_missing_path_raises_plain_file_not_found():
+    with pytest.raises(FileNotFoundError, match="missing.yaml"):
+        runner.load_run_config(config=Path("missing.yaml"))
