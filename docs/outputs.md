@@ -85,7 +85,7 @@ costs:
   by_step:
     - step: translation
       provider: openrouter
-      model: google/gemini-3.1-flash-lite-preview
+      model: google/gemini-3-flash-preview
       prompt_tokens: 50000
       completion_tokens: 45000
       total_tokens: 95000

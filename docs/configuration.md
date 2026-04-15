@@ -238,8 +238,8 @@ params_2d:
 | `llm_model_file` | string \| null | `null` | Filename within the repo (`llama_server`) |
 | `llm_model_path` | string \| null | `null` | Explicit local GGUF path (`llama_server`) |
 | `llm_api_key` | string \| null | `null` | API key override for LLM provider |
-| `llm_prompt_name` | string | `"physics"` | Named prompt: `physics` or `generic` |
-| `llm_prompt` | string \| null | `null` | Custom prompt override |
+| `llm_prompt_name` | string | `"physics"` | Named topic-label prompt/instruction set: `physics` or `generic` |
+| `llm_prompt` | string \| null | `null` | Custom BERTopic prompt override or extra Toponymy naming instructions |
 | `bertopic_label_max_tokens` | int | `128` | Max tokens for BERTopic topic labels |
 
 ### BERTopic-Specific
@@ -274,8 +274,8 @@ cluster_params:
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | bool | `true` | Set `false` to skip HTML map generation |
-| `title` | string | — | Map title rendered above the canvas |
-| `subtitle_template` | string | — | Subtitle with `{provider}` and `{model}` placeholders |
+| `title` | string | — | Map title rendered above the canvas; supports `{query_label}`, `{query}`, `{topic_count}`, `{document_count}`, `{backend}`, `{provider}`, `{model}` |
+| `subtitle_template` | string | — | Subtitle template with the same placeholders as `title` |
 | `dark_mode` | bool | `true` | Dark or light UI theme |
 | `font_family` | string | `"Cinzel"` | Google/system font for labels and titles |
 | `topic_tree` | bool | `false` | Expert-mode toggle for an extra hierarchy tree panel (Toponymy only) |
@@ -307,23 +307,24 @@ curation:
 | Key | Type | Default | Preset Override | Description |
 | --- | --- | --- | --- | --- |
 | `metrics` | list | `["direct", "co_citation", "bibliographic_coupling", "author_co_citation"]` | — | Network types to build |
-| `min_counts` | dict | `{direct: 1, co_citation: 1, bibliographic_coupling: 1, author_co_citation: 1}` | all presets → `{direct: 3, co_citation: 6, bibliographic_coupling: 3, author_co_citation: 5}` | Minimum edge weight per metric |
+| `min_counts` | dict | `{direct: 1, co_citation: 1, bibliographic_coupling: 1, author_co_citation: 1}` | all presets → `{direct: 2, co_citation: 3, bibliographic_coupling: 2, author_co_citation: 3}` | Minimum edge weight per metric |
 | `authors_filter` | list[string] \| null | `null` | — | Optional string-based include filter on source publications (`Author`) |
 | `authors_filter_uids` | list[string] \| null | `null` | — | Optional UID-based include filter on source publications (`author_uids`); requires author disambiguation output in memory |
+| `exclude_query_authors` | bool | `false` | all presets → `true` | Add author terms from `search.query` (for example `author:"Hawking, S*"`) to the cited-author exclusion set |
 | `cited_authors_exclude` | list[string] \| null | `null` | — | Optional string-based exclude filter on cited references (`Author`); matching references are pruned before network construction |
 | `cited_author_uids_exclude` | list[string] \| null | `null` | — | Optional UID-based exclude filter on cited references (`author_uids`); requires author disambiguation output in memory |
 | `output_format` | string | `"gexf"` | — | Export format: `gexf`, `graphology`, `csv`, or `all` |
 
 The code default is `1` for every metric (everything keeps every edge). The
 four packaged presets raise those thresholds to practical starter values
-(`3/6/3/5`) so the exported networks stay readable on typical corpora. Override
+(`2/3/2/3`) so sparse author-focused corpora still retain usable structure. Override
 per metric via `citations.min_counts.<metric>`.
 
 `authors_filter` and `authors_filter_uids` act on the source publication set.
-`cited_authors_exclude` and `cited_author_uids_exclude` act on the cited
-reference side by removing matching references from each publication before the
-direct, co-citation, bibliographic-coupling, and author-co-citation networks
-are computed.
+`exclude_query_authors`, `cited_authors_exclude`, and
+`cited_author_uids_exclude` act on the cited reference side by removing
+matching references from each publication before the direct, co-citation,
+bibliographic-coupling, and author-co-citation networks are computed.
 
 For `gexf`, `graphology`, and network CSV exports, `direct` is exported as a
 directed graph. `co_citation`, `bibliographic_coupling`, and

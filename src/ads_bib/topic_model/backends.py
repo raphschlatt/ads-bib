@@ -948,6 +948,7 @@ def _create_tracked_toponymy_namer(
     model: str,
     api_key: str,
     base_url: str,
+    llm_specific_instructions: str | None = None,
     max_workers: int = 5,
 ) -> tuple[Any, dict]:
     """Create a Toponymy-compatible async OpenRouter wrapper with usage tracking."""
@@ -965,6 +966,9 @@ def _create_tracked_toponymy_namer(
             self.model = model
             self.max_workers = worker_count
             self._semaphore = asyncio.Semaphore(self.max_workers)
+            self.extra_prompting = (
+                f"\n\n{llm_specific_instructions}" if llm_specific_instructions else ""
+            )
 
         async def _call_single(
             self,
@@ -1016,7 +1020,7 @@ def _create_tracked_toponymy_namer(
         ) -> list[str]:
             tasks = [
                 self._call_single(
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": prompt + self.extra_prompting}],
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
@@ -1038,7 +1042,7 @@ def _create_tracked_toponymy_namer(
                 self._call_single(
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": user_prompt + self.extra_prompting},
                     ],
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -1054,6 +1058,7 @@ def _create_tracked_toponymy_huggingface_namer(
     *,
     model: str,
     api_key: str | None,
+    llm_specific_instructions: str | None = None,
     max_workers: int = 5,
 ) -> tuple[Any, dict[str, Any]]:
     """Create a Toponymy-compatible async HF API wrapper with usage tracking."""
@@ -1077,6 +1082,9 @@ def _create_tracked_toponymy_huggingface_namer(
             self.model = model_id
             self.max_workers = worker_count
             self._semaphore = asyncio.Semaphore(self.max_workers)
+            self.extra_prompting = (
+                f"\n\n{llm_specific_instructions}" if llm_specific_instructions else ""
+            )
 
         @staticmethod
         def _extract_usage(response: Any) -> tuple[int, int]:
@@ -1126,7 +1134,7 @@ def _create_tracked_toponymy_huggingface_namer(
         ) -> list[str]:
             tasks = [
                 self._call_single(
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": prompt + self.extra_prompting}],
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
@@ -1148,7 +1156,7 @@ def _create_tracked_toponymy_huggingface_namer(
                 self._call_single(
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": user_prompt + self.extra_prompting},
                     ],
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -1165,6 +1173,7 @@ def _create_llama_server_toponymy_namer(
     model_spec: ModelSpec,
     config: LlamaServerConfig | None,
     runtime_log_path: Path | None,
+    llm_specific_instructions: str | None = None,
     max_workers: int = DEFAULT_LLAMA_SERVER_PARALLEL,
 ) -> tuple[Any, None]:
     """Create a Toponymy-compatible async local llama-server wrapper."""
@@ -1185,6 +1194,9 @@ def _create_llama_server_toponymy_namer(
             self.model = api_model
             self.max_workers = worker_count
             self._semaphore = asyncio.Semaphore(self.max_workers)
+            self.extra_prompting = (
+                f"\n\n{llm_specific_instructions}" if llm_specific_instructions else ""
+            )
 
         async def _call_single(
             self,
@@ -1220,7 +1232,7 @@ def _create_llama_server_toponymy_namer(
         ) -> list[str]:
             tasks = [
                 self._call_single(
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": prompt + self.extra_prompting}],
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
@@ -1242,7 +1254,7 @@ def _create_llama_server_toponymy_namer(
                 self._call_single(
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": user_prompt + self.extra_prompting},
                     ],
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -1541,6 +1553,7 @@ def _build_toponymy_models(
     embedding_model: str,
     api_key: str | None,
     openrouter_api_base: str,
+    llm_specific_instructions: str | None,
     max_workers: int,
     local_llm_max_new_tokens: int,
     cost_tracker: "CostTracker | None",
@@ -1553,12 +1566,14 @@ def _build_toponymy_models(
             model=llm_model,
             api_key=api_key,
             base_url=openrouter_api_base,
+            llm_specific_instructions=llm_specific_instructions,
             max_workers=max_workers,
         )
     elif llm_provider_norm == "huggingface_api":
         llm_wrapper, llm_usage = _create_tracked_toponymy_huggingface_namer(
             model=llm_model,
             api_key=api_key,
+            llm_specific_instructions=llm_specific_instructions,
             max_workers=max_workers,
         )
     elif llm_provider_norm == "llama_server":
@@ -1568,6 +1583,7 @@ def _build_toponymy_models(
             model_spec=llm_model_spec,
             config=llama_server_config,
             runtime_log_path=runtime_log_path,
+            llm_specific_instructions=llm_specific_instructions,
             max_workers=max_workers,
         )
         if cost_tracker is not None:
@@ -1631,6 +1647,7 @@ def _build_toponymy_models(
                 llm_wrapper = _CappedDeterministicHuggingFaceNamer(
                     model=llm_model,
                     max_new_tokens=local_llm_max_new_tokens,
+                    llm_specific_instructions=llm_specific_instructions,
                     device_map="auto",
                     dtype="auto",
                 )
@@ -1638,6 +1655,7 @@ def _build_toponymy_models(
                 llm_wrapper = _CappedDeterministicHuggingFaceNamer(
                     model=llm_model,
                     max_new_tokens=local_llm_max_new_tokens,
+                    llm_specific_instructions=llm_specific_instructions,
                     device_map="auto",
                     torch_dtype="auto",
                 )
@@ -2000,6 +2018,7 @@ def fit_toponymy(
     llm_model_repo: str | None = None,
     llm_model_file: str | None = None,
     llm_model_path: str | None = None,
+    llm_prompt: str | None = None,
     embedding_provider: ToponymyEmbeddingProvider = "local",
     embedding_model: str = "google/gemini-embedding-001",
     api_key: str | None = None,
@@ -2035,6 +2054,8 @@ def fit_toponymy(
         Currently supported Toponymy naming provider.
     llm_model : str
         LLM model identifier for topic naming.
+    llm_prompt : str, optional
+        Extra naming instructions appended to Toponymy's built-in prompts.
     embedding_provider : str
         Text-embedding provider used by Toponymy internals.
     local_llm_max_new_tokens : int
@@ -2097,6 +2118,7 @@ def fit_toponymy(
         embedding_model=embedding_model,
         api_key=api_key,
         openrouter_api_base=openrouter_api_base,
+        llm_specific_instructions=llm_prompt,
         max_workers=max_workers,
         local_llm_max_new_tokens=local_llm_max_new_tokens,
         cost_tracker=cost_tracker,

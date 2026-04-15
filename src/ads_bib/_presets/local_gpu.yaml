@@ -107,8 +107,8 @@ topic_model:
 
 visualization:
   enabled: true
-  title: ADS Bibliometric Map
-  subtitle_template: "Topics labeled with {provider}/{model}"
+  title: "{query_label} Topic Map"
+  subtitle_template: "{topic_count} topics from {document_count:,} ADS records"
   dark_mode: true
   font_family: Cinzel
   topic_tree: false
@@ -124,12 +124,13 @@ citations:
     - bibliographic_coupling
     - author_co_citation
   min_counts:
-    direct: 3
-    co_citation: 6
-    bibliographic_coupling: 3
-    author_co_citation: 5
+    direct: 2
+    co_citation: 3
+    bibliographic_coupling: 2
+    author_co_citation: 3
   authors_filter: null
   authors_filter_uids: null
+  exclude_query_authors: true
   cited_authors_exclude: null
   cited_author_uids_exclude: null
   output_format: gexf

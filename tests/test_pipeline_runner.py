@@ -12,7 +12,7 @@ import pytest
 import ads_bib._dataset_bundle as dataset_bundle
 import ads_bib.pipeline as pipeline
 from ads_bib.presets import get_preset_names, get_preset_summary, load_preset_config
-from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS
+from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS, TOPONYMY_LABELING_PHYSICS
 
 
 class _DummyTopicModel:
@@ -72,23 +72,24 @@ def test_openrouter_package_preset_loads():
     assert data["author_disambiguation"]["enabled"] is False
     assert data["tokenize"]["spacy_model"] == "en_core_web_md"
     assert data["tokenize"]["fallback_model"] == "en_core_web_md"
-    assert data["translate"]["model"] == "google/gemini-3.1-flash-lite-preview"
+    assert data["translate"]["model"] == "google/gemini-3-flash-preview"
     assert data["translate"]["model_repo"] is None
     assert data["translate"]["model_file"] is None
     assert data["translate"]["model_path"] is None
     assert data["llama_server"]["command"] == "llama-server"
     assert data["llama_server"]["reasoning"] == "off"
     assert data["topic_model"]["embedding_model"] == "qwen/qwen3-embedding-8b"
-    assert data["topic_model"]["llm_model"] == "google/gemini-3.1-flash-lite-preview"
+    assert data["topic_model"]["llm_model"] == "google/gemini-3-flash-preview"
     assert data["topic_model"]["llm_model_repo"] is None
     assert data["topic_model"]["llm_model_file"] is None
     assert data["topic_model"]["llm_model_path"] is None
     assert data["topic_model"]["toponymy_layer_index"] == "auto"
     assert data["topic_model"]["toponymy_local_label_max_tokens"] == 128
     assert data["visualization"]["font_family"] == "Cinzel"
-    assert data["visualization"]["title"] == "ADS Bibliometric Map"
+    assert data["visualization"]["title"] == "{query_label} Topic Map"
     assert data["visualization"]["topic_tree"] is False
     assert data["curation"]["cluster_targets"] == []
+    assert data["citations"]["exclude_query_authors"] is True
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
 
@@ -210,14 +211,16 @@ def test_official_pipeline_config_templates_load(
     assert config.topic_model.bertopic_label_max_tokens == 64
     assert config.topic_model.toponymy_local_label_max_tokens == 128
     assert config.visualization.font_family == "Cinzel"
+    assert config.visualization.title == "{query_label} Topic Map"
     assert config.visualization.topic_tree is False
     assert config.curation.cluster_targets == []
     assert config.citations.min_counts == {
-        "direct": 3,
-        "co_citation": 6,
-        "bibliographic_coupling": 3,
-        "author_co_citation": 5,
+        "direct": 2,
+        "co_citation": 3,
+        "bibliographic_coupling": 2,
+        "author_co_citation": 3,
     }
+    assert config.citations.exclude_query_authors is True
 def test_run_topic_fit_stage_uses_implicit_keybert_default(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
@@ -1141,6 +1144,91 @@ def test_run_pipeline_topic_fit_uses_tokenized_snapshot_and_caches(tmp_path, mon
     assert ctx.topics.tolist() == [0, 1]
     assert list(ctx.topic_info["Name"]) == ["Topic 0", "Topic 1"]
     assert seen_prompts == [BERTOPIC_LABELING_PHYSICS]
+
+
+def test_run_topic_fit_stage_passes_toponymy_prompt_instructions(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+            "topic_model": {
+                "backend": "toponymy",
+                "llm_provider": "openrouter",
+                "llm_model": "google/gemini-3-flash-preview",
+                "embedding_provider": "local",
+                "embedding_model": "google/embeddinggemma-300m",
+                "outlier_threshold": 0,
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.documents = ["doc-a", "doc-b"]
+    ctx.embeddings = np.ones((2, 4), dtype=np.float32)
+    ctx.reduced_5d = np.ones((2, 5), dtype=np.float32)
+
+    calls: dict[str, object] = {}
+    fake_model = SimpleNamespace(topic_names_=[["Topic 0", "Topic 1"]], topic_primary_layer_index_=0)
+
+    def _fake_fit_toponymy(documents, embeddings, clusterable_vectors, **kwargs):
+        calls["documents"] = list(documents)
+        calls["embedding_shape"] = embeddings.shape
+        calls["clusterable_shape"] = clusterable_vectors.shape
+        calls["kwargs"] = kwargs
+        return fake_model, np.array([0, 1]), pd.DataFrame(
+            {"Topic": [0, 1], "Name": ["Topic 0", "Topic 1"]}
+        )
+
+    monkeypatch.setattr(pipeline, "fit_toponymy", _fake_fit_toponymy)
+
+    pipeline.run_topic_fit_stage(ctx)
+
+    assert calls["documents"] == ["doc-a", "doc-b"]
+    assert calls["embedding_shape"] == (2, 4)
+    assert calls["clusterable_shape"] == (2, 5)
+    assert calls["kwargs"]["llm_prompt"] == TOPONYMY_LABELING_PHYSICS
+
+
+def test_visualization_templates_use_query_label_and_corpus_counts(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": 'author:"Hawking, S*"'},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+            "topic_model": {
+                "llm_provider": "openrouter",
+                "llm_model": "google/gemini-3-flash-preview",
+            },
+        }
+    )
+    ctx = SimpleNamespace(
+        config=config,
+        topic_df=pd.DataFrame({"topic_id": [0, 0, 1, -1]}),
+        topic_info=pd.DataFrame({"Topic": [0, 1, -1], "Name": ["A", "B", "Outlier Topic"]}),
+    )
+
+    assert pipeline._topic_title(ctx) == "Hawking Topic Map"
+    assert pipeline._topic_subtitle(ctx) == "2 topics from 4 ADS records"
+
+
+def test_effective_cited_author_excludes_merge_query_authors(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": '(author:"Hawking, S*") OR author:"Penrose, R*"'},
+            "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
+            "citations": {
+                "exclude_query_authors": True,
+                "cited_authors_exclude": ["Ellis, G"],
+            },
+        }
+    )
+
+    assert pipeline._effective_cited_author_excludes(config) == [
+        "Ellis, G",
+        "Hawking, S",
+        "Penrose, R",
+    ]
 
 
 def test_validate_stage_name_rejects_unknown_stage():

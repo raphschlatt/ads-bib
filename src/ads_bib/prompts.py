@@ -59,6 +59,23 @@ no quotes, no bullet points)."""
 
 
 # ---------------------------------------------------------------------------
+# Toponymy topic labeling instructions
+# ---------------------------------------------------------------------------
+
+TOPONYMY_LABELING_GENERIC = """\
+Return a concise topic label of 3 to 6 words.
+Use standard scholarly terminology.
+Avoid long conjunction chains, lists, subtitles, or sentence-like phrasing.
+Prefer a compact noun phrase over a descriptive clause."""
+
+TOPONYMY_LABELING_PHYSICS = """\
+Return a concise topic label of 3 to 6 words.
+Use standard terminology from gravitational physics, astrophysics, and cosmology.
+Avoid long conjunction chains, lists, subtitles, or sentence-like phrasing.
+Prefer a compact noun phrase over a descriptive clause."""
+
+
+# ---------------------------------------------------------------------------
 # Translation
 # ---------------------------------------------------------------------------
 

@@ -144,10 +144,10 @@ ads-bib run --config ads-bib.yaml --from topic_fit
   publication period
 - **Click** — opens the ADS abstract page in a new tab
 
-Set `title`, `subtitle_template` (with `{provider}` and `{model}`
-placeholders), `dark_mode`, and `font_family` for basic styling. `topic_tree`
-is an expert-mode toggle (default `false`) that adds an extra hierarchy tree
-panel for Toponymy runs.
+Set `title` and `subtitle_template` with placeholders like `{query_label}`,
+`{topic_count}`, `{document_count}`, `{backend}`, `{provider}`, and `{model}`
+for basic styling. `topic_tree` is an expert-mode toggle (default `false`)
+that adds an extra hierarchy tree panel for Toponymy runs.
 
 ### Curation
 
@@ -194,8 +194,10 @@ Citation Count, DOI, `topic_id`, `Name`, `embedding_2d_x/y`, `Title_en`,
 `Abstract_en`, and Toponymy hierarchy columns where applicable).
 
 The `min_counts` parameter sets the minimum edge weight per metric. The
-packaged presets use `{direct: 3, co_citation: 6, bibliographic_coupling: 3,
-author_co_citation: 5}` for typical research corpora — scale these
-proportionally for larger datasets. For tool-level interpretation, file
+packaged presets use `{direct: 2, co_citation: 3, bibliographic_coupling: 2,
+author_co_citation: 3}` as author-friendly starter values. They also enable
+`exclude_query_authors`, so explicit `author:"..."` query terms are removed
+from the cited-reference side before network construction. Scale thresholds up
+for denser corpora. For tool-level interpretation, file
 format, and downstream loading, continue to
 [Citation Networks](citation-networks.md).

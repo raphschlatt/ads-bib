@@ -135,6 +135,11 @@ Labeling names each cluster via an LLM. Pick a prompt with
 domain-agnostic), or override with `llm_prompt`. `bertopic_label_max_tokens`
 and `toponymy_local_label_max_tokens` cap label length.
 
+For BERTopic, `llm_prompt` replaces the full labeling prompt. For Toponymy,
+it appends extra naming instructions to Toponymy's built-in prompt templates,
+which is the preferred way to keep hierarchy labels concise without forking
+the backend prompt logic.
+
 For BERTopic, representation runs a POS filter → KeyBERT → MMR → LLM before
 the final label emerges. Outlier reassignment uses `outlier_threshold`
 (default `0.5`) — documents with assignment probability above that threshold

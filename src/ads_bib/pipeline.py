@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 import random
+import re
 import time
 from collections.abc import Callable
 from typing import Any, Literal
@@ -110,6 +111,15 @@ _PROMPT_MAP: dict[str, str] = {
     "physics": _prompt_value("BERTOPIC_LABELING_PHYSICS"),
     "generic": _prompt_value("BERTOPIC_LABELING_GENERIC"),
 }
+
+_TOPONYMY_PROMPT_MAP: dict[str, str] = {
+    "physics": _prompt_value("TOPONYMY_LABELING_PHYSICS"),
+    "generic": _prompt_value("TOPONYMY_LABELING_GENERIC"),
+}
+
+_PROMPT_NAMES = frozenset(_PROMPT_MAP) | frozenset(_TOPONYMY_PROMPT_MAP)
+_AUTHOR_QUERY_RE = re.compile(r'author\s*:\s*"([^"]+)"', flags=re.IGNORECASE)
+_QUOTED_QUERY_RE = re.compile(r'"([^"]+)"')
 
 
 @dataclass
@@ -224,8 +234,8 @@ def _normalize_topic_tree_setting(value: bool | str | None) -> bool:
 @dataclass
 class VisualizationConfig:
     enabled: bool = True
-    title: str = "ADS Bibliometric Map"
-    subtitle_template: str = "Topics labeled with {provider}/{model}"
+    title: str = "{query_label} Topic Map"
+    subtitle_template: str = "{topic_count} topics from {document_count:,} ADS records"
     dark_mode: bool = True
     font_family: str = "Cinzel"
     topic_tree: bool = False
@@ -257,6 +267,7 @@ class CitationsConfig:
     )
     authors_filter: list[str] | None = None
     authors_filter_uids: list[str] | None = None
+    exclude_query_authors: bool = False
     cited_authors_exclude: list[str] | None = None
     cited_author_uids_exclude: list[str] | None = None
     output_format: str = "gexf"
@@ -324,8 +335,8 @@ class PipelineConfig:
             raise ValueError(
                 "author_disambiguation.model_bundle is required when author_disambiguation.enabled=true."
             )
-        if self.topic_model.llm_prompt is None and self.topic_model.llm_prompt_name not in _PROMPT_MAP:
-            allowed = ", ".join(sorted(_PROMPT_MAP))
+        if self.topic_model.llm_prompt is None and self.topic_model.llm_prompt_name not in _PROMPT_NAMES:
+            allowed = ", ".join(sorted(_PROMPT_NAMES))
             raise ValueError(
                 f"Invalid topic_model.llm_prompt_name '{self.topic_model.llm_prompt_name}'. "
                 f"Expected one of: {allowed}."
@@ -523,6 +534,58 @@ def _resolve_topic_prompt(cfg: TopicModelConfig) -> str:
     return _PROMPT_MAP[cfg.llm_prompt_name]
 
 
+def _resolve_toponymy_prompt(cfg: TopicModelConfig) -> str:
+    if cfg.llm_prompt:
+        return cfg.llm_prompt
+    return _TOPONYMY_PROMPT_MAP[cfg.llm_prompt_name]
+
+
+def _dedupe_nonempty_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = value.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result
+
+
+def _extract_query_author_terms(query: str) -> list[str]:
+    terms = [match.replace("*", "").strip() for match in _AUTHOR_QUERY_RE.findall(query or "")]
+    return _dedupe_nonempty_strings(terms)
+
+
+def _derive_query_label(query: str) -> str:
+    author_terms = _extract_query_author_terms(query)
+    if author_terms:
+        surname = author_terms[0].split(",", 1)[0].strip()
+        return surname or author_terms[0]
+
+    quoted = _QUOTED_QUERY_RE.search(query or "")
+    if quoted is not None:
+        label = quoted.group(1).replace("*", "").strip()
+        if label:
+            return label if len(label) <= 32 else f"{label[:29]}..."
+
+    compact_query = " ".join((query or "").split())
+    if compact_query and len(compact_query) <= 24 and compact_query.isascii():
+        return compact_query
+    return "ADS"
+
+
+def _effective_cited_author_excludes(config: PipelineConfig) -> list[str] | None:
+    values = list(config.citations.cited_authors_exclude or [])
+    if config.citations.exclude_query_authors:
+        values.extend(_extract_query_author_terms(config.search.query))
+    deduped = _dedupe_nonempty_strings(values)
+    return deduped or None
+
+
 def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
     prepared = PipelineConfig.from_dict(config.to_dict())
     load_env(project_root=prepared.run.project_root)
@@ -554,7 +617,16 @@ def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
     return prepared
 
 
-def _topic_subtitle(config: PipelineConfig) -> str:
+def _topic_count(ctx: PipelineContext) -> int:
+    if ctx.topic_info is not None and "Topic" in ctx.topic_info.columns:
+        return int((ctx.topic_info["Topic"] != -1).sum())
+    if ctx.topic_df is not None and "topic_id" in ctx.topic_df.columns:
+        return int(pd.Series(ctx.topic_df["topic_id"]).loc[lambda values: values != -1].nunique())
+    return 0
+
+
+def _visualization_template_values(ctx: PipelineContext) -> dict[str, Any]:
+    config = ctx.config
     model_label = config.topic_model.llm_model
     if config.topic_model.llm_provider == "llama_server":
         model_label = ModelSpec.from_fields(
@@ -564,10 +636,36 @@ def _topic_subtitle(config: PipelineConfig) -> str:
             legacy_value=config.topic_model.llm_model,
             field_label="topic_model.llm_model",
         ).display_name()
-    return config.visualization.subtitle_template.format(
-        provider=config.topic_model.llm_provider,
-        model=model_label,
-    )
+    return {
+        "backend": config.topic_model.backend,
+        "document_count": len(ctx.topic_df) if ctx.topic_df is not None else 0,
+        "model": model_label,
+        "provider": config.topic_model.llm_provider,
+        "query": config.search.query.strip(),
+        "query_label": _derive_query_label(config.search.query),
+        "topic_count": _topic_count(ctx),
+    }
+
+
+def _format_visualization_text(template: str, ctx: PipelineContext) -> str:
+    values = _visualization_template_values(ctx)
+    try:
+        return template.format(**values)
+    except KeyError as exc:
+        placeholder = str(exc.args[0])
+        available = ", ".join(sorted(values))
+        raise ValueError(
+            f"Unknown visualization placeholder '{placeholder}'. "
+            f"Available placeholders: {available}."
+        ) from exc
+
+
+def _topic_title(ctx: PipelineContext) -> str:
+    return _format_visualization_text(ctx.config.visualization.title, ctx)
+
+
+def _topic_subtitle(ctx: PipelineContext) -> str:
+    return _format_visualization_text(ctx.config.visualization.subtitle_template, ctx)
 
 
 def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str]:
@@ -1416,6 +1514,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                     llm_model_repo=cfg.llm_model_repo,
                     llm_model_file=cfg.llm_model_file,
                     llm_model_path=cfg.llm_model_path,
+                    llm_prompt=_resolve_toponymy_prompt(cfg),
                     embedding_provider=cfg.embedding_provider,
                     embedding_model=resolved["toponymy_embedding_model"],
                     local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
@@ -1441,6 +1540,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         llm_model_repo=cfg.llm_model_repo,
                         llm_model_file=cfg.llm_model_file,
                         llm_model_path=cfg.llm_model_path,
+                        llm_prompt=_resolve_toponymy_prompt(cfg),
                         embedding_provider=cfg.embedding_provider,
                         embedding_model=resolved["toponymy_embedding_model"],
                         local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
@@ -1548,8 +1648,8 @@ def run_visualize_stage(ctx: PipelineContext) -> PipelineContext:
         )
     create_topic_map(
         ctx.topic_df,
-        title=ctx.config.visualization.title,
-        subtitle=_topic_subtitle(ctx.config),
+        title=_topic_title(ctx),
+        subtitle=_topic_subtitle(ctx),
         dark_mode=ctx.config.visualization.dark_mode,
         font_family=ctx.config.visualization.font_family,
         topic_tree=ctx.config.visualization.topic_tree,
@@ -1655,12 +1755,13 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         )
 
     cfg = ctx.config.citations
+    effective_cited_authors_exclude = _effective_cited_author_excludes(ctx.config)
     filtered_publications = prepare_citation_publications(
         ctx.curated_df,
         ctx.refs,
         authors_filter=cfg.authors_filter,
         authors_filter_uids=cfg.authors_filter_uids,
-        cited_authors_exclude=cfg.cited_authors_exclude,
+        cited_authors_exclude=effective_cited_authors_exclude,
         cited_author_uids_exclude=cfg.cited_author_uids_exclude,
     )
     bibcodes, references = build_citation_inputs_from_publications(filtered_publications)
@@ -1675,7 +1776,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         min_counts=cfg.min_counts,
         authors_filter=cfg.authors_filter,
         authors_filter_uids=cfg.authors_filter_uids,
-        cited_authors_exclude=cfg.cited_authors_exclude,
+        cited_authors_exclude=effective_cited_authors_exclude,
         cited_author_uids_exclude=cfg.cited_author_uids_exclude,
         output_format=cfg.output_format,
         output_dir=ctx.run.paths["data"],
@@ -1687,7 +1788,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
             (
                 cfg.authors_filter,
                 cfg.authors_filter_uids,
-                cfg.cited_authors_exclude,
+                effective_cited_authors_exclude,
                 cfg.cited_author_uids_exclude,
             )
         )
