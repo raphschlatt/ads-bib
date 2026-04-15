@@ -107,7 +107,7 @@ topic_model:
 
 visualization:
   enabled: true
-  title: "{query_label} Topic Map"
+  title: "ADS Topic Map"
   subtitle_template: "{topic_count} topics from {document_count:,} ADS records"
   dark_mode: true
   font_family: Cinzel
@@ -130,7 +130,6 @@ citations:
     author_co_citation: 3
   authors_filter: null
   authors_filter_uids: null
-  exclude_query_authors: true
   cited_authors_exclude: null
   cited_author_uids_exclude: null
   output_format: gexf

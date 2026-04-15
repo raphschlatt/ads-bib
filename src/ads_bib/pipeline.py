@@ -7,7 +7,6 @@ import logging
 import os
 from pathlib import Path
 import random
-import re
 import time
 from collections.abc import Callable
 from typing import Any, Literal
@@ -118,8 +117,6 @@ _TOPONYMY_PROMPT_MAP: dict[str, str] = {
 }
 
 _PROMPT_NAMES = frozenset(_PROMPT_MAP) | frozenset(_TOPONYMY_PROMPT_MAP)
-_AUTHOR_QUERY_RE = re.compile(r'author\s*:\s*"([^"]+)"', flags=re.IGNORECASE)
-_QUOTED_QUERY_RE = re.compile(r'"([^"]+)"')
 
 
 @dataclass
@@ -234,7 +231,7 @@ def _normalize_topic_tree_setting(value: bool | str | None) -> bool:
 @dataclass
 class VisualizationConfig:
     enabled: bool = True
-    title: str = "{query_label} Topic Map"
+    title: str = "ADS Topic Map"
     subtitle_template: str = "{topic_count} topics from {document_count:,} ADS records"
     dark_mode: bool = True
     font_family: str = "Cinzel"
@@ -267,7 +264,6 @@ class CitationsConfig:
     )
     authors_filter: list[str] | None = None
     authors_filter_uids: list[str] | None = None
-    exclude_query_authors: bool = False
     cited_authors_exclude: list[str] | None = None
     cited_author_uids_exclude: list[str] | None = None
     output_format: str = "gexf"
@@ -540,52 +536,6 @@ def _resolve_toponymy_prompt(cfg: TopicModelConfig) -> str:
     return _TOPONYMY_PROMPT_MAP[cfg.llm_prompt_name]
 
 
-def _dedupe_nonempty_strings(values: list[str]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        normalized = value.strip()
-        if not normalized:
-            continue
-        key = normalized.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(normalized)
-    return result
-
-
-def _extract_query_author_terms(query: str) -> list[str]:
-    terms = [match.replace("*", "").strip() for match in _AUTHOR_QUERY_RE.findall(query or "")]
-    return _dedupe_nonempty_strings(terms)
-
-
-def _derive_query_label(query: str) -> str:
-    author_terms = _extract_query_author_terms(query)
-    if author_terms:
-        surname = author_terms[0].split(",", 1)[0].strip()
-        return surname or author_terms[0]
-
-    quoted = _QUOTED_QUERY_RE.search(query or "")
-    if quoted is not None:
-        label = quoted.group(1).replace("*", "").strip()
-        if label:
-            return label if len(label) <= 32 else f"{label[:29]}..."
-
-    compact_query = " ".join((query or "").split())
-    if compact_query and len(compact_query) <= 24 and compact_query.isascii():
-        return compact_query
-    return "ADS"
-
-
-def _effective_cited_author_excludes(config: PipelineConfig) -> list[str] | None:
-    values = list(config.citations.cited_authors_exclude or [])
-    if config.citations.exclude_query_authors:
-        values.extend(_extract_query_author_terms(config.search.query))
-    deduped = _dedupe_nonempty_strings(values)
-    return deduped or None
-
-
 def prepare_pipeline_config(config: PipelineConfig) -> PipelineConfig:
     prepared = PipelineConfig.from_dict(config.to_dict())
     load_env(project_root=prepared.run.project_root)
@@ -626,23 +576,8 @@ def _topic_count(ctx: PipelineContext) -> int:
 
 
 def _visualization_template_values(ctx: PipelineContext) -> dict[str, Any]:
-    config = ctx.config
-    model_label = config.topic_model.llm_model
-    if config.topic_model.llm_provider == "llama_server":
-        model_label = ModelSpec.from_fields(
-            model_repo=config.topic_model.llm_model_repo,
-            model_file=config.topic_model.llm_model_file,
-            model_path=config.topic_model.llm_model_path,
-            legacy_value=config.topic_model.llm_model,
-            field_label="topic_model.llm_model",
-        ).display_name()
     return {
-        "backend": config.topic_model.backend,
         "document_count": len(ctx.topic_df) if ctx.topic_df is not None else 0,
-        "model": model_label,
-        "provider": config.topic_model.llm_provider,
-        "query": config.search.query.strip(),
-        "query_label": _derive_query_label(config.search.query),
         "topic_count": _topic_count(ctx),
     }
 
@@ -1755,13 +1690,12 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         )
 
     cfg = ctx.config.citations
-    effective_cited_authors_exclude = _effective_cited_author_excludes(ctx.config)
     filtered_publications = prepare_citation_publications(
         ctx.curated_df,
         ctx.refs,
         authors_filter=cfg.authors_filter,
         authors_filter_uids=cfg.authors_filter_uids,
-        cited_authors_exclude=effective_cited_authors_exclude,
+        cited_authors_exclude=cfg.cited_authors_exclude,
         cited_author_uids_exclude=cfg.cited_author_uids_exclude,
     )
     bibcodes, references = build_citation_inputs_from_publications(filtered_publications)
@@ -1776,7 +1710,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         min_counts=cfg.min_counts,
         authors_filter=cfg.authors_filter,
         authors_filter_uids=cfg.authors_filter_uids,
-        cited_authors_exclude=effective_cited_authors_exclude,
+        cited_authors_exclude=cfg.cited_authors_exclude,
         cited_author_uids_exclude=cfg.cited_author_uids_exclude,
         output_format=cfg.output_format,
         output_dir=ctx.run.paths["data"],
@@ -1788,7 +1722,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
             (
                 cfg.authors_filter,
                 cfg.authors_filter_uids,
-                effective_cited_authors_exclude,
+                cfg.cited_authors_exclude,
                 cfg.cited_author_uids_exclude,
             )
         )

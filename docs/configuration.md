@@ -274,8 +274,8 @@ cluster_params:
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enabled` | bool | `true` | Set `false` to skip HTML map generation |
-| `title` | string | — | Map title rendered above the canvas; supports `{query_label}`, `{query}`, `{topic_count}`, `{document_count}`, `{backend}`, `{provider}`, `{model}` |
-| `subtitle_template` | string | — | Subtitle template with the same placeholders as `title` |
+| `title` | string | `"ADS Topic Map"` | Map title rendered above the canvas; supports `{topic_count}` and `{document_count}` when you want counts in the heading |
+| `subtitle_template` | string | `"{topic_count} topics from {document_count:,} ADS records"` | Subtitle template; supports `{topic_count}` and `{document_count}` |
 | `dark_mode` | bool | `true` | Dark or light UI theme |
 | `font_family` | string | `"Cinzel"` | Google/system font for labels and titles |
 | `topic_tree` | bool | `false` | Expert-mode toggle for an extra hierarchy tree panel (Toponymy only) |
@@ -310,7 +310,6 @@ curation:
 | `min_counts` | dict | `{direct: 1, co_citation: 1, bibliographic_coupling: 1, author_co_citation: 1}` | all presets → `{direct: 2, co_citation: 3, bibliographic_coupling: 2, author_co_citation: 3}` | Minimum edge weight per metric |
 | `authors_filter` | list[string] \| null | `null` | — | Optional string-based include filter on source publications (`Author`) |
 | `authors_filter_uids` | list[string] \| null | `null` | — | Optional UID-based include filter on source publications (`author_uids`); requires author disambiguation output in memory |
-| `exclude_query_authors` | bool | `false` | all presets → `true` | Add author terms from `search.query` (for example `author:"Hawking, S*"`) to the cited-author exclusion set |
 | `cited_authors_exclude` | list[string] \| null | `null` | — | Optional string-based exclude filter on cited references (`Author`); matching references are pruned before network construction |
 | `cited_author_uids_exclude` | list[string] \| null | `null` | — | Optional UID-based exclude filter on cited references (`author_uids`); requires author disambiguation output in memory |
 | `output_format` | string | `"gexf"` | — | Export format: `gexf`, `graphology`, `csv`, or `all` |
@@ -321,8 +320,7 @@ four packaged presets raise those thresholds to practical starter values
 per metric via `citations.min_counts.<metric>`.
 
 `authors_filter` and `authors_filter_uids` act on the source publication set.
-`exclude_query_authors`, `cited_authors_exclude`, and
-`cited_author_uids_exclude` act on the cited reference side by removing
+`cited_authors_exclude` and `cited_author_uids_exclude` act on the cited reference side by removing
 matching references from each publication before the direct, co-citation,
 bibliographic-coupling, and author-co-citation networks are computed.
 

@@ -120,7 +120,12 @@ def test_collect_doctor_report_flags_translate_blockers(monkeypatch, tmp_path):
     config = PipelineConfig.from_dict(config_data)
 
     monkeypatch.setenv("ADS_TOKEN", "token")
-    monkeypatch.setattr(doctor, "_module_is_available", lambda module: module == "openai")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(
+        doctor,
+        "_module_is_available",
+        lambda module: module in {"openai", "pyarrow"},
+    )
 
     report = doctor.collect_doctor_report(config, stop_stage="translate")
     failures = {check.name: check.detail for check in report.failing_checks()}

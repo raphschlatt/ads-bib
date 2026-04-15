@@ -87,6 +87,8 @@ packages = ["src/ads_bib"]
 exclude = [
     "/.claude",
     "/.github",
+    "/.venv",
+    "/.venv.*",
     "/_test_run_dir",
     "/AGENTS.md",
     "/Package_ToDo.md",

@@ -101,7 +101,6 @@ def test_pipeline_notebook_code_contract():
     assert '"cluster_targets": []' in code
     assert 'CITATIONS = {' in code
     assert '"authors_filter_uids": None' in code
-    assert '"exclude_query_authors": True' in code
     assert '"cited_authors_exclude": None' in code
     assert '"cited_author_uids_exclude": None' in code
     assert "run.save_config(globals())" not in code

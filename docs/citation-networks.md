@@ -121,10 +121,10 @@ All four networks run through a per-metric `min_counts` filter before export.
 The code default is `1` for each metric (keep every edge); the four packaged
 presets raise those thresholds to
 `{direct: 2, co_citation: 3, bibliographic_coupling: 2, author_co_citation: 3}`
-as practical starter values for sparse author-focused corpora. The packaged
-presets also enable `exclude_query_authors`, so explicit `author:"..."` terms
-from the ADS query are pruned from the cited-reference side before the four
-networks are built. Scale up for denser corpora, down for sparser ones. See
+as practical starter values for sparse author-focused corpora. Use
+`cited_authors_exclude` or `cited_author_uids_exclude` when you want explicit
+pruning on the cited-reference side. Scale up for denser corpora, down for
+sparser ones. See
 [Configuration → Citations](configuration.md#citations) for the raw keys.
 
 For the full output schema (node attributes, DataFrame columns, run summary),

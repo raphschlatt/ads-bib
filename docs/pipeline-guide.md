@@ -144,9 +144,8 @@ ads-bib run --config ads-bib.yaml --from topic_fit
   publication period
 - **Click** — opens the ADS abstract page in a new tab
 
-Set `title` and `subtitle_template` with placeholders like `{query_label}`,
-`{topic_count}`, `{document_count}`, `{backend}`, `{provider}`, and `{model}`
-for basic styling. `topic_tree` is an expert-mode toggle (default `false`)
+Set `title` and `subtitle_template` with `{topic_count}` and
+`{document_count}` if you want counts in the heading. `topic_tree` is an expert-mode toggle (default `false`)
 that adds an extra hierarchy tree panel for Toponymy runs.
 
 ### Curation
@@ -195,9 +194,8 @@ Citation Count, DOI, `topic_id`, `Name`, `embedding_2d_x/y`, `Title_en`,
 
 The `min_counts` parameter sets the minimum edge weight per metric. The
 packaged presets use `{direct: 2, co_citation: 3, bibliographic_coupling: 2,
-author_co_citation: 3}` as author-friendly starter values. They also enable
-`exclude_query_authors`, so explicit `author:"..."` query terms are removed
-from the cited-reference side before network construction. Scale thresholds up
-for denser corpora. For tool-level interpretation, file
+author_co_citation: 3}` as author-friendly starter values. Use
+`cited_authors_exclude` or `cited_author_uids_exclude` when you want explicit
+author-level pruning on the cited-reference side. Scale thresholds up for denser corpora. For tool-level interpretation, file
 format, and downstream loading, continue to
 [Citation Networks](citation-networks.md).

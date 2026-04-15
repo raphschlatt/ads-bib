@@ -458,7 +458,8 @@ def test_fit_toponymy_uses_toponymy_clusterer_and_tracks_step(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
     calls: dict = {}
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del llm_specific_instructions
         calls["namer"] = {
             "model": model,
             "api_key": api_key,
@@ -503,8 +504,8 @@ def test_fit_toponymy_uses_toponymy_clusterer_and_tracks_step(monkeypatch):
 def test_fit_toponymy_auto_selects_coarsest_layer(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -534,8 +535,8 @@ def test_fit_toponymy_auto_selects_coarsest_layer(monkeypatch):
 def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -563,8 +564,8 @@ def test_fit_toponymy_casts_float16_fit_vectors_to_float32(monkeypatch):
 def test_fit_toponymy_logs_dtype_bridge_for_float16_inputs(monkeypatch, caplog):
     _install_fake_toponymy_modules(monkeypatch)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -684,8 +685,8 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
             del texts, verbose, show_progress_bar, kwargs
             return np.ones((0, 0), dtype=np.float32)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, llm_specific_instructions
         calls["namer_workers"] = max_workers
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
@@ -774,8 +775,8 @@ def test_fit_toponymy_filters_unsupported_toponymy_init_params(monkeypatch):
 
     sys.modules["toponymy"].ToponymyClusterer = _StrictToponymyClusterer
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -915,8 +916,8 @@ def test_fit_toponymy_rewrites_first_layer_cluster_error(monkeypatch, backend, c
 
     sys.modules["toponymy"].Toponymy = _FailingToponymyModel
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -947,8 +948,8 @@ def test_fit_toponymy_rewrites_first_layer_cluster_error(monkeypatch, backend, c
 def test_fit_toponymy_validates_layer_index(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
-    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers):
-        del model, api_key, base_url, max_workers
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
         return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
 
     monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
@@ -993,7 +994,8 @@ def test_fit_toponymy_supports_huggingface_api(monkeypatch):
 
     calls: dict[str, Any] = {}
 
-    def _fake_create_tracked_hf_namer(*, model, api_key, max_workers):
+    def _fake_create_tracked_hf_namer(*, model, api_key, max_workers, llm_specific_instructions=None):
+        del llm_specific_instructions
         calls["namer"] = {"model": model, "api_key": api_key, "max_workers": max_workers}
         return object(), {"prompt_tokens": 12, "completion_tokens": 4, "call_records": []}
 

@@ -86,10 +86,10 @@ def test_openrouter_package_preset_loads():
     assert data["topic_model"]["toponymy_layer_index"] == "auto"
     assert data["topic_model"]["toponymy_local_label_max_tokens"] == 128
     assert data["visualization"]["font_family"] == "Cinzel"
-    assert data["visualization"]["title"] == "{query_label} Topic Map"
+    assert data["visualization"]["title"] == "ADS Topic Map"
     assert data["visualization"]["topic_tree"] is False
     assert data["curation"]["cluster_targets"] == []
-    assert data["citations"]["exclude_query_authors"] is True
+    assert data["citations"]["cited_authors_exclude"] is None
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
 
@@ -211,7 +211,7 @@ def test_official_pipeline_config_templates_load(
     assert config.topic_model.bertopic_label_max_tokens == 64
     assert config.topic_model.toponymy_local_label_max_tokens == 128
     assert config.visualization.font_family == "Cinzel"
-    assert config.visualization.title == "{query_label} Topic Map"
+    assert config.visualization.title == "ADS Topic Map"
     assert config.visualization.topic_tree is False
     assert config.curation.cluster_targets == []
     assert config.citations.min_counts == {
@@ -220,7 +220,8 @@ def test_official_pipeline_config_templates_load(
         "bibliographic_coupling": 2,
         "author_co_citation": 3,
     }
-    assert config.citations.exclude_query_authors is True
+
+
 def test_run_topic_fit_stage_uses_implicit_keybert_default(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
@@ -1189,7 +1190,7 @@ def test_run_topic_fit_stage_passes_toponymy_prompt_instructions(tmp_path, monke
     assert calls["kwargs"]["llm_prompt"] == TOPONYMY_LABELING_PHYSICS
 
 
-def test_visualization_templates_use_query_label_and_corpus_counts(tmp_path):
+def test_visualization_templates_use_corpus_counts(tmp_path):
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
@@ -1207,28 +1208,68 @@ def test_visualization_templates_use_query_label_and_corpus_counts(tmp_path):
         topic_info=pd.DataFrame({"Topic": [0, 1, -1], "Name": ["A", "B", "Outlier Topic"]}),
     )
 
-    assert pipeline._topic_title(ctx) == "Hawking Topic Map"
+    assert pipeline._topic_title(ctx) == "ADS Topic Map"
     assert pipeline._topic_subtitle(ctx) == "2 topics from 4 ADS records"
 
 
-def test_effective_cited_author_excludes_merge_query_authors(tmp_path):
+def test_run_citations_stage_uses_explicit_cited_author_excludes(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
             "search": {"query": '(author:"Hawking, S*") OR author:"Penrose, R*"'},
             "translate": {"fasttext_model": str(tmp_path / "lid.176.bin")},
             "citations": {
-                "exclude_query_authors": True,
                 "cited_authors_exclude": ["Ellis, G"],
+                "cited_author_uids_exclude": ["uid:hawking"],
             },
         }
     )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.curated_df = pd.DataFrame({"Bibcode": ["PUB-1"]})
+    ctx.refs = pd.DataFrame({"Bibcode": ["PUB-1"], "RefBibcode": ["REF-1"]})
 
-    assert pipeline._effective_cited_author_excludes(config) == [
-        "Ellis, G",
-        "Hawking, S",
-        "Penrose, R",
-    ]
+    calls: dict[str, object] = {}
+
+    def _fake_prepare_citation_publications(publications, refs, **kwargs):
+        calls["prepare_kwargs"] = kwargs
+        return publications
+
+    def _fake_build_citation_inputs_from_publications(publications):
+        calls["filtered_publications"] = publications
+        return ["PUB-1"], [["REF-1"]]
+
+    def _fake_build_all_nodes(publications, refs):
+        calls["all_nodes_args"] = (publications, refs)
+        return pd.DataFrame({"node": []})
+
+    def _fake_process_all_citations(**kwargs):
+        calls["process_kwargs"] = kwargs
+        return {"direct": pd.DataFrame()}
+
+    def _fake_export_wos_format(publications, refs, *, output_path):
+        calls["wos_output_path"] = output_path
+
+    monkeypatch.setattr(pipeline, "prepare_citation_publications", _fake_prepare_citation_publications)
+    monkeypatch.setattr(
+        pipeline,
+        "build_citation_inputs_from_publications",
+        _fake_build_citation_inputs_from_publications,
+    )
+    monkeypatch.setattr(pipeline, "build_all_nodes", _fake_build_all_nodes)
+    monkeypatch.setattr(pipeline, "process_all_citations", _fake_process_all_citations)
+    monkeypatch.setattr(pipeline, "export_wos_format", _fake_export_wos_format)
+
+    pipeline.run_citations_stage(ctx)
+
+    assert calls["prepare_kwargs"] == {
+        "authors_filter": None,
+        "authors_filter_uids": None,
+        "cited_authors_exclude": ["Ellis, G"],
+        "cited_author_uids_exclude": ["uid:hawking"],
+    }
+    assert calls["process_kwargs"]["cited_authors_exclude"] == ["Ellis, G"]
+    assert calls["process_kwargs"]["cited_author_uids_exclude"] == ["uid:hawking"]
+    assert Path(calls["wos_output_path"]).name == "download_wos_export_filtered.txt"
 
 
 def test_validate_stage_name_rejects_unknown_stage():
