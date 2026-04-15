@@ -17,11 +17,6 @@ runs/**
 !runs/README.md
 !runs/.gitkeep
 
-# Legacy large folders
-2_data/
-3_models/
-4_utils/
-
 # Environment
 .env
 *.env

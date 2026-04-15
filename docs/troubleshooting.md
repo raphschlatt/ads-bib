@@ -214,6 +214,6 @@ ads-bib check
 Equivalent explicit commands:
 
 ```bash
-python -m ruff check src tests scripts
+python -m ruff check src tests
 PYTHONPATH=src python -m pytest -q
 ```
