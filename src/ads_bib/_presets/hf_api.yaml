@@ -129,4 +129,7 @@ citations:
     bibliographic_coupling: 3
     author_co_citation: 5
   authors_filter: null
+  authors_filter_uids: null
+  cited_authors_exclude: null
+  cited_author_uids_exclude: null
   output_format: gexf

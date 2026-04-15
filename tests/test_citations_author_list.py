@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json
+from xml.etree import ElementTree as ET
+
 import pandas as pd
 
-from ads_bib.citations import create_author_co_citations, create_direct_citations, export_to_gexf
+from ads_bib.citations import (
+    create_author_co_citations,
+    create_direct_citations,
+    export_to_gexf,
+    export_to_graphology_json,
+)
 
 
 def test_direct_citations_author_filter_handles_author_lists():
@@ -117,3 +125,33 @@ def test_export_to_gexf_accepts_list_attributes(tmp_path):
     out = tmp_path / "graph.gexf"
     export_to_gexf(edges, nodes, out)
     assert out.exists()
+
+
+def test_export_to_gexf_uses_requested_directedness(tmp_path):
+    edges = pd.DataFrame([{"source": "n1", "target": "n2", "weight": 1}])
+    nodes = pd.DataFrame([{"id": "n1"}, {"id": "n2"}])
+
+    directed_out = tmp_path / "directed.gexf"
+    undirected_out = tmp_path / "undirected.gexf"
+    export_to_gexf(edges, nodes, directed_out, directed=True)
+    export_to_gexf(edges, nodes, undirected_out, directed=False)
+
+    directed_xml = ET.parse(directed_out).getroot()
+    undirected_xml = ET.parse(undirected_out).getroot()
+    ns = {"g": directed_xml.tag.split("}")[0].strip("{")}
+
+    assert directed_xml.find("g:graph", ns).attrib["defaultedgetype"] == "directed"
+    assert undirected_xml.find("g:graph", ns).attrib["defaultedgetype"] == "undirected"
+
+
+def test_export_to_graphology_json_uses_requested_directedness(tmp_path):
+    edges = pd.DataFrame([{"source": "n1", "target": "n2", "weight": 1}])
+    nodes = pd.DataFrame([{"id": "n1"}, {"id": "n2"}])
+
+    directed_out = tmp_path / "directed.json"
+    undirected_out = tmp_path / "undirected.json"
+    export_to_graphology_json(edges, nodes, directed_out, directed=True)
+    export_to_graphology_json(edges, nodes, undirected_out, directed=False)
+
+    assert json.loads(directed_out.read_text(encoding="utf-8"))["attributes"]["type"] == "directed"
+    assert json.loads(undirected_out.read_text(encoding="utf-8"))["attributes"]["type"] == "undirected"

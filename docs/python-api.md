@@ -401,6 +401,9 @@ process_all_citations(
                               "bibliographic_coupling", "author_co_citation"),
     min_counts: Mapping[str, int] | None = None,
     authors_filter: list[str] | None = None,
+    authors_filter_uids: list[str] | None = None,
+    cited_authors_exclude: list[str] | None = None,
+    cited_author_uids_exclude: list[str] | None = None,
     output_format: str = "gexf",
     output_dir: Path | str = "data/output",
     author_entities: pd.DataFrame | None = None,
@@ -411,7 +414,15 @@ process_all_citations(
 Computes every selected citation metric and writes the exports.
 `publications` must have `Bibcode`, `Year`, `Author`, `References`;
 `all_nodes` must have at least an `id` column plus any metadata you want to
-persist on the `.gexf` nodes. Returns one edge DataFrame per metric.
+persist on the `.gexf` nodes. Returns one exported graph edge DataFrame per
+metric.
+
+`authors_filter` keeps the existing string-based source-publication filtering.
+`authors_filter_uids` adds the same inclusion step for disambiguated
+`author_uids`. `cited_authors_exclude` and `cited_author_uids_exclude` remove
+matching cited references before network construction. For non-direct metrics,
+graph exports are aggregated weighted graphs, while the full detail/provenance
+rows are written to CSV sidecars.
 
 ## Notebook Companion
 

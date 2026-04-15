@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 import ads_bib.citations as cit
 
@@ -80,15 +81,7 @@ def test_export_wos_format_writes_expected_core_tags(tmp_path):
     assert "ER" in text
 
 
-def test_process_all_citations_runs_selected_metrics_and_exports_csv(monkeypatch, tmp_path):
-    calls: list[str] = []
-
-    def _fake_export_to_csv(edges, nodes, directory):
-        del edges, nodes
-        calls.append(str(directory))
-
-    monkeypatch.setattr(cit, "export_to_csv", _fake_export_to_csv)
-
+def test_process_all_citations_runs_selected_metrics_and_exports_csv(tmp_path):
     publications = _publications_for_networks()
     bibcodes = ["p1", "p2"]
     references = [["r1", "r2"], ["r1", "r2"]]
@@ -112,16 +105,33 @@ def test_process_all_citations_runs_selected_metrics_and_exports_csv(monkeypatch
     )
 
     assert set(results.keys()) == {"co_citation", "bibliographic_coupling"}
-    assert len(calls) == 2
+    co_edges = pd.read_csv(tmp_path / "co_citation_csv" / "edges.csv")
+    co_nodes = pd.read_csv(tmp_path / "co_citation_csv" / "nodes.csv")
+    co_evidence = pd.read_csv(tmp_path / "co_citation_csv" / "evidence.csv")
+    biblio_edges = pd.read_csv(tmp_path / "bibliographic_coupling_csv" / "edges.csv")
+    biblio_nodes = pd.read_csv(tmp_path / "bibliographic_coupling_csv" / "nodes.csv")
+    biblio_evidence = pd.read_csv(tmp_path / "bibliographic_coupling_csv" / "evidence.csv")
+
+    assert co_edges.to_dict(orient="records") == [{"source": "r1", "target": "r2", "year": 2020, "weight": 2}]
+    assert set(co_nodes["id"]) == {"r1", "r2"}
+    assert set(co_evidence.columns) == {"id", "year", "source", "target", "cocit_source"}
+    assert set(co_evidence["cocit_source"]) == {"p1", "p2"}
+
+    assert biblio_edges.to_dict(orient="records") == [{"source": "p1", "target": "p2", "year": 2020, "weight": 2}]
+    assert set(biblio_nodes["id"]) == {"p1", "p2"}
+    assert set(biblio_evidence.columns) == {"id", "year", "source", "target", "shared_ref"}
+    assert set(biblio_evidence["shared_ref"]) == {"r1", "r2"}
 
 
 def test_process_all_citations_author_co_citation_uses_author_nodes(monkeypatch, tmp_path):
     captured: dict[str, pd.DataFrame] = {}
 
-    def _fake_export_to_csv(edges, nodes, directory):
+    def _fake_export_to_csv(edges, nodes, directory, *, evidence=None):
         directory.mkdir(parents=True, exist_ok=True)
         captured["edges"] = edges.copy()
         captured["nodes"] = nodes.copy()
+        if evidence is not None:
+            captured["evidence"] = evidence.copy()
         return directory
 
     monkeypatch.setattr(cit, "export_to_csv", _fake_export_to_csv)
@@ -188,8 +198,18 @@ def test_process_all_citations_author_co_citation_uses_author_nodes(monkeypatch,
     assert set(results.keys()) == {"author_co_citation"}
     assert captured["edges"]["source"].tolist() == ["uid:borz"]
     assert captured["edges"]["target"].tolist() == ["uid:miller"]
+    assert captured["edges"]["weight"].tolist() == [1]
     assert set(captured["nodes"]["id"]) == {"uid:borz", "uid:miller"}
     assert set(captured["nodes"]["label"]) == {"Borz, Karl", "Miller, Alice"}
+    assert set(captured["evidence"].columns) == {
+        "id",
+        "year",
+        "source",
+        "target",
+        "source_citation",
+        "source_label",
+        "target_label",
+    }
 
 
 def test_build_citation_inputs_from_publications_normalizes_invalid_references():
@@ -272,3 +292,108 @@ def test_bibliographic_coupling_empty_pubs():
     edges = cit.create_bibliographic_coupling(publications)
     assert edges.empty
     assert set(edges.columns) == {"id", "year", "source", "target", "shared_ref"}
+
+
+def test_prepare_citation_publications_filters_sources_and_prunes_excluded_references():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1", "p2"],
+            "Author": [["Hawking, S."], ["Penrose, R."]],
+            "author_uids": [["uid:hawking"], ["uid:penrose"]],
+            "References": [["r1", "r2"], ["r2", "r3"]],
+        }
+    )
+    references = pd.DataFrame(
+        {
+            "Bibcode": ["r1", "r2", "r3"],
+            "Author": [["Hawking, S."], ["Ellis, G."], ["Penrose, R."]],
+            "author_uids": [["uid:hawking"], ["uid:ellis"], ["uid:penrose"]],
+        }
+    )
+
+    filtered = cit.prepare_citation_publications(
+        publications,
+        references,
+        authors_filter=["Hawking"],
+        authors_filter_uids=["uid:hawking"],
+        cited_authors_exclude=["Hawking"],
+        cited_author_uids_exclude=["uid:hawking"],
+    )
+
+    assert filtered["Bibcode"].tolist() == ["p1"]
+    assert filtered.iloc[0]["References"] == ["r2"]
+
+
+def test_process_all_citations_filters_cited_authors_before_pair_construction(tmp_path):
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1"],
+            "Year": [2020],
+            "Author": [["Hawking, S."]],
+            "References": [["r1", "r2", "r3"]],
+        }
+    )
+    ref_df = pd.DataFrame(
+        {
+            "Bibcode": ["r1", "r2", "r3"],
+            "Author": [["Hawking, S."], ["Penrose, R."], ["Ellis, G."]],
+        }
+    )
+    all_nodes = pd.DataFrame({"id": ["p1", "r1", "r2", "r3"]})
+
+    results = cit.process_all_citations(
+        bibcodes=["p1"],
+        references=[["r1", "r2", "r3"]],
+        publications=publications,
+        ref_df=ref_df,
+        all_nodes=all_nodes,
+        metrics=["co_citation"],
+        cited_authors_exclude=["Hawking"],
+        output_format="csv",
+        output_dir=tmp_path,
+    )
+
+    assert results["co_citation"].to_dict(orient="records") == [
+        {"source": "r2", "target": "r3", "year": 2020, "weight": 1}
+    ]
+    evidence = pd.read_csv(tmp_path / "co_citation_filtered_csv" / "evidence.csv")
+    assert evidence[["source", "target"]].to_dict(orient="records") == [{"source": "r2", "target": "r3"}]
+
+
+def test_process_all_citations_uid_filters_require_author_uids():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1"],
+            "Year": [2020],
+            "Author": [["Hawking, S."]],
+            "References": [["r1"]],
+        }
+    )
+    ref_df = pd.DataFrame({"Bibcode": ["r1"], "Author": [["Hawking, S."]]})
+    all_nodes = pd.DataFrame({"id": ["p1", "r1"]})
+
+    with pytest.raises(ValueError, match="authors_filter_uids"):
+        cit.process_all_citations(
+            bibcodes=["p1"],
+            references=[["r1"]],
+            publications=publications,
+            ref_df=ref_df,
+            all_nodes=all_nodes,
+            metrics=["direct"],
+            authors_filter_uids=["uid:hawking"],
+            output_format="csv",
+        )
+
+    publications_uid = publications.copy()
+    publications_uid["author_uids"] = [["uid:hawking"]]
+    with pytest.raises(ValueError, match="cited_author_uids_exclude"):
+        cit.process_all_citations(
+            bibcodes=["p1"],
+            references=[["r1"]],
+            publications=publications_uid,
+            ref_df=ref_df,
+            all_nodes=all_nodes,
+            metrics=["direct"],
+            cited_author_uids_exclude=["uid:hawking"],
+            output_format="csv",
+        )

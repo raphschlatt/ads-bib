@@ -52,6 +52,7 @@ from ads_bib.citations import (
     build_all_nodes,
     build_citation_inputs_from_publications,
     export_wos_format,
+    prepare_citation_publications,
     process_all_citations,
 )
 from ads_bib.config import init_paths, load_env, validate_provider
@@ -255,6 +256,9 @@ class CitationsConfig:
         }
     )
     authors_filter: list[str] | None = None
+    authors_filter_uids: list[str] | None = None
+    cited_authors_exclude: list[str] | None = None
+    cited_author_uids_exclude: list[str] | None = None
     output_format: str = "gexf"
 
 
@@ -1650,9 +1654,17 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
             "Run the curate stage first.",
         )
 
-    bibcodes, references = build_citation_inputs_from_publications(ctx.curated_df)
-    all_nodes = build_all_nodes(ctx.curated_df, ctx.refs)
     cfg = ctx.config.citations
+    filtered_publications = prepare_citation_publications(
+        ctx.curated_df,
+        ctx.refs,
+        authors_filter=cfg.authors_filter,
+        authors_filter_uids=cfg.authors_filter_uids,
+        cited_authors_exclude=cfg.cited_authors_exclude,
+        cited_author_uids_exclude=cfg.cited_author_uids_exclude,
+    )
+    bibcodes, references = build_citation_inputs_from_publications(filtered_publications)
+    all_nodes = build_all_nodes(ctx.curated_df, ctx.refs)
     ctx.citation_results = process_all_citations(
         bibcodes=bibcodes,
         references=references,
@@ -1662,13 +1674,27 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         metrics=cfg.metrics,
         min_counts=cfg.min_counts,
         authors_filter=cfg.authors_filter,
+        authors_filter_uids=cfg.authors_filter_uids,
+        cited_authors_exclude=cfg.cited_authors_exclude,
+        cited_author_uids_exclude=cfg.cited_author_uids_exclude,
         output_format=cfg.output_format,
         output_dir=ctx.run.paths["data"],
         show_progress=False if ctx.reporter is not None else True,
     )
-    suffix = "_filtered" if cfg.authors_filter else ""
+    suffix = (
+        "_filtered"
+        if any(
+            (
+                cfg.authors_filter,
+                cfg.authors_filter_uids,
+                cfg.cited_authors_exclude,
+                cfg.cited_author_uids_exclude,
+            )
+        )
+        else ""
+    )
     export_wos_format(
-        ctx.curated_df,
+        filtered_publications,
         ctx.refs,
         output_path=ctx.run.paths["data"] / f"download_wos_export{suffix}.txt",
     )

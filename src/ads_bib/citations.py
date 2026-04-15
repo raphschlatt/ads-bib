@@ -107,6 +107,74 @@ def build_all_nodes(
     return combined
 
 
+def prepare_citation_publications(
+    publications: pd.DataFrame,
+    references: pd.DataFrame,
+    *,
+    authors_filter: list[str] | None = None,
+    authors_filter_uids: list[str] | None = None,
+    cited_authors_exclude: list[str] | None = None,
+    cited_author_uids_exclude: list[str] | None = None,
+) -> pd.DataFrame:
+    """Return publications filtered for citation-network construction.
+
+    The returned frame preserves the original publication rows and order, but
+    applies source-publication include filters and removes excluded cited
+    references from each publication's ``References`` list.
+    """
+    pubs = _filter_source_publications(
+        publications,
+        authors_filter=authors_filter,
+        authors_filter_uids=authors_filter_uids,
+    )
+    excluded_refs = _build_excluded_reference_bibcodes(
+        references,
+        cited_authors_exclude=cited_authors_exclude,
+        cited_author_uids_exclude=cited_author_uids_exclude,
+    )
+    if not excluded_refs:
+        return pubs
+
+    pubs = pubs.copy()
+    pubs["References"] = pubs["References"].apply(
+        lambda value: [ref for ref in _normalize_reference_list(value) if ref not in excluded_refs]
+    )
+    return pubs
+
+
+def align_publications_with_citation_inputs(
+    publications: pd.DataFrame,
+    bibcodes: Sequence[str],
+    references: Sequence[Sequence[str]],
+) -> pd.DataFrame:
+    """Align publication metadata with the explicit citation input lists.
+
+    ``process_all_citations`` accepts both a publication table and an explicit
+    ``(bibcodes, references)`` pair. This helper treats the aligned citation
+    lists as authoritative and rewrites the publication ``References`` column to
+    match them while preserving publication metadata columns.
+    """
+    ref_map = {
+        str(bibcode): _normalize_reference_list(ref_list)
+        for bibcode, ref_list in zip(bibcodes, references, strict=False)
+    }
+    if not ref_map or "Bibcode" not in publications.columns:
+        return publications.copy()
+
+    pubs = publications.copy()
+    pubs["Bibcode"] = pubs["Bibcode"].fillna("").astype(str)
+    pubs = pubs[pubs["Bibcode"].isin(ref_map)].copy()
+    if pubs.empty:
+        return pubs
+
+    order = {bibcode: idx for idx, bibcode in enumerate(ref_map)}
+    pubs["References"] = pubs["Bibcode"].map(ref_map)
+    pubs["References"] = pubs["References"].apply(_normalize_reference_list)
+    pubs["_citation_order"] = pubs["Bibcode"].map(order)
+    pubs = pubs.sort_values("_citation_order").drop(columns="_citation_order")
+    return pubs.reset_index(drop=True)
+
+
 def filter_nodes(
     nodes: pd.DataFrame,
     edges: pd.DataFrame,
@@ -363,6 +431,7 @@ def export_to_gexf(
     nodes: pd.DataFrame,
     path: Path | str,
     *,
+    directed: bool = True,
     show_progress: bool = True,
 ) -> Path:
     """Write edges and nodes to a GEXF file (native Gephi format)."""
@@ -373,7 +442,7 @@ def export_to_gexf(
 
     nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
 
-    G = nx.DiGraph()
+    G = nx.DiGraph() if directed else nx.Graph()
 
     node_records = nodes_out.to_dict(orient="records")
     G.add_nodes_from(
@@ -397,6 +466,7 @@ def export_to_graphology_json(
     nodes: pd.DataFrame,
     path: Path | str,
     *,
+    directed: bool = True,
     show_progress: bool = True,
 ) -> Path:
     """Write edges and nodes to Graphology JSON format (Sigma.js compatible)."""
@@ -432,7 +502,7 @@ def export_to_graphology_json(
     ]
 
     graph = {
-        "attributes": {"type": "directed"},
+        "attributes": {"type": "directed" if directed else "undirected"},
         "nodes": graph_nodes,
         "edges": graph_edges,
     }
@@ -446,13 +516,28 @@ def export_to_csv(
     edges: pd.DataFrame,
     nodes: pd.DataFrame,
     directory: Path | str,
+    *,
+    evidence: pd.DataFrame | None = None,
 ) -> Path:
     """Write edges and nodes to CSV files in *directory*."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     edges.to_csv(directory / "edges.csv", index=False)
     nodes.to_csv(directory / "nodes.csv", index=False)
+    if evidence is not None and not evidence.empty:
+        evidence.to_csv(directory / "evidence.csv", index=False)
     return directory
+
+
+def export_evidence_to_csv(
+    evidence: pd.DataFrame,
+    path: Path | str,
+) -> Path:
+    """Write a full evidence edge table to a flat CSV sidecar."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    evidence.to_csv(path, index=False)
+    return path
 
 
 def export_wos_format(
@@ -554,6 +639,9 @@ def process_all_citations(
     metrics: Sequence[MetricName] = DEFAULT_CITATION_METRICS,
     min_counts: Mapping[MetricName, int] | None = None,
     authors_filter: list[str] | None = None,
+    authors_filter_uids: list[str] | None = None,
+    cited_authors_exclude: list[str] | None = None,
+    cited_author_uids_exclude: list[str] | None = None,
     output_format: ExportFormat = "gexf",
     output_dir: Path | str = "data/output",
     author_entities: pd.DataFrame | None = None,
@@ -579,7 +667,18 @@ def process_all_citations(
     min_counts : Mapping[MetricName, int], optional
         Per-metric minimum threshold (for example ``{"co_citation": 2}``).
     authors_filter : list[str], optional
-        If set, only include papers whose serialized author text matches.
+        If set, only include source publications whose serialized author text
+        matches any filter value.
+    authors_filter_uids : list[str], optional
+        If set, only include source publications whose ``author_uids`` overlap
+        with any filter UID. Requires ``author_uids`` on ``publications``.
+    cited_authors_exclude : list[str], optional
+        Exclude cited references whose serialized author text matches any value.
+        The matching references are pruned from each source publication before
+        network construction.
+    cited_author_uids_exclude : list[str], optional
+        Exclude cited references whose ``author_uids`` overlap with any filter
+        UID. Requires ``author_uids`` on ``ref_df``.
     output_format : ExportFormat
         ``"gexf"``, ``"graphology"``, ``"csv"``, or ``"all"``.
     output_dir : Path | str
@@ -591,52 +690,64 @@ def process_all_citations(
     Returns
     -------
     dict[MetricName, pd.DataFrame]
-        Mapping from metric name to computed edge DataFrame for non-empty
-        metrics.
+        Mapping from metric name to exported graph edge DataFrame for non-empty
+        metrics. Full evidence rows are written to CSV sidecars when they carry
+        more detail than the exported graph.
     """
     output_dir = Path(output_dir)
     min_counts_local: dict[MetricName, int] = dict(min_counts or {})
-    suffix = "_filtered" if authors_filter else ""
+    citation_publications = align_publications_with_citation_inputs(
+        publications,
+        bibcodes,
+        references,
+    )
+    filtered_publications = prepare_citation_publications(
+        citation_publications,
+        ref_df,
+        authors_filter=authors_filter,
+        authors_filter_uids=authors_filter_uids,
+        cited_authors_exclude=cited_authors_exclude,
+        cited_author_uids_exclude=cited_author_uids_exclude,
+    )
+    filtered_bibcodes, filtered_references = build_citation_inputs_from_publications(
+        filtered_publications
+    )
+
+    suffix = _citation_filter_suffix(
+        authors_filter=authors_filter,
+        authors_filter_uids=authors_filter_uids,
+        cited_authors_exclude=cited_authors_exclude,
+        cited_author_uids_exclude=cited_author_uids_exclude,
+    )
     results: dict[MetricName, pd.DataFrame] = {}
 
     _funcs: dict[MetricName, Callable[[int], pd.DataFrame]] = {
         "direct": lambda mc: create_direct_citations(
-            bibcodes,
-            references,
-            publications,
+            filtered_bibcodes,
+            filtered_references,
+            filtered_publications,
             min_count=mc,
-            authors_filter=authors_filter,
             show_progress=show_progress,
         ),
         "co_citation": lambda mc: create_co_citations(
-            bibcodes,
-            references,
-            publications,
+            filtered_bibcodes,
+            filtered_references,
+            filtered_publications,
             min_count=mc,
-            authors_filter=authors_filter,
             show_progress=show_progress,
         ),
         "bibliographic_coupling": lambda mc: create_bibliographic_coupling(
-            publications,
+            filtered_publications,
             min_shared_refs=mc,
-            authors_filter=authors_filter,
             show_progress=show_progress,
         ),
         "author_co_citation": lambda mc: create_author_co_citations(
-            publications,
+            filtered_publications,
             ref_df,
             min_count=mc,
-            authors_filter=authors_filter,
             author_entities=author_entities,
             show_progress=show_progress,
         ),
-    }
-
-    _edge_cols: dict[MetricName, list[str]] = {
-        "direct": ["source", "target"],
-        "co_citation": ["source", "target", "cocit_source"],
-        "bibliographic_coupling": ["source", "target", "shared_ref"],
-        "author_co_citation": ["source", "target", "source_citation"],
     }
 
     _metric_labels: dict[MetricName, str] = {
@@ -659,47 +770,70 @@ def process_all_citations(
         ) as pbar:
             # Step 1: Compute
             pbar.set_postfix_str("computing")
-            edges = _funcs[metric](mc)
+            detail_edges = _funcs[metric](mc)
             pbar.update(1)
 
-            if edges.empty:
+            if detail_edges.empty:
                 pbar.set_postfix_str("no edges")
                 pbar.update(1)
                 continue
 
-            results[metric] = edges
+            graph_edges = _aggregate_graph_edges(metric, detail_edges)
+            if graph_edges.empty:
+                pbar.set_postfix_str("no graph edges")
+                pbar.update(1)
+                continue
+
+            results[metric] = graph_edges
             if metric == "author_co_citation":
                 filtered_nodes = _build_author_nodes(
-                    edges,
+                    graph_edges,
                     author_entities=author_entities,
                 )
             else:
-                filtered_nodes = filter_nodes(all_nodes, edges, _edge_cols[metric])
+                filtered_nodes = filter_nodes(all_nodes, graph_edges, ["source", "target"])
+
+            evidence_edges = detail_edges if _has_distinct_evidence(detail_edges, graph_edges) else None
 
             # Step 2: Export
             pbar.set_postfix_str("exporting")
             written: list[Path] = []
+            directed = _metric_is_directed(metric)
 
             if output_format in ("gexf", "all"):
                 p = export_to_gexf(
-                    edges,
+                    graph_edges,
                     filtered_nodes,
                     output_dir / f"{metric}{suffix}.gexf",
+                    directed=directed,
                     show_progress=show_progress,
                 )
                 if p is not None:
                     written.append(p)
             if output_format in ("graphology", "all"):
                 p = export_to_graphology_json(
-                    edges,
+                    graph_edges,
                     filtered_nodes,
                     output_dir / f"{metric}{suffix}.json",
+                    directed=directed,
                     show_progress=show_progress,
                 )
                 if p is not None:
                     written.append(p)
             if output_format in ("csv", "all"):
-                p = export_to_csv(edges, filtered_nodes, output_dir / f"{metric}{suffix}_csv")
+                p = export_to_csv(
+                    graph_edges,
+                    filtered_nodes,
+                    output_dir / f"{metric}{suffix}_csv",
+                    evidence=evidence_edges,
+                )
+                if p is not None:
+                    written.append(p)
+            elif evidence_edges is not None:
+                p = export_evidence_to_csv(
+                    evidence_edges,
+                    output_dir / f"{metric}{suffix}_evidence.csv",
+                )
                 if p is not None:
                     written.append(p)
 
@@ -716,17 +850,23 @@ def process_all_citations(
             )
             for p in written
         )
-        filter_info = f"filter={','.join(authors_filter)}" if authors_filter else "no filter"
+        filter_info = _citation_filter_info(
+            authors_filter=authors_filter,
+            authors_filter_uids=authors_filter_uids,
+            cited_authors_exclude=cited_authors_exclude,
+            cited_author_uids_exclude=cited_author_uids_exclude,
+        )
         logger.info(
-            "  %s — %s nodes, %s edges, %s, %s",
+            "  %s — %s nodes, %s edges%s, %s, %s",
             desc,
             f"{len(filtered_nodes):,}",
-            f"{len(edges):,}",
+            f"{len(graph_edges):,}",
+            f", {len(evidence_edges):,} evidence rows" if evidence_edges is not None else "",
             filter_info,
             _fmt_size(total_bytes),
         )
 
-        del edges, filtered_nodes
+        del detail_edges, graph_edges, filtered_nodes
         gc.collect()
 
     return results
@@ -745,6 +885,193 @@ def _filter_by_authors(
     pattern = "|".join(authors)
     author_series = df["Author"].apply(_author_text)
     return df[author_series.str.contains(pattern, case=False, na=False)]
+
+
+def _normalize_reference_list(value: object) -> list[str]:
+    """Normalize a publication's reference list to a compact list of bibcodes."""
+    if isinstance(value, list):
+        return [str(ref) for ref in value if isinstance(ref, str) and ref]
+    return []
+
+
+def _normalize_filter_values(values: Sequence[str] | None) -> list[str]:
+    """Drop empty filter values while preserving order."""
+    if not values:
+        return []
+    normalized = [str(value).strip() for value in values if str(value).strip()]
+    return normalized
+
+
+def _require_author_uid_column(df: pd.DataFrame, *, filter_name: str) -> None:
+    """Raise a clear error when UID-based citation filters lack author_uids."""
+    if "author_uids" not in df.columns:
+        raise ValueError(
+            f"citations.{filter_name} requires author_uids on the relevant citation frame. "
+            "Enable author disambiguation and keep author_uids available through the citations stage."
+        )
+
+
+def _uid_overlap(value: object, allowed_uids: set[str]) -> bool:
+    """Return True when a list-like value overlaps with *allowed_uids*."""
+    return any(uid in allowed_uids for uid in _author_list(value))
+
+
+def _filter_source_publications(
+    publications: pd.DataFrame,
+    *,
+    authors_filter: list[str] | None = None,
+    authors_filter_uids: list[str] | None = None,
+) -> pd.DataFrame:
+    """Apply source-publication citation filters while preserving row order."""
+    author_patterns = _normalize_filter_values(authors_filter)
+    author_uid_filters = set(_normalize_filter_values(authors_filter_uids))
+
+    pubs = publications
+    if author_patterns:
+        pubs = _filter_by_authors(pubs, author_patterns)
+    if author_uid_filters:
+        _require_author_uid_column(pubs, filter_name="authors_filter_uids")
+        uid_mask = pubs["author_uids"].apply(lambda value: _uid_overlap(value, author_uid_filters))
+        pubs = pubs[uid_mask]
+    return pubs.copy()
+
+
+def _build_excluded_reference_bibcodes(
+    references: pd.DataFrame,
+    *,
+    cited_authors_exclude: list[str] | None = None,
+    cited_author_uids_exclude: list[str] | None = None,
+) -> set[str]:
+    """Resolve cited-author exclusion filters to reference bibcodes."""
+    author_patterns = _normalize_filter_values(cited_authors_exclude)
+    author_uid_filters = set(_normalize_filter_values(cited_author_uids_exclude))
+    if not author_patterns and not author_uid_filters:
+        return set()
+
+    mask = pd.Series(False, index=references.index)
+    if author_patterns:
+        author_series = references["Author"].apply(_author_text)
+        mask = mask | author_series.str.contains("|".join(author_patterns), case=False, na=False)
+    if author_uid_filters:
+        _require_author_uid_column(references, filter_name="cited_author_uids_exclude")
+        mask = mask | references["author_uids"].apply(
+            lambda value: _uid_overlap(value, author_uid_filters)
+        )
+    if "Bibcode" not in references.columns:
+        return set()
+    return set(references.loc[mask, "Bibcode"].fillna("").astype(str))
+
+
+def _metric_is_directed(metric: MetricName) -> bool:
+    """Return whether *metric* should export as a directed graph."""
+    return metric == "direct"
+
+
+def _canonicalize_undirected_edges(edges: pd.DataFrame) -> pd.DataFrame:
+    """Canonicalize undirected edges so each pair has one stable orientation."""
+    if edges.empty:
+        return edges
+
+    out = edges.copy()
+    source = out["source"].astype(str)
+    target = out["target"].astype(str)
+    swap_mask = source > target
+    if not swap_mask.any():
+        return out
+
+    swapped = out.loc[swap_mask, ["target", "source"]].to_numpy()
+    out.loc[swap_mask, ["source", "target"]] = swapped
+    if {"source_label", "target_label"} <= set(out.columns):
+        swapped_labels = out.loc[swap_mask, ["target_label", "source_label"]].to_numpy()
+        out.loc[swap_mask, ["source_label", "target_label"]] = swapped_labels
+    return out
+
+
+def _aggregate_graph_edges(metric: MetricName, detail_edges: pd.DataFrame) -> pd.DataFrame:
+    """Collapse detail edges into one graph edge per exported pair."""
+    if detail_edges.empty:
+        columns = ["source", "target", "year", "weight"]
+        if metric == "author_co_citation":
+            columns = ["source", "target", "source_label", "target_label", "year", "weight"]
+        return pd.DataFrame(columns=columns)
+
+    work = (
+        _canonicalize_undirected_edges(detail_edges)
+        if not _metric_is_directed(metric)
+        else detail_edges.copy()
+    )
+
+    group_cols = ["source", "target"]
+    if "source_label" in work.columns:
+        group_cols.append("source_label")
+    if "target_label" in work.columns:
+        group_cols.append("target_label")
+
+    grouped = work.groupby(group_cols, sort=False, dropna=False)
+    graph_edges = grouped.size().reset_index(name="weight")
+
+    if "year" in work.columns:
+        year_df = grouped["year"].min().reset_index(name="year")
+        graph_edges = year_df.merge(graph_edges, on=group_cols, how="left")
+
+    ordered = ["source", "target"]
+    if "source_label" in graph_edges.columns:
+        ordered.append("source_label")
+    if "target_label" in graph_edges.columns:
+        ordered.append("target_label")
+    if "year" in graph_edges.columns:
+        ordered.append("year")
+    ordered.append("weight")
+    return graph_edges[ordered]
+
+
+def _has_distinct_evidence(detail_edges: pd.DataFrame, graph_edges: pd.DataFrame) -> bool:
+    """Return True when the raw detail edge table carries extra provenance."""
+    return detail_edges.shape != graph_edges.shape or list(detail_edges.columns) != list(graph_edges.columns)
+
+
+def _citation_filter_suffix(
+    *,
+    authors_filter: list[str] | None,
+    authors_filter_uids: list[str] | None,
+    cited_authors_exclude: list[str] | None,
+    cited_author_uids_exclude: list[str] | None,
+) -> str:
+    """Return a filename suffix when any citation filter is active."""
+    return (
+        "_filtered"
+        if any(
+            (
+                _normalize_filter_values(authors_filter),
+                _normalize_filter_values(authors_filter_uids),
+                _normalize_filter_values(cited_authors_exclude),
+                _normalize_filter_values(cited_author_uids_exclude),
+            )
+        )
+        else ""
+    )
+
+
+def _citation_filter_info(
+    *,
+    authors_filter: list[str] | None,
+    authors_filter_uids: list[str] | None,
+    cited_authors_exclude: list[str] | None,
+    cited_author_uids_exclude: list[str] | None,
+) -> str:
+    """Build a concise log string for active citation filters."""
+    parts: list[str] = []
+    if authors_filter:
+        parts.append(f"source_author={','.join(_normalize_filter_values(authors_filter))}")
+    if authors_filter_uids:
+        parts.append(f"source_author_uids={','.join(_normalize_filter_values(authors_filter_uids))}")
+    if cited_authors_exclude:
+        parts.append(f"cited_author_exclude={','.join(_normalize_filter_values(cited_authors_exclude))}")
+    if cited_author_uids_exclude:
+        parts.append(
+            f"cited_author_uids_exclude={','.join(_normalize_filter_values(cited_author_uids_exclude))}"
+        )
+    return "; ".join(parts) if parts else "no filter"
 
 
 def _resolve_first_author_id(row: pd.Series) -> str | None:

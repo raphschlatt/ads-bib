@@ -100,6 +100,9 @@ def test_pipeline_notebook_code_contract():
     assert '"topic_tree": False' in code
     assert '"cluster_targets": []' in code
     assert 'CITATIONS = {' in code
+    assert '"authors_filter_uids": None' in code
+    assert '"cited_authors_exclude": None' in code
+    assert '"cited_author_uids_exclude": None' in code
     assert "run.save_config(globals())" not in code
     assert "load_phase3_checkpoint" not in code
     assert "save_phase3_checkpoint" not in code

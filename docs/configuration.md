@@ -308,13 +308,28 @@ curation:
 | --- | --- | --- | --- | --- |
 | `metrics` | list | `["direct", "co_citation", "bibliographic_coupling", "author_co_citation"]` | — | Network types to build |
 | `min_counts` | dict | `{direct: 1, co_citation: 1, bibliographic_coupling: 1, author_co_citation: 1}` | all presets → `{direct: 3, co_citation: 6, bibliographic_coupling: 3, author_co_citation: 5}` | Minimum edge weight per metric |
-| `authors_filter` | list[string] \| null | `null` | — | Optional author-name filters for author co-citation exports |
+| `authors_filter` | list[string] \| null | `null` | — | Optional string-based include filter on source publications (`Author`) |
+| `authors_filter_uids` | list[string] \| null | `null` | — | Optional UID-based include filter on source publications (`author_uids`); requires author disambiguation output in memory |
+| `cited_authors_exclude` | list[string] \| null | `null` | — | Optional string-based exclude filter on cited references (`Author`); matching references are pruned before network construction |
+| `cited_author_uids_exclude` | list[string] \| null | `null` | — | Optional UID-based exclude filter on cited references (`author_uids`); requires author disambiguation output in memory |
 | `output_format` | string | `"gexf"` | — | Export format: `gexf`, `graphology`, `csv`, or `all` |
 
 The code default is `1` for every metric (everything keeps every edge). The
 four packaged presets raise those thresholds to practical starter values
 (`3/6/3/5`) so the exported networks stay readable on typical corpora. Override
 per metric via `citations.min_counts.<metric>`.
+
+`authors_filter` and `authors_filter_uids` act on the source publication set.
+`cited_authors_exclude` and `cited_author_uids_exclude` act on the cited
+reference side by removing matching references from each publication before the
+direct, co-citation, bibliographic-coupling, and author-co-citation networks
+are computed.
+
+For `gexf`, `graphology`, and network CSV exports, `direct` is exported as a
+directed graph. `co_citation`, `bibliographic_coupling`, and
+`author_co_citation` are exported as undirected weighted graphs. When a metric
+has richer edge provenance than the exported graph can carry compactly,
+ads-bib also writes a CSV evidence sidecar.
 
 ## CLI Overrides
 
