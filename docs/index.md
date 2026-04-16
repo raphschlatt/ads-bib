@@ -70,7 +70,7 @@ runs/run_20260407_120000_ads_bib_openrouter/
     height="520"
     allowfullscreen="true"
     src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
-    style="border: none; width: 100%; height: 100%;"
+    style="border: none; width: 150%; height: 150%; max-width: none; max-height: none; transform: scale(0.667); transform-origin: 0 0;"
   ></iframe>
 </div>
 <div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
