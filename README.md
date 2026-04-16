@@ -6,7 +6,7 @@
 
 `ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
-Try out an example 
+Try out an example:
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 
@@ -35,9 +35,7 @@ ADS_TOKEN=your-ads-token           # required
 OPENROUTER_API_KEY=your-key        # only for the openrouter road
 HF_TOKEN=your-key                  # only for the huggingface road
 ```
-Create `ADS_TOKEN` in [ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token),
-`OPENROUTER_API_KEY` in [OpenRouter Keys](https://openrouter.ai/settings/keys),
-and `HF_TOKEN` in [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
+[ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
 
 Then run in your terminal:
 
