@@ -86,21 +86,6 @@ recurring collaboration-adjacent pairings.
 - **[VOSviewer](https://www.vosviewer.com/)** — imports the same WOS export
   and renders overlay-style clustering views.
 
-### Live embed: Gephi Lite
-
-<div style="width: 100%; height: 420px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #ffffff;">
-  <iframe
-    width="100%"
-    height="420"
-    allowfullscreen="true"
-    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
-    style="border: none; width: 100%; height: 100%;"
-  ></iframe>
-</div>
-<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
-  <em>Author co-citation network from <code>author:"Hawking, S*"</code>, embedded with <a href="https://gephi.org/gephi-lite/">Gephi Lite</a> from a public gist export.</em>
-</div>
-
 ### Screenshots: CiteSpace & VOSviewer
 
 <!-- TODO: screenshot citespace

@@ -8,12 +8,6 @@
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 
-[![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
-*Topic map from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*
-
-[![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
-*Author co-citation network from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
-
 ## Output
 
 Each run produces a self-contained output directory:
@@ -23,6 +17,12 @@ Each run produces a self-contained output directory:
 - **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
 - **`download_wos_export.txt`** — Web of Science format for [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
 - **`run_summary.yaml`** — full run metadata and stage timings
+
+[![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
+*Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*
+
+[![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
+*Author co-citation output from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
 
 ## Installation
 

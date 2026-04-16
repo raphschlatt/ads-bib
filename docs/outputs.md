@@ -26,6 +26,26 @@ runs/run_20260407_120000_ads_bib_openrouter/
 
 Every file in that tree has a single canonical owner described below.
 
+<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
+    <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em>Interactive topic map from <code>author:"Hawking, S*"</code> in <a href="https://github.com/TutteInstitute/datamapplot">datamapplot</a> — produced by a single <code>ads-bib run</code>.</em>
+</div>
+
+<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #ffffff;">
+  <iframe
+    width="100%"
+    height="520"
+    allowfullscreen="true"
+    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
+    style="border: none; width: 100%; height: 100%;"
+  ></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em>Interactive author co-citation network from <code>author:"Hawking, S*"</code> — exported by one <code>ads-bib run</code> and opened in <a href="https://gephi.org/gephi-lite/">Gephi Lite</a>.</em>
+</div>
+
 ## `config_used.yaml`
 
 The resolved, normalized `PipelineConfig` actually used for the run. You can
@@ -149,6 +169,19 @@ The four network files (`direct`, `co_citation`, `bibliographic_coupling`,
 semantics. See [Citation Networks](citation-networks.md) for the
 interpretation of each.
 
+<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #ffffff;">
+  <iframe
+    width="100%"
+    height="520"
+    allowfullscreen="true"
+    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
+    style="border: none; width: 100%; height: 100%;"
+  ></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em><code>author_co_citation.gexf</code> from <code>author:"Hawking, S*"</code>, opened in <a href="https://gephi.org/gephi-lite/">Gephi Lite</a>.</em>
+</div>
+
 ## `download_wos_export.txt`
 
 A WOS-format plain-text export of the curated dataset. Use it for
@@ -162,6 +195,13 @@ The interactive datamapplot visualization. A self-contained HTML file —
 open it directly in any modern browser. Controls: hover for metadata,
 <kbd>Shift</kbd>+drag to lasso a word-cloud region, <kbd>Shift</kbd>+drag on
 the timeline to filter years, click a topic entry to isolate it.
+
+<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
+    <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em><code>topic_map.html</code> from <code>author:"Hawking, S*"</code> in <a href="https://github.com/TutteInstitute/datamapplot">datamapplot</a>.</em>
+</div>
 
 ## AND Integration Contract
 

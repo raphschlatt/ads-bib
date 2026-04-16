@@ -1,17 +1,6 @@
 # ADS Pipeline
 
-`ads-bib` is a Python package and CLI for bibliometric analysis of NASA ADS
-data. You install it once, drop your API keys into `.env`, and run the full
-pipeline from the CLI.
-
-<div style="width: 100%; height: 420px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
-    <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
-</div>
-<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
-  <em>Interactive topic map of Stephen Hawking's ADS publications — produced by a single
-  <code>ads-bib run</code>. Hover for metadata, <kbd>Shift</kbd>+drag to lasso a word
-  cloud or filter by year, click topics to isolate.</em>
-</div>
+`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for [Gephi](https://gephi.org/), [CiteSpace](https://citespace.podia.com/), and [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
 ## Quickstart
 
@@ -49,7 +38,7 @@ graph LR
     D --> E[Citation Networks]
 ```
 
-## Run Output
+## Run Outputs
 
 A completed run writes:
 
@@ -67,6 +56,26 @@ runs/run_20260407_120000_ads_bib_openrouter/
 │   └── download_wos_export.txt
 └── plots/topic_map.html
 ```
+
+<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
+    <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em>Interactive topic map from <code>author:"Hawking, S*"</code> in <a href="https://github.com/TutteInstitute/datamapplot">datamapplot</a> — produced by a single <code>ads-bib run</code>. Hover for metadata, <kbd>Shift</kbd>+drag to lasso a word cloud or filter by year, click topics to isolate.</em>
+</div>
+
+<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #ffffff;">
+  <iframe
+    width="100%"
+    height="520"
+    allowfullscreen="true"
+    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
+    style="border: none; width: 100%; height: 100%;"
+  ></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em>Interactive author co-citation network from <code>author:"Hawking, S*"</code> — exported by one <code>ads-bib run</code> and opened in <a href="https://gephi.org/gephi-lite/">Gephi Lite</a>.</em>
+</div>
 
 See [Output Artifacts](outputs.md) for what each file contains.
 
