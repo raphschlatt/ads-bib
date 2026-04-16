@@ -88,16 +88,18 @@ recurring collaboration-adjacent pairings.
 
 ### Live embed: Gephi Lite
 
-<!-- TODO: embed gephi-lite
-     Target: replace this placeholder with an iframe pointing at a
-     pipeline-generated .gexf opened in Gephi Lite.
-     Reference: https://docs.gephi.org/lite/integration/embed/
-     Desired size: similar to the Topic Map iframe on the landing page
-     (~420px tall, full width). Keep the caption below the frame.
--->
-
-*Interactive Gephi Lite embed of a sample `direct.gexf` — screenshot /
-embed follows in a later update.*
+<div style="width: 100%; height: 420px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #ffffff;">
+  <iframe
+    width="100%"
+    height="420"
+    allowfullscreen="true"
+    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
+    style="border: none; width: 100%; height: 100%;"
+  ></iframe>
+</div>
+<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
+  <em>Author co-citation network from <code>author:"Hawking, S*"</code>, embedded with <a href="https://gephi.org/gephi-lite/">Gephi Lite</a> from a public gist export.</em>
+</div>
 
 ### Screenshots: CiteSpace & VOSviewer
 

@@ -8,14 +8,11 @@
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 
-<!-- TODO: Replace placeholders below with actual GIFs once recorded.
-     Recommended: ~800px wide, ≤15 seconds, optimized with gifsicle or gifski. -->
+[![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
+*Topic map from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*
 
-<!-- ![Interactive topic map](docs/assets/topic_map_demo.gif) -->
-*Topic map demo — GIF folgt*
-
-<!-- ![Citation network in Gephi Lite](docs/assets/network_demo.gif) -->
-*Citation network demo — GIF folgt*
+[![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
+*Author co-citation network from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
 
 ## Output
 
