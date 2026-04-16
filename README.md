@@ -4,13 +4,14 @@
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://raphschlatt.github.io/ADS_Pipeline/)
 
-`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), and [VOSviewer](https://www.vosviewer.com/), locally or via API.
+`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
-Try out an example [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
+Try out an example 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 
 ## Installation
 
-Use [uv](https://docs.astral.sh/uv/).
+Use [uv](https://docs.astral.sh/uv/) and Python >=3.10.
 
 ```bash
 uv pip install ads-bib
@@ -26,17 +27,20 @@ uv pip install ads-bib
 
 ## Quick Start
 
-Create a `.env` file inn your root with your API keys,
+Create a `.env` file in your project root with your API keys.
+Create `ADS_TOKEN` in [ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token),
+`OPENROUTER_API_KEY` in [OpenRouter Keys](https://openrouter.ai/settings/keys),
+and `HF_TOKEN` in [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
 
 ```bash
-# .env
-ADS_TOKEN=your-ads-token
+ADS_TOKEN=your-ads-token           # required
 OPENROUTER_API_KEY=your-key        # only for the openrouter road
+HF_TOKEN=your-key                  # only for the huggingface road
 ```
-then run:
+
+Then run in your terminal:
 
 ```bash
-# terminal
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
@@ -73,7 +77,7 @@ Each run produces a self-contained output directory:
 - **`curated_dataset.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors
 - **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
 - **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
-- **`download_wos_export.txt`** — Web of Science format for [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
+- **`download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
 - **`run_summary.yaml`** — full run metadata and stage timings
 
 [![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
