@@ -102,3 +102,95 @@ jobs:
           WHEEL="$(ls dist/*.whl | head -n 1)"
           python -m pip install "$WHEEL[umap,hdbscan]"
           python -c "import ads_bib.topic_model, ads_bib.visualize"
+
+  windows-managed-runtime-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install build dependency
+        shell: pwsh
+        run: python -m pip install build
+
+      - name: Build wheel
+        shell: pwsh
+        run: python -m build --wheel
+
+      - name: Wheel smoke (managed llama-server Windows CPU)
+        shell: pwsh
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "ads_pkg_smoke_windows"
+          if (Test-Path $smokeRoot) {
+            Remove-Item -Recurse -Force $smokeRoot
+          }
+          python -m venv $smokeRoot
+          $venvPython = Join-Path $smokeRoot "Scripts\python.exe"
+          $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          & $venvPython -m pip install $wheel
+          @'
+          import json
+          import os
+          import tempfile
+          from pathlib import Path
+
+          from ads_bib._utils.llama_server import (
+              LlamaServerConfig,
+              MANAGED_LLAMA_CPP_RELEASE_TAG,
+              prepare_llama_server_runtime,
+          )
+
+          project_root = Path(tempfile.mkdtemp(prefix="ads-managed-runtime-")).resolve()
+          os.environ["PATH"] = ""
+
+          first = prepare_llama_server_runtime(
+              config=LlamaServerConfig(command="llama-server", gpu_layers=0),
+              project_root=project_root,
+          )
+          resolved = Path(first.command).resolve()
+          expected_root = (
+              project_root
+              / "data"
+              / "models"
+              / "llama_cpp"
+              / MANAGED_LLAMA_CPP_RELEASE_TAG
+              / "windows-x86_64-cpu"
+          ).resolve()
+
+          assert first.source == "managed_downloaded", first
+          assert first.platform_variant == "windows-x86_64-cpu", first
+          assert first.managed_root == expected_root, (first.managed_root, expected_root)
+          assert resolved.exists(), resolved
+          assert resolved.name.lower() == "llama-server.exe", resolved
+          assert resolved.is_relative_to(expected_root), (resolved, expected_root)
+
+          second = prepare_llama_server_runtime(
+              config=LlamaServerConfig(command="llama-server", gpu_layers=0),
+              project_root=project_root,
+          )
+
+          assert second.source == "managed_cached", second
+          assert second.platform_variant == "windows-x86_64-cpu", second
+          assert second.managed_root == expected_root, (second.managed_root, expected_root)
+          assert Path(second.command).resolve() == resolved, (second.command, resolved)
+
+          print(
+              json.dumps(
+                  {
+                      "project_root": str(project_root),
+                      "managed_root": str(expected_root),
+                      "command": str(resolved),
+                      "release_tag": MANAGED_LLAMA_CPP_RELEASE_TAG,
+                      "first_source": first.source,
+                      "second_source": second.source,
+                  },
+                  indent=2,
+              )
+          )
+          '@ | & $venvPython -
