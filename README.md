@@ -6,27 +6,11 @@
 
 `ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), and [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
-
-## Output
-
-Each run produces a self-contained output directory:
-
-- **`curated_dataset.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors
-- **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
-- **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
-- **`download_wos_export.txt`** — Web of Science format for [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
-- **`run_summary.yaml`** — full run metadata and stage timings
-
-[![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
-*Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*
-
-[![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
-*Author co-citation output from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
+Try out an example [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 
 ## Installation
 
-Install into an active Python environment of your choice:
+Use [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv pip install ads-bib
@@ -42,13 +26,16 @@ uv pip install ads-bib
 
 ## Quick Start
 
-Create a `.env` file with your API keys, then run:
+Create a `.env` file inn your root with your API keys,
 
 ```bash
 # .env
 ADS_TOKEN=your-ads-token
 OPENROUTER_API_KEY=your-key        # only for the openrouter road
+```
+then run:
 
+```bash
 # terminal
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
@@ -79,6 +66,19 @@ More examples and the `NotebookSession` interface: [Python API docs](https://rap
 
 Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/)
 
-## License
+## Output
 
-MIT. See [LICENSE](LICENSE).
+Each run produces a self-contained output directory:
+
+- **`curated_dataset.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors
+- **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
+- **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
+- **`download_wos_export.txt`** — Web of Science format for [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
+- **`run_summary.yaml`** — full run metadata and stage timings
+
+[![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
+*Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*
+
+[![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
+*Author co-citation output from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
+
