@@ -123,7 +123,7 @@ jobs:
         shell: pwsh
         run: uv run python -m build --wheel
 
-      - name: Wheel smoke (managed llama-server Windows CPU)
+      - name: Wheel smoke (managed llama-server Windows CPU startup)
         shell: pwsh
         run: |
           $smokeRoot = Join-Path $env:RUNNER_TEMP "ads_pkg_smoke_windows"
@@ -143,54 +143,112 @@ jobs:
           from ads_bib._utils.llama_server import (
               LlamaServerConfig,
               MANAGED_LLAMA_CPP_RELEASE_TAG,
+              build_openai_client,
+              ensure_llama_server,
               prepare_llama_server_runtime,
+              probe_server_ready,
+              stop_all_llama_servers,
           )
+          from ads_bib._utils.model_specs import ModelSpec
 
           project_root = Path(tempfile.mkdtemp(prefix="ads-managed-runtime-")).resolve()
+          os.environ["HF_HOME"] = str(project_root / "hf_home")
           os.environ["PATH"] = ""
+          runtime_log_path = project_root / "runtime.log"
 
-          first = prepare_llama_server_runtime(
-              config=LlamaServerConfig(command="llama-server", gpu_layers=0),
-              project_root=project_root,
+          config = LlamaServerConfig(
+              command="llama-server",
+              gpu_layers=0,
+              ctx_size=2048,
+              startup_timeout_s=240.0,
           )
-          resolved = Path(first.command).resolve()
-          expected_root = (
-              project_root
-              / "data"
-              / "models"
-              / "llama_cpp"
-              / MANAGED_LLAMA_CPP_RELEASE_TAG
-              / "windows-x86_64-cpu"
-          ).resolve()
-
-          assert first.source == "managed_downloaded", first
-          assert first.platform_variant == "windows-x86_64-cpu", first
-          assert first.managed_root == expected_root, (first.managed_root, expected_root)
-          assert resolved.exists(), resolved
-          assert resolved.name.lower() == "llama-server.exe", resolved
-          assert resolved.is_relative_to(expected_root), (resolved, expected_root)
-
-          second = prepare_llama_server_runtime(
-              config=LlamaServerConfig(command="llama-server", gpu_layers=0),
-              project_root=project_root,
+          model_spec = ModelSpec(
+              model_repo="Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+              model_file="qwen2.5-0.5b-instruct-q5_k_m.gguf",
           )
 
-          assert second.source == "managed_cached", second
-          assert second.platform_variant == "windows-x86_64-cpu", second
-          assert second.managed_root == expected_root, (second.managed_root, expected_root)
-          assert Path(second.command).resolve() == resolved, (second.command, resolved)
-
-          print(
-              json.dumps(
-                  {
-                      "project_root": str(project_root),
-                      "managed_root": str(expected_root),
-                      "command": str(resolved),
-                      "release_tag": MANAGED_LLAMA_CPP_RELEASE_TAG,
-                      "first_source": first.source,
-                      "second_source": second.source,
-                  },
-                  indent=2,
+          try:
+              first = prepare_llama_server_runtime(
+                  config=config,
+                  project_root=project_root,
+                  runtime_log_path=runtime_log_path,
               )
-          )
+              resolved = Path(first.command).resolve()
+              expected_root = (
+                  project_root
+                  / "data"
+                  / "models"
+                  / "llama_cpp"
+                  / MANAGED_LLAMA_CPP_RELEASE_TAG
+                  / "windows-x86_64-cpu"
+              ).resolve()
+
+              assert first.source == "managed_downloaded", first
+              assert first.platform_variant == "windows-x86_64-cpu", first
+              assert first.managed_root == expected_root, (first.managed_root, expected_root)
+              assert resolved.exists(), resolved
+              assert resolved.name.lower() == "llama-server.exe", resolved
+              assert resolved.is_relative_to(expected_root), (resolved, expected_root)
+
+              second = prepare_llama_server_runtime(
+                  config=config,
+                  project_root=project_root,
+                  runtime_log_path=runtime_log_path,
+              )
+
+              assert second.source == "managed_cached", second
+              assert second.platform_variant == "windows-x86_64-cpu", second
+              assert second.managed_root == expected_root, (second.managed_root, expected_root)
+              assert Path(second.command).resolve() == resolved, (second.command, resolved)
+
+              handle = ensure_llama_server(
+                  model_spec=model_spec,
+                  config=config,
+                  runtime_log_path=runtime_log_path,
+                  project_root=project_root,
+              )
+              assert probe_server_ready(handle), handle
+
+              same_handle = ensure_llama_server(
+                  model_spec=model_spec,
+                  config=config,
+                  runtime_log_path=runtime_log_path,
+                  project_root=project_root,
+              )
+              assert same_handle is handle
+
+              client = build_openai_client(handle=handle)
+              response = client.chat.completions.create(
+                  model=model_spec.model_file,
+                  messages=[{"role": "user", "content": "Reply with the single word OK."}],
+                  max_tokens=8,
+                  temperature=0,
+              )
+              content = str(response.choices[0].message.content or "").strip()
+              assert content, response
+
+              print(
+                  json.dumps(
+                      {
+                          "project_root": str(project_root),
+                          "managed_root": str(expected_root),
+                          "command": str(resolved),
+                          "release_tag": MANAGED_LLAMA_CPP_RELEASE_TAG,
+                          "model_repo": model_spec.model_repo,
+                          "model_file": model_spec.model_file,
+                          "base_url": handle.base_url,
+                          "first_source": first.source,
+                          "second_source": second.source,
+                          "response_preview": content[:120],
+                      },
+                      indent=2,
+                  )
+              )
+          except Exception:
+              if runtime_log_path.exists():
+                  print("\n===== runtime.log =====\n")
+                  print(runtime_log_path.read_text(encoding="utf-8", errors="replace"))
+              raise
+          finally:
+              stop_all_llama_servers()
           '@ | & $venvPython -
