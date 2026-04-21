@@ -5,27 +5,26 @@ sure which road fits your setup, read [Runtime Roads](runtime-roads.md) first.
 
 ## Install
 
-`uv pip` is the recommended installer. If you do not have it yet, install it
-once via `python -m pip install uv`, `pipx install uv`, or the platform
-installer from Astral.
-
-Install `ads-bib` into the Python environment you want to use. The same
-install covers all four official runtime roads:
+One command installs everything for all four runtime roads:
 
 ```bash
 uv pip install ads-bib
 ```
 
-If you are on an NVIDIA / CUDA machine and want the official accelerated
-`local_gpu` road, install the validated CUDA Torch wheel into the same env:
+Don't have `uv` yet? Install it once with `pipx install uv` or
+`python -m pip install uv`.
+
+### NVIDIA GPU users only
+
+If you want the `local_gpu` road on an NVIDIA machine, also install the
+CUDA build of PyTorch:
 
 ```bash
-uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+uv pip install "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
 ```
 
-This is the only supported public fallback when the default `torch` install
-does not expose CUDA. It is a hardware-class override, not a preset-specific
-install path.
+Skip this step on CPU-only machines and when using the `openrouter`,
+`hf_api`, or `local_cpu` roads.
 
 ## Create `.env`
 
