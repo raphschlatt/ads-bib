@@ -9,6 +9,12 @@ Scope:
 2. Use the Hawking query (`'author:"Hawking, S*"'`).
 3. Validate the supported topic backends: `bertopic` and `toponymy`.
 
+!!! note "Model IDs are examples, not hard-coded contracts"
+    The provider/model values below mirror the current
+    `src/ads_bib/_presets/*.yaml`. The runnable code accepts any provider-valid
+    model ID; when a preset model id is bumped, update the matching block here
+    so the runbook keeps matching real runs.
+
 ## Shared Baseline
 
 1. Activate your active repo dev environment.
@@ -36,7 +42,7 @@ Set in notebook section dicts:
 TRANSLATE = {
     ...
     "provider": "openrouter",
-    "model": "google/gemini-3.1-flash-lite-preview",
+    "model": "google/gemini-3-flash-preview",
 }
 TOPIC_MODEL = {
     ...
@@ -44,7 +50,7 @@ TOPIC_MODEL = {
     "embedding_model": "qwen/qwen3-embedding-8b",
     "backend": "bertopic",
     "llm_provider": "openrouter",
-    "llm_model": "google/gemini-3.1-flash-lite-preview",
+    "llm_model": "google/gemini-3-flash-preview",
 }
 ```
 

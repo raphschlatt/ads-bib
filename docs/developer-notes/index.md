@@ -40,6 +40,55 @@ Deployment behavior:
 - pushes to the default branch build and deploy the static output,
 - the canonical site URL is `https://raphschlatt.github.io/ADS_Pipeline/`.
 
+## Testing
+
+CI mirrors the local developer loop through the `ads-bib check` helper:
+
+```bash
+ads-bib check            # ruff + pytest, same as CI
+python -m ruff check src tests
+PYTHONPATH=src python -m pytest -q
+```
+
+Two pytest markers live in `pyproject.toml`:
+
+- `slow` — integration or dependency-heavy tests
+- `requires_topic_stack` — needs the UMAP/HDBSCAN/datamapplot extras and
+  runs in the heavy CI job
+
+Use `pytest -m "not slow"` for the fast inner loop and
+`pytest -m "requires_topic_stack"` before touching topic-model code.
+
+## Release & versioning
+
+- The package version is tracked in
+  [`pyproject.toml`](../../pyproject.toml) under `[project].version`.
+- Bump the version, run `ads-bib check`, tag the commit, and push. The
+  tagged build is the source of truth for reproducibility metadata
+  (`run_summary.yaml` records the git commit and whether the working tree
+  was dirty).
+- Docs deploy automatically from `main` via
+  [`.github/workflows/docs.yml`](../../.github/workflows/docs.yml).
+
+## Architecture compass
+
+For a structural map of the package, the most useful anchors are:
+
+- `src/ads_bib/pipeline.py` — the stage runner, stage ordering, and
+  `PipelineConfig` / `run_pipeline` public surface.
+- `src/ads_bib/runner.py` — the high-level `ads_bib.run` entry point plus
+  preflight wiring.
+- `src/ads_bib/cli.py` — the `check`, `bootstrap`, `run`, `doctor`, and
+  `preset` subcommands.
+- `src/ads_bib/topic_model/` — embeddings, reduction, clustering, and
+  labeling primitives (wraps BERTopic + Toponymy).
+- `src/ads_bib/_utils/llama_server.py` — managed `llama-server` runtime
+  resolution, including the Windows CUDA / Linux Vulkan asset split.
+- `src/ads_bib/_presets/*.yaml` — the four packaged starter presets.
+
+The public user docs under `docs/` describe the contracts these modules
+expose; this compass is the counterpart that points at where to change them.
+
 ## Validation runbooks
 
 - [Manual Provider Parity](manual_provider_parity.md)

@@ -81,6 +81,17 @@ CUDA. For early exploration on a large corpus, set
 `topic_model.sample_size` to limit documents and set it back to `null` for
 the final run.
 
+### Common failure patterns
+
+- **Cache miss you did not expect** (the corpus re-embeds in full) → check
+  whether `embedding_model` or the input text changed; the cache key is a
+  SHA-256 of both.
+- **Out-of-memory on a local road** → set `topic_model.sample_size` for
+  exploration, lower `embedding_batch_size`, or switch to a smaller embedding
+  model for that run.
+- **Slow embeddings on `local_cpu`** → `google/embeddinggemma-300m` is the
+  CPU-friendly default. Avoid multi-billion-parameter embedding models on CPU.
+
 ## Reduction
 
 The default reduction method is `pacmap`. `umap` is available as an advanced
@@ -104,6 +115,15 @@ params_2d:
 broader, connected clusters; lower values (15–30) produce tighter, separated
 groups. Scale down for datasets under 200 documents.
 
+### Common failure patterns
+
+- **2D map collapsed into one blob** → `n_neighbors` is too high; drop toward
+  15–30.
+- **2D map shattered into isolated specks** → `n_neighbors` is too low;
+  raise toward 50–80.
+- **Corpus under 200 documents** → set `n_neighbors` to 15–20; the default of
+  30 assumes enough points to estimate neighborhoods.
+
 ## Clustering
 
 Official presets use `fast_hdbscan` with:
@@ -122,7 +142,7 @@ documents, keep `min_cluster_size` at 15. For larger corpora, the auto-scaling
 formula `max(15, n_docs * 0.001)` kicks in. Override via
 `cluster_params.min_cluster_size`.
 
-Common failure patterns:
+### Common failure patterns
 
 - **Too few topics** (2–3) with a large outlier set → lower `min_cluster_size`.
 - **Too many micro-topics** with <10 documents each → raise `min_cluster_size`.
@@ -144,6 +164,16 @@ For BERTopic, representation runs a POS filter → KeyBERT → MMR → LLM befor
 the final label emerges. Outlier reassignment uses `outlier_threshold`
 (default `0.5`) — documents with assignment probability above that threshold
 get pulled into their nearest cluster, then topic labels are refreshed.
+
+### Common failure patterns
+
+- **Generic or empty labels** (e.g. "Topic 1") → check `llm_prompt_name` —
+  `physics` is tuned for gravitational physics, `generic` for other domains.
+- **Labeling times out or intermittently fails** → lower
+  `toponymy_max_workers`, or switch the LLM provider for that run.
+- **Outliers swallow most documents** → raise `outlier_threshold` so more
+  documents get reassigned into their nearest cluster before labels are
+  regenerated.
 
 ## Good Tuning Order
 

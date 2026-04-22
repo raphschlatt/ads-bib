@@ -8,6 +8,12 @@ The ADS API supports a rich
 [search syntax](https://ui.adsabs.harvard.edu/help/search/search-syntax). Start
 small, validate the result set, then expand to your full bibliometric question.
 
+!!! note "Syntax errors come back from the ADS API, not from `ads-bib`"
+    The query you set in `search.query` is passed to the ADS API unchanged.
+    `ads-bib` does not parse or validate it. Malformed queries surface as an
+    HTTP 400 from ADS during the `search` stage. Test a narrow query first,
+    then scale up.
+
 ## The Basic Building Blocks
 
 | Building block | Purpose | Example |
@@ -18,6 +24,87 @@ small, validate the result set, then expand to your full bibliometric question.
 | Topic filter | Restrict to a thematic subset | `abs:"black hole"` |
 | Time filter | Restrict by publication date | `year:1974-1990` |
 | Venue filter | Restrict to journals or collections | `bibstem:PhRvD` |
+
+## Syntax Basics
+
+The five rules below cover the situations where a query looks obvious but
+returns a very different result set than intended. Each rule matches one real
+ADS behavior; the external
+[ADS syntax reference](https://ui.adsabs.harvard.edu/help/search/search-syntax)
+is the full grammar.
+
+### Phrases
+
+Quotes turn a sequence of words into a single phrase. Without quotes, ADS
+treats the tokens as independent terms and may match documents that contain
+them in any order or not adjacent.
+
+```text
+abs:"black hole"      # matches the phrase
+abs:black hole        # matches abs:black anywhere + the bare token hole
+```
+
+!!! warning "Quoting changes the result set by orders of magnitude"
+    `abs:"black hole"` and `abs:black hole` are **not** synonyms. Use quotes
+    whenever you mean a phrase; omit them only when you intentionally want
+    independent term matches.
+
+### Wildcards
+
+A trailing `*` expands to any number of characters. ADS wildcards are
+**trailing-only** — no leading wildcards, no middle wildcards, no glob or
+regex semantics.
+
+```text
+author:"Hawking, S*"   # Hawking, S / Hawking, Stephen / Hawking, Susan / ...
+author:"*awking, S"    # NOT supported
+author:"H?wking, S"    # NOT supported (no single-character wildcard)
+```
+
+!!! warning "Wildcards are trailing-only"
+    Leading-wildcard, middle-wildcard, regex, and glob syntax all fail on
+    ADS. If you need more flexibility, enumerate alternatives with `OR`.
+
+### Boolean operators
+
+`AND`, `OR`, and `NOT` combine clauses. `AND` has higher precedence than `OR`,
+so `A OR B AND C` is read as `A OR (B AND C)`. Use parentheses whenever the
+reading order matters.
+
+```text
+author:"Hawking, S*" OR citations(author:"Hawking, S*")
+(author:"Hawking, S*" OR author:"Penrose, R*") AND abs:"black hole"
+```
+
+!!! warning "`AND` binds tighter than `OR`"
+    `A OR B AND C` is parsed as `A OR (B AND C)`. If you meant
+    `(A OR B) AND C`, write it that way explicitly. The difference between
+    the two often shows up as a 10×–100× change in result count.
+
+### Negation
+
+Exclude a term with `-` or `NOT`. Both prefixes work.
+
+```text
+author:"Hawking, S*" -abs:"cosmology"
+author:"Hawking, S*" AND NOT abs:"cosmology"
+```
+
+### Common field prefixes
+
+| Prefix | Scope |
+| --- | --- |
+| `author:` | Author names (supports trailing `*`) |
+| `title:` | Paper title |
+| `abs:` | Abstract |
+| `full:` | Full text where available |
+| `year:` | Publication year; supports `year:1974-1990` ranges |
+| `bibstem:` | Journal / collection code (e.g. `PhRvD`, `ApJ`) |
+| `citations(...)` | Forward citations of the inner query |
+| `references(...)` | Backward references of the inner query |
+
+`full:` is the broadest (and noisiest) prefix; prefer `abs:` or `title:` for
+topic filters when precision matters.
 
 ## Common Query Patterns
 

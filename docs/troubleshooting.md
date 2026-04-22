@@ -23,8 +23,10 @@ Walk through this short checklist before investigating a symptom:
     uv pip list | grep -E "ads-bib|torch|transformers|sentence-transformers"
     ```
 
-If the preflight reports a managed runtime download, that is only a warning,
-not a blocker.
+!!! info "A managed runtime download is not a failure"
+    If the preflight reports that a managed runtime (the `llama-server` binary
+    or a default model file) will be downloaded on run, that is a warning,
+    not a blocker. The actual download happens when you start the run.
 
 ## Missing ADS token
 
@@ -117,6 +119,23 @@ uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.p
 - Re-run `ads-bib doctor --preset local_gpu ...`.
 - If CUDA is still unavailable, the local HF/Torch paths will fall back to CPU,
   but that is no longer the official accelerated `local_gpu` contract.
+
+## `local_gpu` on Linux uses a different llama.cpp binary
+
+Symptom: you read CUDA everywhere in the docs, then notice the managed
+`llama-server` on Linux is a Vulkan build and wonder whether something is
+misconfigured.
+
+Fix:
+
+- Nothing to fix — the split is intentional. On Linux, `ads-bib` downloads the
+  official llama.cpp Vulkan build for the `llama-server` labeling runtime, while
+  embeddings and `transformers`-based translation still run on CUDA 12.4 via
+  PyTorch. On Windows, both sides use CUDA 12.4.
+- Vulkan is the supported prebuilt GPU distribution of llama.cpp on Linux and
+  runs on the same NVIDIA driver stack as CUDA PyTorch.
+- See [Runtime Roads → GPU runtime differs between Windows and Linux](runtime-roads.md#gpu-runtime-differs-between-windows-and-linux)
+  for the full table.
 
 ## Unsupported local HF architecture
 

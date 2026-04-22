@@ -7,13 +7,44 @@ experiments on top of the topic-model primitives.
 
 ## Pick an Entry Point
 
-| Goal | Use |
-| --- | --- |
-| Reproducible terminal run | [`ads-bib run`](get-started.md#run-the-cli) (CLI) |
-| Programmatic full run | [`ads_bib.run`](#ads_bibrun) |
-| Interactive, stage-by-stage exploration | [`NotebookSession`](#notebooksession) |
-| Advanced integration with a prepared config | [`PipelineConfig.from_dict`](#pipelineconfig) + [`run_pipeline`](#run_pipeline) |
-| Custom experiments on your own data | low-level: [`compute_embeddings`](#compute_embeddings) → [`reduce_dimensions`](#reduce_dimensions) → [`fit_bertopic`](#fit_bertopic) / [`fit_toponymy`](#fit_toponymy) → [`build_topic_dataframe`](#build_topic_dataframe) → [`process_all_citations`](#process_all_citations) |
+Five use cases, five entry points. Pick by what you want to do, then jump to
+the reference section further down for the signature.
+
+### 1. Reproducible terminal run
+
+You want to start a run from a preset and have the full artifact tree on
+disk. Use the CLI: [`ads-bib run`](get-started.md#run-the-cli).
+
+### 2. Programmatic full run from Python
+
+Same goal as (1), but driven from a script, notebook cell, or wrapper
+function — and you may want the in-memory results back.
+Use [`ads_bib.run`](#ads_bibrun).
+
+### 3. Interactive, stage-by-stage exploration
+
+You want to run stages one at a time, inspect intermediate results between
+stages, and adjust section configs without re-running upstream work.
+Use [`NotebookSession`](#notebooksession).
+
+### 4. Pre-built config straight into the runner
+
+You already have a fully-built `PipelineConfig` (for example loaded from
+`runs/<run_id>/config_used.yaml` or constructed in code) and want to hand it
+directly to the pipeline runner.
+Use [`PipelineConfig.from_dict`](#pipelineconfig) followed by
+[`run_pipeline`](#run_pipeline).
+
+### 5. Topic modeling on your own texts
+
+You want to apply the topic-model primitives to arbitrary text, outside the
+ADS data flow. Use the low-level chain:
+[`compute_embeddings`](#compute_embeddings) →
+[`reduce_dimensions`](#reduce_dimensions) →
+[`fit_bertopic`](#fit_bertopic) or [`fit_toponymy`](#fit_toponymy) →
+[`build_topic_dataframe`](#build_topic_dataframe).
+Citation networks run independently via
+[`process_all_citations`](#process_all_citations).
 
 ## Stable Top-Level Imports
 

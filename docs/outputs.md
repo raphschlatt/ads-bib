@@ -26,26 +26,6 @@ runs/run_20260407_120000_ads_bib_openrouter/
 
 Every file in that tree has a single canonical owner described below.
 
-<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #161b22;">
-    <iframe src="../assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;"></iframe>
-</div>
-<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
-  <em>Interactive topic map from <code>author:"Hawking, S*"</code> in <a href="https://github.com/TutteInstitute/datamapplot">datamapplot</a> — produced by a single <code>ads-bib run</code>.</em>
-</div>
-
-<div style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; background: #ffffff;">
-  <iframe
-    width="100%"
-    height="520"
-    allowfullscreen="true"
-    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
-    style="border: none; width: 150%; height: 150%; max-width: none; max-height: none; transform: scale(0.667); transform-origin: 0 0;"
-  ></iframe>
-</div>
-<div style="font-size: 0.85em; text-align: center; opacity: 0.8; margin-bottom: 2rem; line-height: 1.6;">
-  <em>Interactive author co-citation network from <code>author:"Hawking, S*"</code> — exported by one <code>ads-bib run</code> and opened in <a href="https://gephi.org/gephi-lite/">Gephi Lite</a>.</em>
-</div>
-
 ## `config_used.yaml`
 
 The resolved, normalized `PipelineConfig` actually used for the run. You can
@@ -151,6 +131,23 @@ Schema conventions:
 - For Toponymy, `topic_id` and `Name` are **working-layer aliases**. The
   canonical hierarchy is `topic_layer_<n>_id` / `topic_layer_<n>_label`,
   where layer 0 is the finest and higher layers are coarser.
+
+A typical row after a completed BERTopic run looks like this (truncated to
+the most useful columns):
+
+```text
+Bibcode         Year  Title_en                                   topic_id  Name                       embedding_2d_x  embedding_2d_y
+1974Natur.248...  1974  Black hole explosions?                     2         Hawking radiation           -3.42           1.88
+1975CMaPh..43..  1975  Particle creation by black holes           2         Hawking radiation           -3.18           2.04
+1988PhRvD..37..  1988  Wave function of the Universe              4         Quantum cosmology           1.67            -0.92
+1996PhRvL..77..  1996  Microscopic origin of the entropy          1         Black hole thermodynamics   -2.15           -0.41
+2005PhRvD..72..  2005  Information loss in black holes            2         Hawking radiation           -3.01           1.73
+```
+
+Load it back with `pandas.read_parquet("runs/<run_id>/data/curated_dataset.parquet")`.
+For Toponymy runs, each row additionally carries `topic_layer_0_id`,
+`topic_layer_0_label`, … up to `topic_layer_<n>_*` and the two hierarchy
+metadata columns `topic_primary_layer_index` and `topic_layer_count`.
 
 ## `.gexf` Node Attributes
 

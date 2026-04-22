@@ -89,6 +89,17 @@ currently prioritizes correctness over aggressive fan-out.
 presets download the default file automatically when it is missing. See
 [Configuration](configuration.md#translate) for all keys.
 
+### Common failure patterns
+
+- **Wrong target language or gibberish translations** → fastText misdetected
+  the source language; verify `fasttext_model` points at a real
+  `lid.176.bin` and spot-check a few rows of the raw corpus.
+- **Remote provider timeouts on large corpora** → lower
+  `translate.max_workers` to reduce concurrent requests.
+- **Translation cost is too high on `openrouter`** → switch the provider to
+  `nllb` for that run; translation quality drops slightly on scientific
+  prose, but cost goes to zero.
+
 ## Phase 3: Tokenization
 
 spaCy lemmatizes the translated text (reducing inflected forms to base forms)
@@ -96,6 +107,16 @@ so the topic model sees one token for `gravitational`, `gravity`, etc. Only
 lemmatization and POS tagging are enabled; `n_process` defaults to `1`. Raise
 it if you want parallel spaCy workers. Switch from `en_core_web_md` to
 `en_core_web_lg` for better POS accuracy on unusual vocabulary.
+
+### Common failure patterns
+
+- **spaCy model load error** → install the configured model with
+  `python -m spacy download en_core_web_md`, or leave
+  `tokenize.auto_download=true` so the run installs it automatically.
+- **Lemmas look wrong on technical vocabulary** → switch
+  `tokenize.spacy_model` to `en_core_web_lg` for better POS coverage.
+- **Tokenization is the slow step on a large corpus** → raise
+  `tokenize.n_process` above `1` to fan out spaCy workers.
 
 ## Phase 4: Author Disambiguation
 

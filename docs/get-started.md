@@ -14,17 +14,16 @@ uv pip install ads-bib
 Don't have `uv` yet? Install it once with `pipx install uv` or
 `python -m pip install uv`.
 
-### NVIDIA GPU users only
+!!! tip "Extra step for NVIDIA GPU users"
+    If you want the `local_gpu` road on an NVIDIA machine, also install the
+    CUDA build of PyTorch into the same env:
 
-If you want the `local_gpu` road on an NVIDIA machine, also install the
-CUDA build of PyTorch:
+    ```bash
+    uv pip install "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+    ```
 
-```bash
-uv pip install "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
-```
-
-Skip this step on CPU-only machines and when using the `openrouter`,
-`hf_api`, or `local_cpu` roads.
+    Skip this step on CPU-only machines and when using the `openrouter`,
+    `hf_api`, or `local_cpu` roads.
 
 ## Create `.env`
 

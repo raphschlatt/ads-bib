@@ -72,6 +72,43 @@ recurring collaboration-adjacent pairings.
 | Explore author-level structure | `author_co_citation.gexf` |
 | Import into CiteSpace / VOSviewer | `download_wos_export.txt` |
 
+## What an Exported Edge Looks Like
+
+Every `.gexf` is valid XML with two blocks: a `<nodes>` list where each node
+carries the full publication metadata, and an `<edges>` list where each edge
+carries the metric-specific weight. Below is a trimmed excerpt from a
+`co_citation.gexf` so you can see the structure directly:
+
+```xml
+<graph mode="static" defaultedgetype="undirected">
+  <nodes>
+    <node id="1974Natur.248...30H" label="Hawking, S.W. (1974)">
+      <attvalues>
+        <attvalue for="Bibcode" value="1974Natur.248...30H"/>
+        <attvalue for="Title"   value="Black hole explosions?"/>
+        <attvalue for="Year"    value="1974"/>
+        <attvalue for="topic_id" value="2"/>
+        <attvalue for="Name"    value="Hawking radiation"/>
+        <attvalue for="embedding_2d_x" value="-3.42"/>
+        <attvalue for="embedding_2d_y" value="1.88"/>
+      </attvalues>
+    </node>
+    <node id="1975CMaPh..43..199H" label="Hawking, S.W. (1975)"> ... </node>
+  </nodes>
+  <edges>
+    <edge source="1974Natur.248...30H"
+          target="1975CMaPh..43..199H"
+          weight="7"/>
+  </edges>
+</graph>
+```
+
+The interpretation depends on the metric: in `co_citation.gexf`, `weight=7`
+means the two papers are jointly cited by 7 later papers. In
+`bibliographic_coupling.gexf`, the same edge would say the two papers share
+7 references. In `direct.gexf`, the edge is directed and `weight` counts how
+many times source cites target.
+
 ## External Tooling
 
 - **[Gephi](https://gephi.org/)** — desktop network visualization. Opens
@@ -85,22 +122,6 @@ recurring collaboration-adjacent pairings.
   analyses.
 - **[VOSviewer](https://www.vosviewer.com/)** — imports the same WOS export
   and renders overlay-style clustering views.
-
-### Screenshots: CiteSpace & VOSviewer
-
-<!-- TODO: screenshot citespace
-     Caption: "CiteSpace reading the Pipeline's download_wos_export.txt"
-     Desired: full-width screenshot of the CiteSpace import screen or the
-     first clustering view on a pipeline-exported WOS file.
--->
-
-<!-- TODO: screenshot vosviewer
-     Caption: "VOSviewer overlay view of the Pipeline's download_wos_export.txt"
-     Desired: full-width screenshot of a VOSviewer clustering after
-     importing the WOS file.
--->
-
-*CiteSpace and VOSviewer screenshots follow in a later update.*
 
 ## Tuning Edge Density
 

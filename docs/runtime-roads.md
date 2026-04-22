@@ -105,6 +105,23 @@ Local GPU road for machines with a compatible Torch/CUDA stack.
 - **Optional switch**: set `topic_model.llm_provider=llama_server` to use GGUF
   labeling instead
 
+### GPU runtime differs between Windows and Linux
+
+When `llama_server` is used as the labeling provider on `local_gpu`, the
+managed binary is platform-specific:
+
+| OS | Managed `llama-server` build | PyTorch stack |
+| --- | --- | --- |
+| Windows | CUDA 12.4 | CUDA 12.4 |
+| Linux | Vulkan | CUDA 12.4 |
+
+On Linux, the `llama-server` binary uses the official llama.cpp Vulkan build,
+while embeddings and `transformers`-based translation still run on CUDA via
+PyTorch. This split is deliberate: Vulkan is the supported distribution path
+for a prebuilt GPU binary of llama.cpp on Linux, and it works on the same
+NVIDIA driver stack as CUDA PyTorch. No extra action is required — the right
+binary is selected automatically.
+
 ## First-Run Behavior
 
 The first run on a fresh machine or in a fresh env is usually the slowest.
