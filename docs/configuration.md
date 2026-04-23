@@ -38,7 +38,7 @@ runtime.
 
 ## Install
 
-One base install covers every preset:
+Use a Python 3.12 env. One base install covers every preset:
 
 ```bash
 uv pip install ads-bib
@@ -48,8 +48,17 @@ On NVIDIA / CUDA machines, add the validated CUDA Torch wheel into the same
 env so `local_gpu` runs on the GPU:
 
 ```bash
-uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+uv pip install ads-bib "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cu124
 ```
+
+If you need to restore the validated CPU wheel explicitly for a local CPU env:
+
+```bash
+uv pip install "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cpu
+```
+
+The validated local HF stack for this release is Torch 2.6.x with
+Transformers 4.56.x.
 
 Optional algorithm extras are available when you intentionally switch
 defaults:
@@ -355,4 +364,3 @@ configs.
 - [Pipeline Guide](pipeline-guide.md) — when to retune which stage
 - [Troubleshooting](troubleshooting.md) — if runs exit early
 - [Output Artifacts](outputs.md) — what each file in `runs/<run_id>/` is for
-

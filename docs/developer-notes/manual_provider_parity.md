@@ -17,7 +17,7 @@ Scope:
 
 ## Shared Baseline
 
-1. Activate your active repo dev environment.
+1. Activate your Python 3.12 repo dev environment.
 2. Open `pipeline.ipynb`.
 3. Set `RESET_SESSION = True` for a clean run directory.
 4. Preflight for local HF models:
@@ -26,10 +26,11 @@ Scope:
 python -c "import transformers, sentence_transformers; print('transformers', transformers.__version__); print('sentence-transformers', sentence_transformers.__version__)"
 ```
 
-If `transformers < 4.56` or `sentence-transformers < 5.1`, upgrade before local runs:
+If `transformers < 4.56`, `transformers >= 4.57`, or `sentence-transformers < 5.1`,
+upgrade before local runs:
 
 ```bash
-uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
+uv pip install -U "transformers>=4.56,<4.57" "sentence-transformers>=5.1"
 ```
 
 Parity runs should cover all four roads and both supported backends.

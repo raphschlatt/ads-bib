@@ -15,9 +15,10 @@ Walk through this short checklist before investigating a symptom:
     ads-bib doctor --preset <road> --set search.query='<your query>'
     ```
 
-2. Confirm `.env` exists in your working directory and holds the keys your
+2. Confirm you are in the Python 3.12 env you intend to use for this run.
+3. Confirm `.env` exists in your working directory and holds the keys your
    road requires (see [Install & First Run](get-started.md#create-env)).
-3. Check the versions of the package and its heavy dependencies:
+4. Check the versions of the package and its heavy dependencies:
 
     === "macOS / Linux"
 
@@ -121,7 +122,7 @@ Fix:
 - If not, install the validated CUDA Torch wheel into the same env:
 
 ```bash
-uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+uv pip install ads-bib "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cu124
 ```
 
 - Re-run `ads-bib doctor --preset local_gpu ...`.
@@ -153,7 +154,7 @@ for models like `gemma3`, `qwen3`, or `gemma3_text`.
 Fix:
 
 ```bash
-uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1"
+uv pip install -U "transformers>=4.56,<4.57" "sentence-transformers>=5.1"
 ```
 
 Then restart the kernel or session.

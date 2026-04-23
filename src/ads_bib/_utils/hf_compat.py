@@ -104,7 +104,7 @@ def build_local_hf_compat_message(
         f"Local {use_case} model '{model}' could not be loaded. {details} "
         f"Installed transformers version: {transformers_version}. "
         "Upgrade the local HF stack in your active Python environment, then restart the kernel:\n"
-        'uv pip install -U "transformers>=4.56" "sentence-transformers>=5.1" "accelerate>=0.31"'
+        'uv pip install -U "transformers>=4.56,<4.57" "sentence-transformers>=5.1" "accelerate>=0.31"'
     )
 
 
@@ -126,7 +126,7 @@ def build_torch_runtime_message(
     return (
         f"Local {use_case} model '{model}' requires torch>={required}, but installed torch is {torch_version}. "
         "Upgrade torch in your active Python environment, then restart the kernel:\n"
-        'uv pip install -U "torch==2.5.1+cpu" --extra-index-url https://download.pytorch.org/whl/cpu'
+        'uv pip install -U "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cpu'
     )
 
 

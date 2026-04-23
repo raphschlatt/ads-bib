@@ -5,7 +5,8 @@ sure which road fits your setup, read [Runtime Roads](runtime-roads.md) first.
 
 ## Install
 
-One command installs everything for all four runtime roads:
+Use a Python 3.12 env. One command installs everything for all four runtime
+roads:
 
 ```bash
 uv pip install ads-bib
@@ -19,11 +20,18 @@ Don't have `uv` yet? Install it once with `pipx install uv` or
     CUDA build of PyTorch into the same env:
 
     ```bash
-    uv pip install "torch==2.5.1+cu124" --extra-index-url https://download.pytorch.org/whl/cu124
+    uv pip install "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cu124
     ```
 
     Skip this step on CPU-only machines and when using the `openrouter`,
     `hf_api`, or `local_cpu` roads.
+
+!!! tip "Validated CPU Torch reinstall"
+    If you need to restore the tested CPU wheel in a local CPU env, use:
+
+    ```bash
+    uv pip install "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cpu
+    ```
 
 ## Create `.env`
 

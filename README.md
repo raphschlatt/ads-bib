@@ -1,6 +1,6 @@
 # ads-bib
 
-![Python >=3.10](https://img.shields.io/badge/python-%E2%89%A53.10-blue)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://raphschlatt.github.io/ADS_Pipeline/)
 
@@ -12,7 +12,10 @@ Try out an example:
 
 ## Installation
 
-Use [uv](https://docs.astral.sh/uv/) and Python >=3.10.
+Use [uv](https://docs.astral.sh/uv/) and Python 3.12.
+
+The validated local Hugging Face stack for this release is Torch 2.6.x with
+Transformers 4.56.x.
 
 ```bash
 uv pip install ads-bib
@@ -84,4 +87,3 @@ Each run produces a self-contained output directory:
 
 [![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
 *Author co-citation output from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
-
