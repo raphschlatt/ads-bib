@@ -72,6 +72,18 @@ recurring collaboration-adjacent pairings.
 | Explore author-level structure | `author_co_citation.gexf` |
 | Import into CiteSpace / VOSviewer | `download_wos_export.txt` |
 
+## Common issues
+
+!!! warning "Common issues"
+    - **Graph looks empty in Gephi** — check `citations.min_counts` for each
+      metric; raising thresholds drops weak edges. Defaults differ between raw
+      code defaults and the packaged presets; see [Configuration — Citations](configuration.md#citations).
+    - **Wrong tool for the question** — `direct` is directed; co-citation and
+      bibliographic-coupling views answer different questions; see the four
+      sections above.
+    - **WOS import problems** — confirm you are using `download_wos_export.txt`
+      and your tool’s WOS/Plain-text mode; see tool docs if columns misalign.
+
 ## What an Exported Edge Looks Like
 
 Every `.gexf` is valid XML with two blocks: a `<nodes>` list where each node

@@ -51,7 +51,7 @@ the canonical variable throughout the package.
 
 ## Run the CLI
 
-The primary public path is preset-driven:
+The usual way to run the pipeline is preset-driven:
 
 ```bash
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
@@ -95,9 +95,22 @@ ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
 `doctor` prints the full stage-aware report without starting a run.
-`bootstrap` is a separate convenience helper that can write `.env`, materialize
-a preset YAML, and download the default fastText model into the current
-directory.
+
+`ads-bib bootstrap` prepares a project directory: it ensures `data/` and
+`runs/`, writes a starter `.env`, and (with `--download-fasttext`) downloads
+the default `lid.176.bin`. To also write a packaged preset to a YAML file, pass
+**both** `--preset` and `--config` (same requirement as a preset+path pair):
+
+```bash
+# Only workspace + .env (no preset file)
+ads-bib bootstrap --project-root .
+
+# Preset YAML + .env in one go
+ads-bib bootstrap --project-root . --preset openrouter --config ads-bib.yaml
+```
+
+You can list `--download-fasttext` or `--force` on either form; using `--preset`
+without `--config` (or the reverse) is an error.
 
 ## See Your Outputs
 
@@ -124,6 +137,8 @@ Open `topic_map.html` in a browser, load the `.gexf` files in
 [VOSviewer](https://www.vosviewer.com/). `config_used.yaml` is reusable as a
 CLI config for future runs.
 
-For artifact-level detail, continue to [Output Artifacts](outputs.md). For
-runtime-road trade-offs, see [Runtime Roads](runtime-roads.md). For deeper
-stage and tuning advice, see the [Pipeline Guide](pipeline-guide.md).
+## Read next
+
+- [Output Artifacts](outputs.md) — column and file reference for `runs/<run_id>/`
+- [Runtime Roads](runtime-roads.md) — choose or switch API vs local roads
+- [Pipeline Guide](pipeline-guide.md) — deeper stage and tuning flow

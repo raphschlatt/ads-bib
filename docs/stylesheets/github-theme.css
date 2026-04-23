@@ -20,3 +20,10 @@
   --md-code-bg-color: #2d333b;
   --md-typeset-a-color: #539bf5;
 }
+
+/* Scaled demo iframes: keep the surrounding page from growing past the viewport */
+.doc-embed {
+  max-width: 100%;
+  overflow: hidden;
+  position: relative;
+}

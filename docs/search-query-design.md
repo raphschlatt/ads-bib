@@ -185,6 +185,8 @@ re-hit the ADS API unnecessarily.
 - Validate counts before you interpret topic structure.
 - If a corpus looks noisy, the problem is often the query, not the clustering.
 
-When you are happy with the dataset definition, continue with
-[Topic Modeling](topic-modeling.md) and the deeper tuning advice in the
-[Pipeline Guide](pipeline-guide.md).
+## Read next
+
+- [Topic Modeling](topic-modeling.md) — once the query size looks right
+- [Pipeline Guide](pipeline-guide.md) — stage order and when to re-run
+- [Get Started](get-started.md#run-the-cli) — minimal CLI reminder

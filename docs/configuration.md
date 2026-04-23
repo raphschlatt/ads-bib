@@ -14,7 +14,7 @@ ads-bib preset write openrouter --output ads-bib.yaml
 ads-bib doctor --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
-From Python, the same preset contract is available through `ads_bib.run(...)`:
+From Python, you can use the same packaged presets as the CLI with `ads_bib.run(...)`:
 
 ```python
 import ads_bib
@@ -26,8 +26,8 @@ ads_bib.run(
 ```
 
 Each preset defines one runtime road. They are generic starter configs, so you
-must set `search.query` before running. `ads-bib run` is the primary public
-entrypoint. `preset write` is optional when you want one editable YAML file, and
+must set `search.query` before running. The usual command to start a run is
+`ads-bib run`. `preset write` is optional when you want one editable YAML file, and
 `doctor` is the support command for printing the full preflight report without
 starting a run.
 
@@ -92,8 +92,8 @@ to notebook dict keys and YAML config keys.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `run_name` | string | `"ADS_Curation_Run"` | Identifier appended to the timestamped run directory name |
-| `start_stage` | string | `"search"` | First stage to execute (CLI only) |
-| `stop_stage` | string \| null | `null` | Last stage to execute; `null` runs to the end |
+| `start_stage` | string | `"search"` | First stage to run. Used from YAML or `PipelineConfig` when you do not pass a start stage from Python/CLI. CLI `--from` and `ads_bib.run(start_stage=...)` override this. |
+| `stop_stage` | string \| null | `null` | Last stage to run; `null` runs to the end. CLI `--to` and `ads_bib.run(stop_stage=...)` override this. |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
 | `openrouter_cost_mode` | string | `"hybrid"` | OpenRouter cost resolution. `"hybrid"` combines live usage with a pricing lookup (default). `"strict"` fails fast when cost data is incomplete. `"fast"` skips the extra lookup and trusts the streaming usage payload. |
 | `project_root` | string \| null | `null` | Override project root; defaults to current working directory |
@@ -349,3 +349,10 @@ configs.
 | `ADS_TOKEN` | Always |
 | `OPENROUTER_API_KEY` | Using `openrouter` providers |
 | `HF_TOKEN` | Using `huggingface_api` providers (`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted) |
+
+## Read next
+
+- [Pipeline Guide](pipeline-guide.md) — when to retune which stage
+- [Troubleshooting](troubleshooting.md) — if runs exit early
+- [Output Artifacts](outputs.md) — what each file in `runs/<run_id>/` is for
+

@@ -21,12 +21,12 @@ local_gpu   — you have an NVIDIA / CUDA GPU and want local acceleration
 | `local_cpu` | CPU | only model downloads | none after setup | `bertopic` |
 | `local_gpu` | NVIDIA + CUDA | only model downloads | none after setup | `bertopic` |
 
-| Road | Translation | Embeddings | Labeling |
-| --- | --- | --- | --- |
-| `openrouter` | OpenRouter chat model | OpenRouter embeddings | OpenRouter LLM |
-| `hf_api` | HF Inference API | HF Inference API | HF Inference API |
-| `local_cpu` | NLLB via CTranslate2 | SentenceTransformers | GGUF via `llama_server` |
-| `local_gpu` | TranslateGemma via `transformers` | SentenceTransformers | local `transformers` |
+**Stack by road (translation / embeddings / labeling):**
+
+- **`openrouter`** — OpenRouter chat model; OpenRouter embedding model; OpenRouter LLM.
+- **`hf_api`** — Hugging Face Inference API for all three.
+- **`local_cpu`** — NLLB via CTranslate2; SentenceTransformers; GGUF via `llama_server`.
+- **`local_gpu`** — TranslateGemma via `transformers`; SentenceTransformers; local `transformers` (optional GGUF via `llama_server` if you change `topic_model.llm_provider`).
 
 The happy path is always:
 
@@ -135,3 +135,13 @@ The first run on a fresh machine or in a fresh env is usually the slowest.
 
 Later runs reuse those assets from cache. None of them add a pipeline stage —
 they only populate the caches for the stages you already asked to run.
+
+If wall-clock time on the first attempt is the problem (not a missing file),
+see [Troubleshooting — First run is slower than expected](troubleshooting.md#first-run-is-slower-than-expected)
+for the same list in a symptom → fix form.
+
+## Read next
+
+- [Install & First Run](get-started.md#install) — base install and `.env` keys
+- [Configuration](configuration.md) — preset and override details
+- [Pipeline Guide](pipeline-guide.md) — when to iterate which stage

@@ -15,11 +15,14 @@ uv run zensical serve
 uv run zensical build --clean
 ```
 
-Register the notebook kernel from the same env when needed:
+Register the notebook kernel from the same env when needed (Unix shell):
 
 ```bash
 .venv/bin/python -m ipykernel install --user --name ads-bib --display-name "Python (ads-bib)"
 ```
+
+On Windows, use the venv interpreter, for example
+`.venv\Scripts\python.exe -m ipykernel ...` from the project root in PowerShell.
 
 The docs site uses:
 
@@ -50,6 +53,13 @@ python -m ruff check src tests
 PYTHONPATH=src python -m pytest -q
 ```
 
+Windows PowerShell equivalent for the two explicit lines:
+
+```powershell
+python -m ruff check src tests
+$env:PYTHONPATH = "src"; python -m pytest -q
+```
+
 Two pytest markers live in `pyproject.toml`:
 
 - `slow` — integration or dependency-heavy tests
@@ -75,7 +85,7 @@ Use `pytest -m "not slow"` for the fast inner loop and
 For a structural map of the package, the most useful anchors are:
 
 - `src/ads_bib/pipeline.py` — the stage runner, stage ordering, and
-  `PipelineConfig` / `run_pipeline` public surface.
+  `PipelineConfig` / `run_pipeline` (what users call from Python and YAML).
 - `src/ads_bib/runner.py` — the high-level `ads_bib.run` entry point plus
   preflight wiring.
 - `src/ads_bib/cli.py` — the `check`, `bootstrap`, `run`, `doctor`, and
@@ -86,8 +96,9 @@ For a structural map of the package, the most useful anchors are:
   resolution, including the Windows CUDA / Linux Vulkan asset split.
 - `src/ads_bib/_presets/*.yaml` — the four packaged starter presets.
 
-The public user docs under `docs/` describe the contracts these modules
-expose; this compass is the counterpart that points at where to change them.
+The user docs under `docs/` describe the CLI, YAML, and high-level behavior;
+this compass lists the source files that implement that behavior and where
+to change it.
 
 ## Validation runbooks
 

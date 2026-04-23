@@ -65,7 +65,7 @@ from ads_bib import (
 )
 ```
 
-The full public list lives in
+The full export list is in
 [`src/ads_bib/__init__.py`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/__init__.py).
 
 ## End-to-End Example
@@ -92,6 +92,10 @@ result = ads_bib.run(
 print(result.publications.shape)
 print(result.topic_df.columns)
 print(result.curated_df.head())
+
+# `PipelineContext` fields you will touch most often:
+# result.publications, result.refs, result.topic_df, result.curated_df,
+# result.citation_results, result.paths, result.config
 ```
 
 `ads_bib.run` creates the usual `data/` and `runs/` directories under
@@ -174,7 +178,7 @@ Every top-level key maps to one of the ten section configs documented in
 ## `run_pipeline`
 
 Source:
-[`src/ads_bib/pipeline.py:1850`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/pipeline.py#L1850)
+[`src/ads_bib/pipeline.py:1804`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/pipeline.py#L1804)
 
 ```python
 run_pipeline(
@@ -193,8 +197,11 @@ run_pipeline(
 ) -> PipelineContext
 ```
 
-Runs the full pipeline or a stage-bounded slice. `start_stage` and
-`stop_stage` accept the same names the CLI uses (`search`, `translate`, ...,
+Runs the full pipeline or a stage-bounded slice. When `start_stage` or
+`stop_stage` is `None`, values from `config.run` in the YAML/object are used
+(the same names as in the `run` table in [Configuration](configuration.md)).
+When you pass `start_stage` / `stop_stage` here, they override those config
+values. They use the same stage names as the CLI (`search`, `translate`, ...,
 `citations`). `load_environment=True` reads `.env` from `project_root`.
 `output_mode="notebook"` uses notebook-friendly progress display.
 
@@ -206,7 +213,7 @@ outputs: `publications`, `refs`, `documents`, `embeddings`, `reduced_5d`,
 ## `NotebookSession`
 
 Source:
-[`src/ads_bib/notebook.py:257`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L257)
+[`src/ads_bib/notebook.py:55`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L55)
 
 ```python
 NotebookSession(
@@ -239,11 +246,11 @@ session.run_stage("translate")
 ### `set_section(name, values)`
 
 Source:
-[`src/ads_bib/notebook.py:384`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L384)
+[`src/ads_bib/notebook.py:182`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L182)
 
 Updates one config section in place and rebuilds the prepared config. Valid
 section names (from `SECTION_NAMES` in
-[`src/ads_bib/notebook.py:31`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L31)):
+[`src/ads_bib/notebook.py:32`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L32)):
 
 ```
 run
@@ -348,7 +355,7 @@ reduced_5d, reduced_2d = reduce_dimensions(
 ### `fit_bertopic`
 
 Source:
-[`src/ads_bib/topic_model/backends.py:1801`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/backends.py#L1801)
+[`src/ads_bib/topic_model/backends.py:1820`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/backends.py#L1820)
 
 ```python
 fit_bertopic(
@@ -370,7 +377,7 @@ Returns a fitted `BERTopic` model. Pass the result to
 ### `fit_toponymy`
 
 Source:
-[`src/ads_bib/topic_model/backends.py:1990`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/backends.py#L1990)
+[`src/ads_bib/topic_model/backends.py:2009`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/backends.py#L2009)
 
 ```python
 fit_toponymy(
@@ -418,7 +425,7 @@ Returns a copy of `df` with `topic_id`, `Name`, `embedding_2d_x`,
 ### `process_all_citations`
 
 Source:
-[`src/ads_bib/citations.py:547`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/citations.py#L547)
+[`src/ads_bib/citations.py:632`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/citations.py#L632)
 
 ```python
 process_all_citations(
@@ -460,6 +467,6 @@ rows are written to CSV sidecars.
 The repository also includes
 [`pipeline.ipynb`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 as an optional interactive frontend for the same `NotebookSession` API.
-It is not part of the installed package contract — check out the repository
+It is not shipped in the `ads-bib` wheel — clone or download the repository
 if you want to use it. The notebook uses the same config keys documented
 throughout this site.

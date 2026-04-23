@@ -9,7 +9,7 @@ Scope:
 2. Use the Hawking query (`'author:"Hawking, S*"'`).
 3. Validate the supported topic backends: `bertopic` and `toponymy`.
 
-!!! note "Model IDs are examples, not hard-coded contracts"
+!!! note "Model IDs follow the packaged presets"
     The provider/model values below mirror the current
     `src/ads_bib/_presets/*.yaml`. The runnable code accepts any provider-valid
     model ID; when a preset model id is bumped, update the matching block here
@@ -120,7 +120,7 @@ Set in notebook section dicts:
 TRANSLATE = {
     ...
     "provider": "nllb",
-    "model": "data/models/nllb-200-distilled-600M-ct2-int8",
+    "model": "JustFrederik/nllb-200-distilled-600M-ct2-int8",
 }
 LLAMA_SERVER = {
     "command": "llama-server",
@@ -150,7 +150,7 @@ llama-server --version
 ```
 
 If the default `llama_server.command` is left at `llama-server`, the package-managed
-runtime path now covers the normal public local-road contract. Only set or
+runtime path now covers the usual `local_cpu` / `local_gpu` setup. Only set or
 install an external binary manually when you intentionally want to override the
 managed runtime.
 

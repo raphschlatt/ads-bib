@@ -17,11 +17,14 @@ Walk through this short checklist before investigating a symptom:
 
 2. Confirm `.env` exists in your working directory and holds the keys your
    road requires (see [Install & First Run](get-started.md#create-env)).
-3. Check the versions of the package and its heavy dependencies:
+3. Check the versions of the package and its heavy dependencies (bash):
 
     ```bash
     uv pip list | grep -E "ads-bib|torch|transformers|sentence-transformers"
     ```
+
+    On Windows PowerShell you can use
+    `uv pip list | Select-String "ads-bib|torch|transformers|sentence-transformers"`.
 
 !!! info "A managed runtime download is not a failure"
     If the preflight reports that a managed runtime (the `llama-server` binary
@@ -63,9 +66,9 @@ Symptom: a fresh env or a fresh machine feels much slower than later runs.
 
 Fix:
 
-- This is expected one-time warmup work. See
-  [Runtime Roads → First-Run Behavior](runtime-roads.md#first-run-behavior)
-  for the exact list of assets each road may need to download.
+- This is expected one-time warmup work. The canonical list of what may
+  download is in [Runtime Roads — First-Run Behavior](runtime-roads.md#first-run-behavior);
+  use that section and this one together (same content, different shape).
 - Re-run the same command once the caches are populated before treating the
   slowdown as a regression.
 
@@ -118,7 +121,7 @@ uv pip install ads-bib "torch==2.5.1+cu124" --extra-index-url https://download.p
 
 - Re-run `ads-bib doctor --preset local_gpu ...`.
 - If CUDA is still unavailable, the local HF/Torch paths will fall back to CPU,
-  but that is no longer the official accelerated `local_gpu` contract.
+  but you are no longer on the official GPU-accelerated `local_gpu` path.
 
 ## `local_gpu` on Linux uses a different llama.cpp binary
 
@@ -206,7 +209,8 @@ Fix:
 - Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or
   `unsloth/Qwen2.5-72B-Instruct:featherless-ai`.
 - `hf_api` now supports both BERTopic and Toponymy; backend-specific errors are
-  therefore more likely to be model- or auth-related than matrix-related.
+  therefore more likely to be a wrong model id, a token problem, or a
+  rate/network issue than a pipeline wiring issue.
 
 ## spaCy model unavailable
 
@@ -230,9 +234,22 @@ checks mirror CI:
 ads-bib check
 ```
 
-Equivalent explicit commands:
+Equivalent explicit commands (bash):
 
 ```bash
 python -m ruff check src tests
 PYTHONPATH=src python -m pytest -q
 ```
+
+On Windows PowerShell for the same tests:
+
+```powershell
+python -m ruff check src tests
+$env:PYTHONPATH = "src"; python -m pytest -q
+```
+
+## Read next
+
+- [Runtime Roads](runtime-roads.md#first-run-behavior) — one-time downloads and cache behavior
+- [Configuration](configuration.md) — full key reference
+- [Install & First Run](get-started.md) — env and first command recap
