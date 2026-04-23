@@ -136,11 +136,11 @@ A typical row after a completed BERTopic run looks like this (truncated to
 the most useful columns):
 
 ```text
-Bibcode         Year  Title_en                                   topic_id  Name                       embedding_2d_x  embedding_2d_y
-1974Natur.248...  1974  Black hole explosions?                     2         Hawking radiation           -3.42           1.88
+Bibcode          Year  Title_en                                   topic_id  Name                        embedding_2d_x  embedding_2d_y
+1974Natur.248..  1974  Black hole explosions?                     2         Hawking radiation           -3.42           1.88
 1975CMaPh..43..  1975  Particle creation by black holes           2         Hawking radiation           -3.18           2.04
-1988PhRvD..37..  1988  Wave function of the Universe              4         Quantum cosmology           1.67            -0.92
-1996PhRvL..77..  1996  Microscopic origin of the entropy          1         Black hole thermodynamics   -2.15           -0.41
+1988PhRvD..37..  1988  Wave function of the Universe              4         Quantum cosmology            1.67          -0.92
+1996PhRvL..77..  1996  Microscopic origin of the entropy          1         Black hole thermodynamics   -2.15          -0.41
 2005PhRvD..72..  2005  Information loss in black holes            2         Hawking radiation           -3.01           1.73
 ```
 
@@ -172,7 +172,7 @@ interpretation of each.
     height="520"
     allowfullscreen="true"
     title="Gephi Lite co-citation preview"
-    src="https://lite.gephi.org/?file=https://gist.githubusercontent.com/raphschlatt/06a70a54f464896dd7a4c8fd7d4e9544/raw/aa7d3bbaa53223f39643467128dfc5ff0b4c3ebe/author_co_citation_filtered.json"
+    src="https://lite.gephi.org/?file=https://raphschlatt.github.io/ADS_Pipeline/assets/author_co_citation_filtered.json"
     style="border: none; width: 150%; height: 150%; max-width: none; max-height: none; transform: scale(0.667); transform-origin: 0 0;"
   ></iframe>
 </div>

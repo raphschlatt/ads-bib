@@ -1,5 +1,7 @@
 # Python API
 
+This page is for developers and researchers who want to integrate the pipeline's internals into their own Python scripts or notebooks. If you just want to run the standard pipeline, use the CLI or the high-level `ads_bib.run(...)` command instead.
+
 The CLI (`ads-bib run --preset ...`) and the high-level Python function
 (`ads_bib.run(...)`) share the same preset-driven run path. Use the lower-level
 APIs when you need a custom `PipelineConfig`, notebook-driven exploration, or

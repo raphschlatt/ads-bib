@@ -17,14 +17,19 @@ Walk through this short checklist before investigating a symptom:
 
 2. Confirm `.env` exists in your working directory and holds the keys your
    road requires (see [Install & First Run](get-started.md#create-env)).
-3. Check the versions of the package and its heavy dependencies (bash):
+3. Check the versions of the package and its heavy dependencies:
 
-    ```bash
-    uv pip list | grep -E "ads-bib|torch|transformers|sentence-transformers"
-    ```
+    === "macOS / Linux"
 
-    On Windows PowerShell you can use
-    `uv pip list | Select-String "ads-bib|torch|transformers|sentence-transformers"`.
+        ```bash
+        uv pip list | grep -E "ads-bib|torch|transformers|sentence-transformers"
+        ```
+
+    === "Windows (PowerShell)"
+
+        ```powershell
+        uv pip list | Select-String "ads-bib|torch|transformers|sentence-transformers"
+        ```
 
 !!! info "A managed runtime download is not a failure"
     If the preflight reports that a managed runtime (the `llama-server` binary
@@ -234,19 +239,21 @@ checks mirror CI:
 ads-bib check
 ```
 
-Equivalent explicit commands (bash):
+Equivalent explicit commands:
 
-```bash
-python -m ruff check src tests
-PYTHONPATH=src python -m pytest -q
-```
+=== "macOS / Linux"
 
-On Windows PowerShell for the same tests:
+    ```bash
+    python -m ruff check src tests
+    PYTHONPATH=src python -m pytest -q
+    ```
 
-```powershell
-python -m ruff check src tests
-$env:PYTHONPATH = "src"; python -m pytest -q
-```
+=== "Windows (PowerShell)"
+
+    ```powershell
+    python -m ruff check src tests
+    $env:PYTHONPATH = "src"; python -m pytest -q
+    ```
 
 ## Read next
 

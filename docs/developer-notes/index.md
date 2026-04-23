@@ -15,14 +15,19 @@ uv run zensical serve
 uv run zensical build --clean
 ```
 
-Register the notebook kernel from the same env when needed (Unix shell):
+Register the notebook kernel from the same env when needed:
 
-```bash
-.venv/bin/python -m ipykernel install --user --name ads-bib --display-name "Python (ads-bib)"
-```
+=== "macOS / Linux"
 
-On Windows, use the venv interpreter, for example
-`.venv\Scripts\python.exe -m ipykernel ...` from the project root in PowerShell.
+    ```bash
+    .venv/bin/python -m ipykernel install --user --name ads-bib --display-name "Python (ads-bib)"
+    ```
+
+=== "Windows (PowerShell)"
+
+    ```powershell
+    .venv\Scripts\python.exe -m ipykernel install --user --name ads-bib --display-name "Python (ads-bib)"
+    ```
 
 The docs site uses:
 
@@ -49,16 +54,23 @@ CI mirrors the local developer loop through the `ads-bib check` helper:
 
 ```bash
 ads-bib check            # ruff + pytest, same as CI
-python -m ruff check src tests
-PYTHONPATH=src python -m pytest -q
 ```
 
-Windows PowerShell equivalent for the two explicit lines:
+Explicit equivalents:
 
-```powershell
-python -m ruff check src tests
-$env:PYTHONPATH = "src"; python -m pytest -q
-```
+=== "macOS / Linux"
+
+    ```bash
+    python -m ruff check src tests
+    PYTHONPATH=src python -m pytest -q
+    ```
+
+=== "Windows (PowerShell)"
+
+    ```powershell
+    python -m ruff check src tests
+    $env:PYTHONPATH = "src"; python -m pytest -q
+    ```
 
 Two pytest markers live in `pyproject.toml`:
 
