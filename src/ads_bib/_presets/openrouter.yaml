@@ -52,6 +52,9 @@ tokenize:
 
 author_disambiguation:
   enabled: false
+  backend: local
+  runtime: auto
+  modal_gpu: l4
   model_bundle: null
   dataset_id: null
   force_refresh: false

@@ -113,6 +113,56 @@ def test_collect_doctor_report_is_stage_aware(monkeypatch, tmp_path):
     assert report.fail_count == 0
 
 
+def test_collect_doctor_report_checks_author_disambiguation_local(monkeypatch, tmp_path):
+    config = PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path), "start_stage": "author_disambiguation"},
+            "author_disambiguation": {"enabled": True},
+        }
+    )
+    monkeypatch.setattr(
+        doctor,
+        "_module_is_available",
+        lambda module: module in {"pyarrow", "author_name_disambiguation"},
+    )
+
+    report = doctor.collect_doctor_report(
+        config,
+        start_stage="author_disambiguation",
+        stop_stage="author_disambiguation",
+    )
+
+    checks = {check.name: check.status for check in report.checks}
+    assert checks["author_disambiguation"] == "ok"
+    assert "author_disambiguation.modal" not in checks
+
+
+def test_collect_doctor_report_checks_modal_credentials(monkeypatch, tmp_path):
+    config = PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path), "start_stage": "author_disambiguation"},
+            "author_disambiguation": {"enabled": True, "backend": "modal"},
+        }
+    )
+    monkeypatch.setattr(
+        doctor,
+        "_module_is_available",
+        lambda module: module in {"pyarrow", "author_name_disambiguation", "modal"},
+    )
+    monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
+    monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
+
+    report = doctor.collect_doctor_report(
+        config,
+        start_stage="author_disambiguation",
+        stop_stage="author_disambiguation",
+    )
+
+    failures = {check.name: check.detail for check in report.failing_checks()}
+    assert "author_disambiguation.modal_credentials" in failures
+    assert "MODAL_TOKEN_ID" in failures["author_disambiguation.modal_credentials"]
+
+
 def test_collect_doctor_report_flags_translate_blockers(monkeypatch, tmp_path):
     config_data = load_preset_config("openrouter").to_dict()
     config_data["run"]["project_root"] = str(tmp_path)

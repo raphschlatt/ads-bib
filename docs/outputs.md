@@ -232,6 +232,16 @@ Author Name Disambiguation stays an optional external integration.
 - `author_uids`
 - `author_display_names`
 
+When AND is enabled, diagnostic outputs are also mirrored under
+`runs/<run_id>/data/and/` when `ads-and` produces them:
+
+- `source_author_assignments.parquet`
+- `author_entities.parquet`
+- `mention_clusters.parquet`
+- `summary.json`
+- `05_stage_metrics_infer_sources.json`
+- `05_go_no_go_infer_sources.json`
+
 ## Read next
 
 - [Citation Networks](citation-networks.md) — how to read each graph type

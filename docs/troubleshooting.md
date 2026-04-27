@@ -218,6 +218,20 @@ Fix:
   therefore more likely to be a wrong model id, a token problem, or a
   rate/network issue than a pipeline wiring issue.
 
+## Author Disambiguation
+
+Symptom: `author_disambiguation` fails before running.
+
+Fix:
+
+- Update to a current install: `uv pip install -U ads-bib`.
+- Check the effective config with `ads-bib doctor --to author_disambiguation`.
+- Leave `author_disambiguation.backend=local` unless you want Modal.
+- For Modal, set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in your
+  environment or project `.env`.
+- For small validation runs, set `author_disambiguation.runtime=cpu` and
+  `author_disambiguation.infer_stage=smoke`.
+
 ## spaCy model unavailable
 
 Symptom: tokenization model load errors.

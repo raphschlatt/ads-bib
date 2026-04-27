@@ -165,6 +165,9 @@ class TokenizeConfig:
 @dataclass
 class AuthorDisambiguationConfig:
     enabled: bool = False
+    backend: str = "local"
+    runtime: str = "auto"
+    modal_gpu: str | None = "l4"
     model_bundle: str | None = None
     dataset_id: str | None = None
     force_refresh: bool = False
@@ -300,6 +303,25 @@ class PipelineConfig:
             self.translate.provider,
             valid={"openrouter", "huggingface_api", "llama_server", "nllb", "transformers"},
         )
+        self.author_disambiguation.backend = self.author_disambiguation.backend.strip().lower()
+        if self.author_disambiguation.backend not in {"local", "modal"}:
+            raise ValueError(
+                f"Invalid author_disambiguation.backend '{self.author_disambiguation.backend}'. "
+                "Expected one of: local, modal."
+            )
+        self.author_disambiguation.runtime = self.author_disambiguation.runtime.strip().lower()
+        if self.author_disambiguation.runtime not in {"auto", "cpu", "gpu"}:
+            raise ValueError(
+                f"Invalid author_disambiguation.runtime '{self.author_disambiguation.runtime}'. "
+                "Expected one of: auto, cpu, gpu."
+            )
+        if self.author_disambiguation.modal_gpu is not None:
+            self.author_disambiguation.modal_gpu = self.author_disambiguation.modal_gpu.strip().lower()
+            if self.author_disambiguation.modal_gpu not in {"l4", "t4"}:
+                raise ValueError(
+                    f"Invalid author_disambiguation.modal_gpu '{self.author_disambiguation.modal_gpu}'. "
+                    "Expected one of: l4, t4, or null."
+                )
 
         backend = self.topic_model.backend.strip().lower()
         if backend not in {"bertopic", "toponymy"}:
@@ -327,10 +349,6 @@ class PipelineConfig:
                 valid=set(TOPONYMY_LLM_PROVIDERS),
             )
 
-        if self.author_disambiguation.enabled and not self.author_disambiguation.model_bundle:
-            raise ValueError(
-                "author_disambiguation.model_bundle is required when author_disambiguation.enabled=true."
-            )
         if self.topic_model.llm_prompt is None and self.topic_model.llm_prompt_name not in _PROMPT_NAMES:
             allowed = ", ".join(sorted(_PROMPT_NAMES))
             raise ValueError(
@@ -634,7 +652,9 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
 
     if stage == "author_disambiguation" and ctx.publications is not None and ctx.refs is not None:
         if ctx.config.author_disambiguation.enabled:
-            return ["author_uids attached to publications and references"]
+            if _has_author_uid_frames(ctx):
+                return ["author_uids attached to publications and references"]
+            return ["enabled but no author_uids were produced"]
         return ["disabled — skipped"]
 
     if stage == "embeddings" and ctx.embeddings is not None:
@@ -700,6 +720,15 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
     return []
 
 
+def _has_author_uid_frames(ctx: PipelineContext) -> bool:
+    return (
+        ctx.publications is not None
+        and ctx.refs is not None
+        and "author_uids" in ctx.publications.columns
+        and "author_uids" in ctx.refs.columns
+    )
+
+
 def _report_stage_end(ctx: PipelineContext, stage: StageName) -> None:
     reporter = getattr(ctx, "reporter", None)
     if reporter is None:
@@ -731,7 +760,7 @@ def _infer_completed_stages(ctx: PipelineContext) -> list[StageName]:
     ):
         completed.append("tokenize")
     if "tokenize" in completed and ctx.publications is not None and ctx.refs is not None and (
-        not ctx.config.author_disambiguation.enabled or "author_uids" in ctx.publications.columns
+        not ctx.config.author_disambiguation.enabled or _has_author_uid_frames(ctx)
     ):
         completed.append("author_disambiguation")
     if (
@@ -1183,14 +1212,38 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     return ctx
 
 
-def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
-    if ctx.publications is not None and ctx.refs is not None and "author_uids" in ctx.publications.columns:
-        return ctx
+def _build_author_disambiguation_progress_handler(pbar: Any) -> Callable[[Any], None]:
+    completed_stages: set[str] = set()
 
-    if _try_load_snapshot(ctx, "author_disambiguation", load_disambiguated_snapshot):
+    def _handler(event: Any) -> None:
+        if pbar is None:
+            return
+        kind = getattr(event, "kind", None)
+        if kind == "stage_done":
+            stage_key = str(getattr(event, "stage_key", None) or len(completed_stages))
+            if stage_key in completed_stages:
+                return
+            completed_stages.add(stage_key)
+            pbar.update(1)
+            return
+        if kind == "run_done":
+            total = getattr(pbar, "total", None)
+            current = getattr(pbar, "n", 0)
+            if total is not None:
+                remaining = max(0, int(total) - int(current))
+                if remaining:
+                    pbar.update(remaining)
+
+    return _handler
+
+
+def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
+    if _has_author_uid_frames(ctx):
         return ctx
 
     if ctx.publications is None or "tokens" not in ctx.publications.columns or ctx.refs is None:
+        if _try_load_snapshot(ctx, "author_disambiguation", load_disambiguated_snapshot):
+            return ctx
         raise _require_stage(
             "author_disambiguation",
             "tokenize",
@@ -1207,7 +1260,10 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.publications, ctx.refs = apply_author_disambiguation(
                 ctx.publications,
                 ctx.refs,
-                model_bundle=cfg.model_bundle or "",
+                backend=cfg.backend,
+                runtime=cfg.runtime,
+                modal_gpu=cfg.modal_gpu,
+                model_bundle=cfg.model_bundle,
                 dataset_id=cfg.dataset_id or ctx.run.run_id,
                 cache_dir=ctx.paths["cache"],
                 run_data_dir=ctx.run.paths["data"],
@@ -1215,19 +1271,35 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
                 infer_stage=cfg.infer_stage,
             )
         else:
-            with reporter.progress(total=1, desc="disambiguate") as pbar:
+            progress_total = 1 if cfg.backend == "modal" else 8
+            with reporter.progress(total=progress_total, desc="disambiguate") as pbar:
+                progress_handler = (
+                    None
+                    if cfg.backend == "modal"
+                    else _build_author_disambiguation_progress_handler(pbar)
+                )
                 ctx.publications, ctx.refs = apply_author_disambiguation(
                     ctx.publications,
                     ctx.refs,
-                    model_bundle=cfg.model_bundle or "",
+                    backend=cfg.backend,
+                    runtime=cfg.runtime,
+                    modal_gpu=cfg.modal_gpu,
+                    model_bundle=cfg.model_bundle,
                     dataset_id=cfg.dataset_id or ctx.run.run_id,
                     cache_dir=ctx.paths["cache"],
                     run_data_dir=ctx.run.paths["data"],
                     force_refresh=cfg.force_refresh,
                     infer_stage=cfg.infer_stage,
+                    progress=cfg.backend != "modal",
+                    progress_handler=progress_handler,
                 )
-                if pbar is not None:
+                if pbar is not None and cfg.backend == "modal":
                     pbar.update(1)
+        if not _has_author_uid_frames(ctx):
+            raise ValueError(
+                "author_disambiguation.enabled=true but the stage did not produce author_uids "
+                "for both publications and references."
+            )
     else:
         save_disambiguated_snapshot(
             ctx.publications,

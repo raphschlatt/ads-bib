@@ -58,6 +58,9 @@ def test_pipeline_notebook_code_contract():
     assert 'session.set_section("llama_server", LLAMA_SERVER)' in code
     assert 'session.set_section("tokenize", TOKENIZE)' in code
     assert 'session.set_section("author_disambiguation", AUTHOR_DISAMBIGUATION)' in code
+    assert '"backend": "local"' in code
+    assert '"runtime": "auto"' in code
+    assert '"modal_gpu": "l4"' in code
     assert 'session.set_section("topic_model", TOPIC_MODEL)' in code
     assert 'session.set_section("visualization", VISUALIZATION)' in code
     assert 'session.set_section("curation", CURATION)' in code

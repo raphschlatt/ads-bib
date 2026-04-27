@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections import deque
+import os
 import re
+
+os.environ.setdefault("USE_TF", "0")
 
 _MODEL_TYPE_PATTERN = re.compile(r"model type [`']([^`']+)[`']")
 _KNOWN_NEW_MODEL_TYPES = {"gemma3", "gemma3_text", "qwen3"}

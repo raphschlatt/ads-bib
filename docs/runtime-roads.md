@@ -2,6 +2,9 @@
 
 `ads-bib` ships four official runtime roads. They share the same package
 install and differ only in provider keys, hardware, and the preset you pick.
+Author name disambiguation is a separate optional stage inside every road:
+`enabled=true` defaults to local auto, while `backend=modal` must be selected
+explicitly.
 
 ## Pick a road
 
@@ -37,6 +40,29 @@ ads-bib run --preset <road> --set search.query='author:"Hawking, S*"'
 
 For `local_gpu` on NVIDIA / CUDA, also install the validated CUDA Torch wheel
 as described in [Install & First Run](get-started.md#install).
+
+## Author Disambiguation Backend
+
+AND uses `ads-and` and is disabled by default in every preset. The default
+enabled path is local and cost-free:
+
+```bash
+ads-bib run --preset openrouter \
+  --set search.query='author:"Hawking, S*"' \
+  --set author_disambiguation.enabled=true
+```
+
+For larger runs without a local GPU, use Modal explicitly:
+
+```bash
+ads-bib run --preset openrouter \
+  --set search.query='author:"Hawking, S*"' \
+  --set author_disambiguation.enabled=true \
+  --set author_disambiguation.backend=modal
+```
+
+Modal requires `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the environment or
+project `.env`.
 
 ## `openrouter`
 

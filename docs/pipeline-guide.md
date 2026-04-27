@@ -122,10 +122,12 @@ it if you want parallel spaCy workers. Switch from `en_core_web_md` to
 
 ## Phase 4: Author Disambiguation
 
-Optional external step that assigns unique author identifiers. Leave disabled
-if you do not need author-level analysis. See the
-[author disambiguation (AND) fields](outputs.md#author-disambiguation-and) for the
-expected input/output schema.
+Optional `ads-and` step that assigns unique author identifiers. Leave disabled
+if you do not need author-level analysis. When enabled without extra settings,
+it uses the local auto runtime; set `author_disambiguation.backend=modal` only
+when you want the Modal backend and have Modal credentials configured. See the
+[author disambiguation (AND) fields](outputs.md#author-disambiguation-and) for
+the expected input/output schema.
 
 ## Phase 5: Topic Modeling
 

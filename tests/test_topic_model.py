@@ -168,6 +168,23 @@ def test_reduce_outliers_refreshes_representations_and_logs(caplog):
     assert np.array_equal(model.updated_topics, np.array([0, 1, 0]))
 
 
+def test_reduce_outliers_skips_bertopic_call_when_no_outliers(caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.topic_model")
+    model = _FakeTopicModel()
+    topics = np.array([0, 1, 0], dtype=int)
+
+    new_topics = tm.reduce_outliers(
+        model,
+        documents=["a", "b", "c"],
+        topics=topics,
+        reduced_5d=np.ones((3, 5), dtype=np.float32),
+    )
+
+    assert np.array_equal(new_topics, topics)
+    assert model.updated_topics is None
+    assert "Outliers: 0" in caplog.text
+
+
 def test_reduce_outliers_tracks_post_outlier_llm_usage(monkeypatch):
     model = _FakeTopicModel()
     calls: dict = {}

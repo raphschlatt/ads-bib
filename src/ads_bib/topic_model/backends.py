@@ -1938,8 +1938,6 @@ def fit_bertopic(
     safe_min_df = min(min_df, max(1, n_docs // 20))
     if safe_min_df != min_df:
         logger.warning("  min_df capped from %d to %d (dataset has %d documents)", min_df, safe_min_df, n_docs)
-    vectorizer = CountVectorizer(stop_words="english", min_df=safe_min_df, ngram_range=(1, 3))
-    ctfidf = ClassTfidfTransformer()
 
     emb_model = None
     if "KeyBERT" in pipeline_models or "KeyBERT" in parallel_models:
@@ -1961,26 +1959,48 @@ def fit_bertopic(
             runtime_log_path=runtime_log_path,
         )
 
-    cluster_model = _create_cluster_model(clustering_method, clustering_params)
-
-    topic_model = BERTopic(
-        embedding_model=emb_model,
-        umap_model=BaseDimensionalityReduction(),
-        hdbscan_model=cluster_model,
-        vectorizer_model=vectorizer,
-        ctfidf_model=ctfidf,
-        representation_model=rep_model,
-        top_n_words=top_n_words,
-        verbose=False,
-    )
+    def _new_bertopic_model(*, vectorizer_min_df: int) -> Any:
+        vectorizer = CountVectorizer(stop_words="english", min_df=vectorizer_min_df, ngram_range=(1, 3))
+        ctfidf = ClassTfidfTransformer()
+        cluster_model = _create_cluster_model(clustering_method, clustering_params)
+        return BERTopic(
+            embedding_model=emb_model,
+            umap_model=BaseDimensionalityReduction(),
+            hdbscan_model=cluster_model,
+            vectorizer_model=vectorizer,
+            ctfidf_model=ctfidf,
+            representation_model=rep_model,
+            top_n_words=top_n_words,
+            verbose=False,
+        )
 
     logger.info("Fitting BERTopic (LLM: %s/%s) ...", llm_provider, llm_model)
 
     track_litellm_usage = cost_tracker is not None and llm_provider == "huggingface_api"
+    min_df_attempts = [safe_min_df] if safe_min_df == 1 else [safe_min_df, 1]
+    topic_model = None
     with _track_litellm_usage(enabled=track_litellm_usage) as llm_usage:
         with tqdm(total=1, desc="BERTopic fit", disable=not show_progress) as pbar:
-            topic_model.fit_transform(documents, reduced_5d)
+            for attempt_min_df in min_df_attempts:
+                topic_model = _new_bertopic_model(vectorizer_min_df=attempt_min_df)
+                try:
+                    topic_model.fit_transform(documents, reduced_5d)
+                    break
+                except ValueError as exc:
+                    if (
+                        attempt_min_df != 1
+                        and "max_df corresponds to < documents than min_df" in str(exc)
+                    ):
+                        logger.warning(
+                            "BERTopic min_df=%d is too high for the discovered topic count; retrying with min_df=1",
+                            attempt_min_df,
+                        )
+                        continue
+                    raise
             pbar.update(1)
+
+    if topic_model is None:
+        raise RuntimeError("BERTopic did not produce a fitted model.")
 
     if llm_provider == "openrouter":
         llm_usage = _consume_openrouter_representation_usage(
@@ -2340,6 +2360,10 @@ def reduce_outliers(
     """
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     before = int((topics == -1).sum())
+    if before == 0:
+        logger.info("  Outliers: 0 → 0")
+        return np.array(topics)
+
     new_topics = topic_model.reduce_outliers(
         documents,
         topics,

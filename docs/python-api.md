@@ -171,11 +171,14 @@ it normalizes stage names and provider choices and rejects unknown keys:
 cfg = PipelineConfig.from_dict({
     "search": {"query": 'author:"Hawking, S*"'},
     "translate": {"provider": "nllb"},
+    "author_disambiguation": {"enabled": True, "backend": "local", "runtime": "auto"},
 })
 ```
 
 Every top-level key maps to one of the ten section configs documented in
 [Configuration](configuration.md).
+For author disambiguation, `model_bundle=None` uses the packaged `ads-and`
+fixed bundle. Set `backend="modal"` only when Modal credentials are configured.
 
 ## `run_pipeline`
 

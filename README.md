@@ -15,7 +15,8 @@ Try out an example:
 Use [uv](https://docs.astral.sh/uv/) and Python 3.12.
 
 The validated local Hugging Face stack for this release is Torch 2.6.x with
-Transformers 4.56.x.
+Transformers 4.56.x. Author name disambiguation is installed with the package
+and can run locally or on Modal when enabled.
 
 ```bash
 uv pip install ads-bib
@@ -37,6 +38,8 @@ Create a `.env` file in your project root with your API keys.
 ADS_TOKEN=your-ads-token           # required
 OPENROUTER_API_KEY=your-key        # only for the openrouter road
 HF_TOKEN=your-key                  # only for the huggingface road
+MODAL_TOKEN_ID=your-modal-id       # only for AND with backend=modal
+MODAL_TOKEN_SECRET=your-modal-secret
 ```
 [ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
 
@@ -45,6 +48,11 @@ Then run in your terminal:
 ```bash
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
+
+Author name disambiguation is off by default. Enable the local cost-free path
+with `--set author_disambiguation.enabled=true`; use
+`--set author_disambiguation.backend=modal` only when your Modal credentials are
+configured.
 
 Full setup details: [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) | [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/)
 

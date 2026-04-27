@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -381,8 +382,28 @@ def _collect_tokenize_checks(config: PipelineConfig) -> list[DoctorCheck]:
     return checks
 
 
-def _collect_author_disambiguation_checks() -> list[DoctorCheck]:
-    return [_module_check("author_disambiguation", "author_name_disambiguation")]
+def _collect_author_disambiguation_checks(config: PipelineConfig) -> list[DoctorCheck]:
+    checks = [_module_check("author_disambiguation", "author_name_disambiguation")]
+    if config.author_disambiguation.backend != "modal":
+        return checks
+
+    checks.append(_module_check("author_disambiguation.modal", "modal"))
+    missing = [
+        key
+        for key in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
+        if not str(os.environ.get(key) or "").strip()
+    ]
+    if missing:
+        checks.append(
+            _fail(
+                "author_disambiguation.modal_credentials",
+                "missing Modal credentials; set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET "
+                "in the environment or project .env before using author_disambiguation.backend=modal",
+            )
+        )
+    else:
+        checks.append(_ok("author_disambiguation.modal_credentials", "configured"))
+    return checks
 
 
 def _collect_topic_checks(
@@ -587,7 +608,7 @@ def collect_doctor_report(
         checks.extend(_collect_tokenize_checks(prepared))
 
     if "author_disambiguation" in active_stages and prepared.author_disambiguation.enabled:
-        checks.extend(_collect_author_disambiguation_checks())
+        checks.extend(_collect_author_disambiguation_checks(prepared))
 
     if any(stage in _TOPIC_STAGES for stage in active_stages):
         checks.extend(

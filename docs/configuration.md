@@ -177,11 +177,17 @@ labeling path for `local_gpu`.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | bool | `false` | Enable the external AND step |
-| `model_bundle` | string \| null | `null` | Path to the disambiguation model bundle |
+| `enabled` | bool | `false` | Enable author name disambiguation with `ads-and` |
+| `backend` | string | `"local"` | AND backend: `local` or `modal` |
+| `runtime` | string | `"auto"` | Local AND runtime: `auto`, `cpu`, or `gpu`; Modal resolves to GPU |
+| `modal_gpu` | string \| null | `"l4"` | Modal GPU type when `backend=modal`: `l4` or `t4` |
+| `model_bundle` | string \| null | `null` | Advanced override for a disambiguation model bundle; `null` uses the packaged fixed bundle |
 | `dataset_id` | string \| null | `null` | Dataset identifier for the AND package |
 | `force_refresh` | bool | `false` | Re-run disambiguation even if cached results exist |
-| `infer_stage` | string | `"full"` | Inference stage: `"full"` or `"incremental"` |
+| `infer_stage` | string | `"full"` | Inference stage: `full`, `incremental`, or smaller `ads-and` stages such as `smoke` |
+
+`enabled=true` without further settings runs locally and does not start Modal.
+CPU is useful for small checks; use local GPU or Modal for larger corpora.
 
 ## Topic Model
 

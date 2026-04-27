@@ -196,6 +196,82 @@ def test_fit_bertopic_constructs_model_and_records_llm_usage(monkeypatch):
     assert calls["usage"]["prompt_tokens"] == 9
 
 
+def test_fit_bertopic_retries_min_df_when_topic_count_is_too_small(monkeypatch, caplog):
+    calls: dict[str, list] = {"min_df": [], "fit_min_df": []}
+    monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
+    caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
+
+    class _FakeBERTopic:
+        def __init__(self, **kwargs):
+            self.vectorizer_model = kwargs["vectorizer_model"]
+            self.topics_ = [0, 0, 0]
+
+        def fit_transform(self, documents, reduced_5d):
+            del documents, reduced_5d
+            min_df = self.vectorizer_model.kwargs["min_df"]
+            calls["fit_min_df"].append(min_df)
+            if min_df == 3:
+                raise ValueError("max_df corresponds to < documents than min_df")
+            return np.zeros(3, dtype=int), None
+
+    class _FakeBaseDimensionalityReduction:
+        pass
+
+    class _FakeClassTfidfTransformer:
+        pass
+
+    class _FakeCountVectorizer:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            calls["min_df"].append(kwargs["min_df"])
+
+    fake_bertopic = types.ModuleType("bertopic")
+    fake_bertopic.BERTopic = _FakeBERTopic
+    fake_dim = types.ModuleType("bertopic.dimensionality")
+    fake_dim.BaseDimensionalityReduction = _FakeBaseDimensionalityReduction
+    fake_vec = types.ModuleType("bertopic.vectorizers")
+    fake_vec.ClassTfidfTransformer = _FakeClassTfidfTransformer
+
+    fake_sklearn = types.ModuleType("sklearn")
+    fake_feature_extraction = types.ModuleType("sklearn.feature_extraction")
+    fake_text = types.ModuleType("sklearn.feature_extraction.text")
+    fake_text.CountVectorizer = _FakeCountVectorizer
+
+    monkeypatch.setitem(sys.modules, "bertopic", fake_bertopic)
+    monkeypatch.setitem(sys.modules, "bertopic.dimensionality", fake_dim)
+    monkeypatch.setitem(sys.modules, "bertopic.vectorizers", fake_vec)
+    monkeypatch.setitem(sys.modules, "sklearn", fake_sklearn)
+    monkeypatch.setitem(sys.modules, "sklearn.feature_extraction", fake_feature_extraction)
+    monkeypatch.setitem(sys.modules, "sklearn.feature_extraction.text", fake_text)
+    monkeypatch.setattr(tm_backends, "_build_representation_model", lambda **kwargs: {"rep": kwargs})
+    monkeypatch.setattr(tm_backends, "_create_cluster_model", lambda method, params: object())
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    @contextmanager
+    def _fake_track_litellm_usage(*, enabled: bool):
+        del enabled
+        yield None
+
+    monkeypatch.setattr(tm_backends, "_track_litellm_usage", _fake_track_litellm_usage)
+
+    model = tm.fit_bertopic(
+        documents=[f"d{i}" for i in range(100)],
+        reduced_5d=np.ones((100, 5), dtype=np.float32),
+        llm_provider="openrouter",
+        llm_model="openrouter/model",
+        pipeline_models=["POS"],
+        parallel_models=["MMR"],
+        min_df=3,
+        api_key="key",
+        show_progress=False,
+    )
+
+    assert isinstance(model, _FakeBERTopic)
+    assert calls["min_df"] == [3, 1]
+    assert calls["fit_min_df"] == [3, 1]
+    assert "retrying with min_df=1" in caplog.text
+
+
 def test_fit_bertopic_uses_defaults_only_when_model_lists_are_none(monkeypatch):
     calls: dict = {}
     monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)

@@ -94,4 +94,9 @@ def test_preset_citations_export_all_four_networks(name: str):
 def test_preset_author_disambiguation_off_by_default(name: str):
     """AND is an advanced integration; presets must not enable it by default."""
     data = preset_to_dict(name)
-    assert data.get("author_disambiguation", {}).get("enabled") is False
+    cfg = data.get("author_disambiguation", {})
+    assert cfg.get("enabled") is False
+    assert cfg.get("backend") == "local"
+    assert cfg.get("runtime") == "auto"
+    assert cfg.get("modal_gpu") == "l4"
+    assert cfg.get("model_bundle") is None

@@ -48,6 +48,19 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert "keybert_model" not in data["topic_model"]
 
 
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        ({"backend": "remote"}, "author_disambiguation.backend"),
+        ({"runtime": "cuda"}, "author_disambiguation.runtime"),
+        ({"modal_gpu": "a100"}, "author_disambiguation.modal_gpu"),
+    ],
+)
+def test_pipeline_config_validates_author_disambiguation_options(section, message):
+    with pytest.raises(ValueError, match=message):
+        pipeline.PipelineConfig.from_dict({"author_disambiguation": section})
+
+
 def test_package_preset_registry_contains_four_presets():
     assert get_preset_names() == (
         "openrouter",
@@ -922,6 +935,170 @@ def test_run_author_disambiguation_stage_requires_tokenize_when_no_inputs(tmp_pa
         pipeline.run_author_disambiguation_stage(ctx)
 
     assert excinfo.value.required_stage == "tokenize"
+
+
+def test_run_author_disambiguation_stage_uses_default_ads_and_bundle(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "author_disambiguation": {"enabled": True},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Author": ["Hawking, S."],
+                "Year": 1974,
+                "Title_en": "Black holes",
+                "Abstract_en": "Evaporation",
+                "tokens": [["black", "hole"]],
+            }
+        ]
+    )
+    ctx.refs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "r1",
+                "Author": ["Hawking, S."],
+                "Year": 1973,
+                "Title_en": "Gravity",
+                "Abstract_en": "Classical",
+            }
+        ]
+    )
+    calls: dict[str, object] = {}
+
+    def _fake_apply(publications, references, **kwargs):
+        calls.update(kwargs)
+        return (
+            publications.assign(author_uids=[["uid:hawking"]], author_display_names=[["Hawking, S."]]),
+            references.assign(author_uids=[["uid:hawking"]], author_display_names=[["Hawking, S."]]),
+        )
+
+    monkeypatch.setattr(pipeline, "apply_author_disambiguation", _fake_apply)
+
+    pipeline.run_author_disambiguation_stage(ctx)
+
+    assert calls["backend"] == "local"
+    assert calls["runtime"] == "auto"
+    assert calls["modal_gpu"] == "l4"
+    assert calls["model_bundle"] is None
+    assert calls["dataset_id"] == ctx.run.run_id
+
+
+def test_run_author_disambiguation_stage_rejects_missing_author_uid_outputs(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "author_disambiguation": {"enabled": True},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Author": ["Hawking, S."],
+                "Year": 1974,
+                "Title_en": "Black holes",
+                "Abstract_en": "Evaporation",
+                "tokens": [["black", "hole"]],
+            }
+        ]
+    )
+    ctx.refs = pd.DataFrame(
+        [{"Bibcode": "r1", "Author": ["Hawking, S."], "Year": 1973, "Title_en": "Gravity", "Abstract_en": "Classical"}]
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "apply_author_disambiguation",
+        lambda publications, references, **kwargs: (publications.copy(), references.copy()),
+    )
+
+    with pytest.raises(ValueError, match="did not produce author_uids"):
+        pipeline.run_author_disambiguation_stage(ctx)
+
+
+def test_run_author_disambiguation_stage_bridges_local_progress(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "author_disambiguation": {"enabled": True},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Author": ["Hawking, S."],
+                "Year": 1974,
+                "Title_en": "Black holes",
+                "Abstract_en": "Evaporation",
+                "tokens": [["black", "hole"]],
+            }
+        ]
+    )
+    ctx.refs = pd.DataFrame(columns=["Bibcode", "Author", "Year", "Title_en", "Abstract_en"])
+
+    class _FakeProgress:
+        def __init__(self) -> None:
+            self.total = 0
+            self.n = 0
+            self.updates: list[int] = []
+
+        def update(self, amount: int = 1) -> None:
+            self.updates.append(int(amount))
+            self.n += int(amount)
+
+    class _FakeProgressContext:
+        def __init__(self, progress: _FakeProgress) -> None:
+            self._progress = progress
+
+        def __enter__(self) -> _FakeProgress:
+            return self._progress
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            del exc_type, exc, tb
+            return None
+
+    class _FakeReporter:
+        def __init__(self) -> None:
+            self.progress_bar = _FakeProgress()
+            self.calls: list[tuple[int | None, str]] = []
+
+        def progress(self, *, total: int | None, desc: str):
+            self.progress_bar.total = int(total or 0)
+            self.calls.append((total, desc))
+            return _FakeProgressContext(self.progress_bar)
+
+    ctx.reporter = _FakeReporter()
+
+    def _fake_apply(publications, references, **kwargs):
+        assert kwargs["progress"] is True
+        handler = kwargs["progress_handler"]
+        assert callable(handler)
+        handler(SimpleNamespace(kind="stage_done", stage_key="load"))
+        handler(SimpleNamespace(kind="run_done"))
+        return (
+            publications.assign(author_uids=[["uid:hawking"]], author_display_names=[["Hawking, S."]]),
+            references.assign(author_uids=[], author_display_names=[]),
+        )
+
+    monkeypatch.setattr(pipeline, "apply_author_disambiguation", _fake_apply)
+
+    pipeline.run_author_disambiguation_stage(ctx)
+
+    assert ctx.reporter.calls == [(8, "disambiguate")]
+    assert ctx.reporter.progress_bar.updates == [1, 7]
 
 
 def test_run_embeddings_stage_uses_reporter_progress(tmp_path, monkeypatch):
