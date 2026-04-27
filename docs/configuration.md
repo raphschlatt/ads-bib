@@ -272,6 +272,10 @@ cluster_params:
 | `toponymy_embedding_model` | string \| null | `null` | Toponymy-internal embedding model; falls back to main embedding model |
 | `toponymy_max_workers` | int | `10` | Concurrent labeling/embedding requests |
 
+Toponymy is validated with `toponymy==0.4.0` and `fast-hdbscan>=0.2.2,<0.3`.
+The `toponymy_max_workers` setting controls concurrent labeling and embedding
+requests; it does not change the internal HDBSCAN/Boruvka thread count.
+
 ## Visualization
 
 | Key | Type | Default | Description |

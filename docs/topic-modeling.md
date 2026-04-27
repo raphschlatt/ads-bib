@@ -141,6 +141,11 @@ documents, keep `min_cluster_size` at 15. For larger corpora, the auto-scaling
 formula `max(15, n_docs * 0.001)` kicks in. Override via
 `cluster_params.min_cluster_size`.
 
+Toponymy currently uses Fast-HDBSCAN internals through the 0.2.x call
+signature, so the package pins `fast-hdbscan>=0.2.2,<0.3`. This is separate
+from `toponymy_max_workers`, which controls concurrent remote labeling and
+embedding calls rather than clustering threads.
+
 !!! warning "Common failure patterns (clustering)"
     - **Too few topics** (2–3) with a large outlier set → lower `min_cluster_size`.
     - **Too many micro-topics** with <10 documents each → raise `min_cluster_size`.

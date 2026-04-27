@@ -31,7 +31,7 @@ dependencies = [
     "ctranslate2",
     "datamapplot>=0.6.4,<0.7",
     "dask",
-    "fast-hdbscan",
+    "fast-hdbscan>=0.2.2,<0.3",
     "fasttext-wheel",
     "huggingface-hub",
     "litellm",

@@ -202,6 +202,20 @@ Fix:
 - Recheck that the fit actually produced more than one layer.
 - If the fit returned no layers, lower the Toponymy clustering thresholds.
 
+## Toponymy / Fast-HDBSCAN compatibility
+
+Symptom: `TypeError: missing argument 'n_threads'` during `topic_fit`.
+
+Fix:
+
+- Use the package-managed dependency set. `ads-bib` pins
+  `fast-hdbscan>=0.2.2,<0.3` because `toponymy==0.4.0` calls Fast-HDBSCAN's
+  Boruvka helper with the 0.2.x signature.
+- Run `uv sync --python 3.12 --group dev --extra test --extra umap --extra hdbscan`
+  in a repo checkout, or reinstall the package in user environments.
+- Do not try to solve this with `toponymy_max_workers`; that setting only
+  controls concurrent Toponymy labeling/embedding requests.
+
 ## Hugging Face API provider errors
 
 Symptom: `huggingface_api` validation, authentication, or runtime failures.

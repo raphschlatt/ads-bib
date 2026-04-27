@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.12.*"
 resolution-markers = [
     "platform_machine != 's390x'",
@@ -131,7 +131,7 @@ requires-dist = [
     { name = "ctranslate2" },
     { name = "dask" },
     { name = "datamapplot", specifier = ">=0.6.4,<0.7" },
-    { name = "fast-hdbscan" },
+    { name = "fast-hdbscan", specifier = ">=0.2.2,<0.3" },
     { name = "fasttext-wheel" },
     { name = "hdbscan", marker = "extra == 'hdbscan'" },
     { name = "huggingface-hub" },
@@ -849,16 +849,16 @@ wheels = [
 
 [[package]]
 name = "fast-hdbscan"
-version = "0.3.2"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "scikit-learn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2b/3b/235c47dd8282610522f9fa6869ad8b896c2d5927f82039f66d547229fc07/fast_hdbscan-0.3.2.tar.gz", hash = "sha256:248e09202eda04da4b84dd819de3cc714469912205bb447ad4c7136db580f205", size = 59800, upload-time = "2026-04-07T16:43:33.12Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/0c/aacf8d537077168616e8e6a4c59509f16e7db51561fe60db677ed8aad0e5/fast_hdbscan-0.2.2.tar.gz", hash = "sha256:ebfda208c85d338141cc6c8a6b95c9f2f1ea83d3b9982f9864b25d73b07d9cc8", size = 25864, upload-time = "2025-03-19T15:21:46.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/92/34dac2dff0877d637535bd8852bc68323f155799521c9ee94c27c548426f/fast_hdbscan-0.3.2-py3-none-any.whl", hash = "sha256:619b42963935e6c3ab1e51de7895dd35260f3ef9ebe4627ff4317073fe51a667", size = 62642, upload-time = "2026-04-07T16:43:31.918Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/96/cc624892d63e13651c99c2017dc69bf8343b50bde09898b41ff284b71aea/fast_hdbscan-0.2.2-py3-none-any.whl", hash = "sha256:2b75144a5c9c6ec46d444f1bf3d122512efaf88c1f7776dabfb6f2ca405dca79", size = 27370, upload-time = "2025-03-19T15:21:45.071Z" },
 ]
 
 [[package]]
@@ -1867,7 +1867,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.1.0.70"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9f/fd/713452cd72343f682b1c7b9321e23829f00b842ceaedcda96e742ea0b0b3/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl", hash = "sha256:165764f44ef8c61fcdfdfdbe769d687e06374059fbb388b6c89ecb0e28793a6f", size = 664752741, upload-time = "2024-04-22T15:24:15.253Z" },
@@ -1878,7 +1878,7 @@ name = "nvidia-cufft-cu12"
 version = "11.2.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/27/94/3266821f65b92b3138631e9c8e7fe1fb513804ac934485a8d05776e1dd43/nvidia_cufft_cu12-11.2.1.3-py3-none-manylinux2014_x86_64.whl", hash = "sha256:f083fc24912aa410be21fa16d157fed2055dab1cc4b6934a0e03cba69eb242b9", size = 211459117, upload-time = "2024-04-03T20:57:40.402Z" },
@@ -1897,9 +1897,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.6.1.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
-    { name = "nvidia-cusparse-cu12" },
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x'" },
+    { name = "nvidia-cusparse-cu12", marker = "platform_machine != 's390x'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3a/e1/5b9089a4b2a4790dfdea8b3a006052cfecff58139d5a4e34cb1a51df8d6f/nvidia_cusolver_cu12-11.6.1.9-py3-none-manylinux2014_x86_64.whl", hash = "sha256:19e33fa442bcfd085b3086c4ebf7e8debc07cfe01e11513cc6d332fd918ac260", size = 127936057, upload-time = "2024-04-03T20:58:28.735Z" },
@@ -1910,7 +1910,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.3.1.170"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/db/f7/97a9ea26ed4bbbfc2d470994b8b4f338ef663be97b8f677519ac195e113d/nvidia_cusparse_cu12-12.3.1.170-py3-none-manylinux2014_x86_64.whl", hash = "sha256:ea4f11a2904e2a8dc4b1833cc1b5181cde564edd0d5cd33e3c168eff2d1863f1", size = 207454763, upload-time = "2024-04-03T20:58:59.995Z" },

@@ -272,6 +272,17 @@ def test_fit_bertopic_retries_min_df_when_topic_count_is_too_small(monkeypatch, 
     assert "retrying with min_df=1" in caplog.text
 
 
+def test_toponymy_fast_hdbscan_signature_is_compatible():
+    import inspect
+
+    from fast_hdbscan.boruvka import parallel_boruvka
+
+    fn = parallel_boruvka.py_func if hasattr(parallel_boruvka, "py_func") else parallel_boruvka
+    params = inspect.signature(fn).parameters
+
+    assert "n_threads" not in params or params["n_threads"].default is not inspect.Parameter.empty
+
+
 def test_fit_bertopic_uses_defaults_only_when_model_lists_are_none(monkeypatch):
     calls: dict = {}
     monkeypatch.setattr(tm_backends, "validate_provider", lambda *a, **k: None)
