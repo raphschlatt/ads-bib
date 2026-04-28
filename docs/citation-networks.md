@@ -18,6 +18,7 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── data/
 │   ├── publications.parquet      # curated publication-level output with topics + reduced coords
 │   ├── references.parquet        # normalized cited-reference metadata
+│   ├── topic_info.parquet        # one row per topic
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
@@ -65,7 +66,7 @@ recurring collaboration-adjacent pairings.
 
 | Goal | Best artifact |
 | --- | --- |
-| Inspect document topics | `publications.parquet`, `topic_map.html` |
+| Inspect document topics | `publications.parquet`, `topic_info.parquet`, `topic_map.html` |
 | Reproduce a run | `config_used.yaml`, `run_summary.yaml` |
 | Explore direct citation flow | `direct.gexf` |
 | Explore shared reception | `co_citation.gexf` |

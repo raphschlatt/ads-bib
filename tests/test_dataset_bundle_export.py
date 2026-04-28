@@ -158,14 +158,17 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
 
     publications_path = ctx.run.paths["data"] / "publications.parquet"
     references_path = ctx.run.paths["data"] / "references.parquet"
+    topic_info_path = ctx.run.paths["data"] / "topic_info.parquet"
     manifest_path = ctx.run.paths["data"] / "dataset_manifest.json"
 
     assert publications_path.exists()
     assert references_path.exists()
+    assert topic_info_path.exists()
     assert manifest_path.exists()
 
     publications = pd.read_parquet(publications_path)
     references = pd.read_parquet(references_path)
+    topic_info = pd.read_parquet(topic_info_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert set(publications.columns) >= {
@@ -209,10 +212,20 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
         "author_uids",
         "Title_en",
     ]
+    assert topic_info.columns.tolist() == ["Topic", "Name"]
+    assert topic_info["Name"].tolist() == ["Topic 0", "Topic 1"]
     assert _normalized_records(references) == _normalized_records(ctx.refs)
     assert manifest == {
         "and_enabled": True,
-        "coordinate_columns": ["embedding_2d_x", "embedding_2d_y"],
+        "coordinate_columns": [
+            "embedding_5d_0",
+            "embedding_5d_1",
+            "embedding_5d_2",
+            "embedding_5d_3",
+            "embedding_5d_4",
+            "embedding_2d_x",
+            "embedding_2d_y",
+        ],
         "counts": {"publications": 2, "references": 2},
         "has_author_display_names": True,
         "has_author_uids": True,
@@ -220,6 +233,7 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
         "producer_version": manifest["producer_version"],
         "publications_path": "publications.parquet",
         "references_path": "references.parquet",
+        "topic_info_path": "topic_info.parquet",
         "run_id": ctx.run.run_id,
         "schema_version": 1,
         "source_stage": "topic_dataframe",

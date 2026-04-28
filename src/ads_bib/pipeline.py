@@ -1621,18 +1621,24 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
             "Topic-dataframe stage requires a fitted topic model and reduced 2D embeddings in memory. "
             "Run the topic_fit stage first.",
         )
+    topic_info = ctx.topic_info
+    if topic_info is None and hasattr(ctx.topic_model, "get_topic_info"):
+        topic_info = ctx.topic_model.get_topic_info()
+        ctx.topic_info = topic_info
+
     ctx.topic_df = build_topic_dataframe(
         ctx.topic_input_df,
         ctx.topic_model,
         ctx.topics,
         ctx.reduced_2d,
         embeddings=None,
-        topic_info=ctx.topic_info,
+        topic_info=topic_info,
         reduced_5d=ctx.reduced_5d,
     )
     _write_dataset_bundle(
         publications=ctx.topic_df,
         refs=ctx.refs,
+        topic_info=ctx.topic_info,
         run_data_dir=ctx.run.paths["data"],
         run_id=ctx.run.run_id,
         source_stage="topic_dataframe",
@@ -1742,6 +1748,7 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
     _write_dataset_bundle(
         publications=ctx.curated_df,
         refs=ctx.refs,
+        topic_info=ctx.topic_info,
         run_data_dir=ctx.run.paths["data"],
         run_id=ctx.run.run_id,
         source_stage="curate",

@@ -71,6 +71,7 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── data/
 │   ├── publications.parquet
 │   ├── references.parquet
+│   ├── topic_info.parquet
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf

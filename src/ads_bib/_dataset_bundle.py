@@ -52,6 +52,18 @@ _TAIL_COLUMNS: tuple[str, ...] = (
     "full_embeddings",
 )
 
+_TOPIC_INFO_FRONT_COLUMNS: tuple[str, ...] = (
+    "Topic",
+    "Count",
+    "Name",
+    "Main",
+    "MMR",
+    "POS",
+    "KeyBERT",
+    "Representation",
+    "Representative_Docs",
+)
+
 
 def _is_embedding_column(column: str) -> bool:
     return column.startswith("embedding_5d_") or column in {"embedding_2d_x", "embedding_2d_y"}
@@ -104,6 +116,14 @@ def _ordered_dataset_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, [*front, *topic_layers, *middle, *embeddings, *tail]]
 
 
+def _ordered_topic_info_frame(df: pd.DataFrame) -> pd.DataFrame:
+    columns = list(df.columns)
+    front = [column for column in _TOPIC_INFO_FRONT_COLUMNS if column in columns]
+    used = set(front)
+    rest = [column for column in columns if column not in used]
+    return df.loc[:, [*front, *rest]].copy()
+
+
 def ensure_run_references_artifact(
     *,
     refs: pd.DataFrame,
@@ -117,10 +137,26 @@ def ensure_run_references_artifact(
     return references_path
 
 
+def ensure_run_topic_info_artifact(
+    *,
+    topic_info: pd.DataFrame | None,
+    run_data_dir: Path | str,
+    force: bool = True,
+) -> Path | None:
+    if topic_info is None:
+        return None
+    run_data_dir = Path(run_data_dir)
+    topic_info_path = run_data_dir / "topic_info.parquet"
+    if force or not topic_info_path.exists():
+        save_parquet(_ordered_topic_info_frame(topic_info), topic_info_path)
+    return topic_info_path
+
+
 def write_dataset_bundle(
     *,
     publications: pd.DataFrame,
     refs: pd.DataFrame | None,
+    topic_info: pd.DataFrame | None = None,
     run_data_dir: Path | str,
     run_id: str,
     source_stage: str,
@@ -138,6 +174,13 @@ def write_dataset_bundle(
         refs=refs,
         run_data_dir=run_data_dir,
     )
+    topic_info_path = ensure_run_topic_info_artifact(
+        topic_info=topic_info,
+        run_data_dir=run_data_dir,
+    )
+    if topic_info_path is None:
+        existing_topic_info_path = run_data_dir / "topic_info.parquet"
+        topic_info_path = existing_topic_info_path if existing_topic_info_path.exists() else None
     publications = _ordered_dataset_frame(publications)
     save_parquet(publications, publications_path)
 
@@ -146,11 +189,10 @@ def write_dataset_bundle(
     except Exception:
         ads_bib_version = "0.0.0"
 
-    coordinate_columns = [
-        column
-        for column in ("embedding_2d_x", "embedding_2d_y")
-        if column in publications.columns
-    ]
+    coordinate_columns = sorted(
+        [column for column in publications.columns if _is_embedding_column(column)],
+        key=_embedding_sort_key,
+    )
     manifest = {
         "schema_version": 1,
         "producer": "ads_bib",
@@ -160,6 +202,7 @@ def write_dataset_bundle(
         "and_enabled": bool(and_enabled),
         "publications_path": publications_path.name,
         "references_path": references_path.name,
+        "topic_info_path": topic_info_path.name if topic_info_path is not None else None,
         "coordinate_columns": coordinate_columns,
         "counts": {
             "publications": int(len(publications)),

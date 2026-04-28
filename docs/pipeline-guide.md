@@ -144,7 +144,7 @@ stage-boundary behavior.
   rerun repeatedly while tuning.
 - **`topic_dataframe` stage** — attaches `topic_id`, reduced 5D/2D coordinate
   columns, optional hierarchy columns, and the working-layer label onto the
-  main DataFrame.
+  main DataFrame; writes `topic_info.parquet` with one row per topic.
 - **`visualize` stage** — renders the interactive HTML topic map.
 
 For CLI tuning loops:

@@ -15,6 +15,7 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── data/
 │   ├── publications.parquet
 │   ├── references.parquet
+│   ├── topic_info.parquet
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
@@ -160,6 +161,17 @@ The normalized cited-reference table. It uses the same front-loaded metadata
 ordering as `publications.parquet` where columns overlap: `Bibcode`, `Year`,
 `Author`, `Title`, translated title/abstract columns, journal metadata, DOI,
 and optional author-disambiguation columns.
+
+## `topic_info.parquet`
+
+The topic-level table. It has one row per topic, not one row per publication.
+Typical columns are `Topic`, `Count`, `Name`, and representation fields such as
+`Main`, `MMR`, `POS`, `KeyBERT`, `Representation`, and `Representative_Docs`
+when the backend provides them.
+
+Use `publications.parquet` when you need document-level assignments and
+coordinates. Use `topic_info.parquet` when you need topic labels, counts, or
+representative terms/documents without repeating them for every publication.
 
 ## `.gexf` Node Attributes
 
