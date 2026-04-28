@@ -73,6 +73,7 @@ NUL
 
 # Large outputs
 *.html
+!docs/assets/topic_map.html
 *.db
 *.xlsx
 filtered_publications.xlsx
