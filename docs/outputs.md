@@ -29,14 +29,16 @@ Every file in that tree has a single canonical owner described below.
 ## `config_used.yaml`
 
 The resolved, normalized `PipelineConfig` actually used for the run. You can
-feed it back into the CLI verbatim:
+feed it back into the CLI after setting the needed environment variables:
 
 ```bash
 ads-bib run --config runs/<run_id>/config_used.yaml
 ```
 
-Use it to reproduce a run exactly, audit what values the preset + CLI
-overrides resolved to, or diff two runs to see which knobs changed.
+Secrets such as ADS tokens, OpenRouter keys, and Hugging Face tokens are written
+as `<redacted>`, so keep real credentials in `.env` or your shell environment.
+Use the file to audit what values the preset + CLI overrides resolved to, or
+diff two runs to see which knobs changed.
 
 ## `run_summary.yaml`
 

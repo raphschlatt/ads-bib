@@ -75,6 +75,28 @@ def test_run_manager_save_config_redacts_secret_like_keys(tmp_path):
     assert "p@ss" not in rendered
 
 
+def test_run_manager_save_config_redacts_secret_like_values(tmp_path):
+    run = RunManager(run_name="value_redaction_test", project_root=tmp_path)
+    openrouter_key = "sk-or-v1-" + ("a" * 64)
+    huggingface_token = "hf_" + ("b" * 32)
+    config = {
+        "provider": {"label": "openrouter", "copied_value": openrouter_key},
+        "metadata": {"note": f"token pasted here: {huggingface_token}"},
+        "topic_model": {"embedding_model": "google/gemini-embedding-001"},
+    }
+
+    run.save_config(config)
+
+    config_path = run.paths["root"] / "config_used.yaml"
+    parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    rendered = config_path.read_text(encoding="utf-8")
+    assert parsed["provider"]["copied_value"] == "<redacted>"
+    assert parsed["metadata"]["note"] == "<redacted>"
+    assert parsed["topic_model"]["embedding_model"] == "google/gemini-embedding-001"
+    assert openrouter_key not in rendered
+    assert huggingface_token not in rendered
+
+
 def test_run_manager_save_config_accepts_pipeline_config(tmp_path):
     run = RunManager(run_name="pipeline_config", project_root=tmp_path)
     config = PipelineConfig.from_dict({"search": {"query": "author:test"}})

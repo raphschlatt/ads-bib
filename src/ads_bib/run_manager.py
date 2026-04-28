@@ -15,14 +15,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SECRET_NAME_PATTERN = re.compile(
-    r"(^|_)(API_KEY|KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)($|_)",
+    r"(^|[_-])(API[_-]?KEY|KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)($|[_-])"
+    r"|APIKEY|ACCESS[_-]?TOKEN|REFRESH[_-]?TOKEN|CLIENT[_-]?SECRET|BEARER",
     re.IGNORECASE,
+)
+_SECRET_VALUE_PATTERNS = (
+    re.compile(r"sk-or-v1-[A-Za-z0-9_-]+"),
+    re.compile(r"sk-ant-[A-Za-z0-9_-]+"),
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"hf_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]+"),
+    re.compile(r"gh[opsur]_[A-Za-z0-9_]{20,}"),
+    re.compile(r"AIza[0-9A-Za-z_-]{35}"),
 )
 
 
 def _is_secret_key(name: str) -> bool:
     """Return True when config key name should be redacted."""
     return bool(_SECRET_NAME_PATTERN.search(name))
+
+
+def _is_secret_value(value: str) -> bool:
+    """Return True when a string value looks like a provider token."""
+    return any(pattern.search(value) for pattern in _SECRET_VALUE_PATTERNS)
 
 
 def _serialize_config_value(value: Any) -> Any:
@@ -54,6 +69,8 @@ def _redact_config_value(value: Any) -> Any:
         return redacted
     if isinstance(value, list):
         return [_redact_config_value(item) for item in value]
+    if isinstance(value, str) and _is_secret_value(value):
+        return "<redacted>"
     return value
 
 
