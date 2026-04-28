@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ads-bib"
 version = "0.1.0"
-description = "NASA ADS bibliometric analysis pipeline for citation networks, topic modeling, and dataset curation."
+description = "Pipeline for querying and turning NASA's ADS publications metadata into curated, analysis-ready datasets, topic maps, and citation networks."
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -55,7 +55,14 @@ dependencies = [
     "tqdm",
     "transformers>=4.56,<4.57",
 ]
-keywords = ["ads", "bibliometrics", "research", "topic-modeling", "citation-network"]
+keywords = [
+    "topic-modeling",
+    "digital-humanities",
+    "bibliometrics",
+    "publication-metadata",
+    "dataset-curation",
+    "citation-networks",
+]
 
 [project.urls]
 Homepage = "https://github.com/raphschlatt/ADS_Pipeline"

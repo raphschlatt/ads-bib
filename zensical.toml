@@ -1,6 +1,6 @@
 [project]
-site_name = "ADS Pipeline"
-site_description = "Documentation for the ads-bib package and CLI for NASA ADS bibliometric analysis."
+site_name = "ads-bib"
+site_description = "Pipeline for querying and turning NASA's ADS publications metadata into curated, analysis-ready datasets, topic maps, and citation networks ."
 site_author = "Raphael Schlattmann"
 site_url = "https://raphschlatt.github.io/ADS_Pipeline/"
 repo_url = "https://github.com/raphschlatt/ADS_Pipeline"

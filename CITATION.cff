@@ -1,11 +1,18 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
-title: "ADS Pipeline (ads-bib)"
+title: "ads-bib: Pipeline for Curated Bibliometric Datasets from NASA ADS"
 type: software
 version: "0.1.0"
 date-released: "2026-04-28"
 license: MIT
-abstract: "Python package and CLI for NASA ADS bibliometric analysis, topic modeling, citation networks, and curated dataset construction."
+abstract: "ads-bib is a Python package and command-line pipeline for constructing curated bibliometric datasets from NASA Astrophysics Data System (ADS) searches. It automates publication retrieval, reference normalization, translation, tokenization, author name disambiguation, embedding-based topic modeling, citation-network export, and topic-map generation. The package provides runtime presets for local CPU/GPU and API-backed workflows, producing self-contained run directories with tabular datasets, provenance metadata, plots, and network files for downstream analysis."
+keywords:
+  - topic-modeling
+  - digital-humanities
+  - bibliometrics
+  - publication-metadata
+  - dataset-curation
+  - citation-networks
 authors:
   - family-names: Schlattmann
     given-names: Raphael

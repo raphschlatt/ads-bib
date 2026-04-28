@@ -1,7 +1,7 @@
 {
-  "title": "ads-bib: ADS Bibliometric Analysis Pipeline",
+  "title": "ads-bib: Pipeline for Curated Bibliometric Datasets from NASA ADS",
   "upload_type": "software",
-  "description": "ads-bib is a Python package and command-line pipeline for constructing curated bibliometric datasets from NASA Astrophysics Data System (ADS) searches. It automates publication retrieval, reference normalization, translation, tokenization, author name disambiguation, embedding-based topic modeling, citation-network export, and interactive topic-map generation. The package provides runtime presets for local CPU/GPU and API-backed workflows, producing self-contained run directories with tabular datasets, provenance metadata, plots, and network files for downstream analysis.",
+  "description": "ads-bib is a Python package and command-line pipeline for constructing curated bibliometric datasets from NASA Astrophysics Data System (ADS) searches. It automates publication retrieval, reference normalization, translation, tokenization, author name disambiguation, embedding-based topic modeling, citation-network export, and topic-map generation. The package provides runtime presets for local CPU/GPU and API-backed workflows, producing self-contained run directories with tabular datasets, provenance metadata, plots, and network files for downstream analysis.",
   "creators": [
     {
       "name": "Schlattmann, Raphael"
@@ -13,10 +13,11 @@
   "language": "eng",
   "access_right": "open",
   "keywords": [
-    "NASA ADS",
+    "topic-modeling",
+    "digital-humanities",
     "bibliometrics",
-    "topic modeling",
-    "citation networks",
-    "author name disambiguation"
+    "publication-metadata",
+    "dataset-curation",
+    "citation-networks"
   ]
 }

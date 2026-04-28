@@ -1,4 +1,4 @@
-# ADS Pipeline
+# ads-bib
 
 This page is the entry point: what the pipeline produces, a minimal command,
 and two live demos. For a first install and run, go to
