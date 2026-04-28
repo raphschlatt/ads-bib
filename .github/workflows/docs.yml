@@ -57,7 +57,7 @@ jobs:
           path: site
 
   deploy:
-    if: ${{ github.event_name == 'push' && !github.event.repository.private }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !github.event.repository.private }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
