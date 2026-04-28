@@ -46,7 +46,7 @@ Deployment behavior:
 
 - pull requests build the site but do not deploy it,
 - pushes to the default branch build and deploy the static output,
-- the canonical site URL is `https://raphschlatt.github.io/ADS_Pipeline/`.
+- the canonical site URL is `https://raphschlatt.github.io/ads-bib/`.
 
 ## Testing
 

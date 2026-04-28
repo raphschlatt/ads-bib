@@ -65,10 +65,10 @@ keywords = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/raphschlatt/ADS_Pipeline"
-Documentation = "https://raphschlatt.github.io/ADS_Pipeline/"
-Repository = "https://github.com/raphschlatt/ADS_Pipeline"
-Issues = "https://github.com/raphschlatt/ADS_Pipeline/issues"
+Homepage = "https://github.com/raphschlatt/ads-bib"
+Documentation = "https://raphschlatt.github.io/ads-bib/"
+Repository = "https://github.com/raphschlatt/ads-bib"
+Issues = "https://github.com/raphschlatt/ads-bib/issues"
 
 [project.scripts]
 ads-bib = "ads_bib.cli:main"

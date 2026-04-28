@@ -2,13 +2,10 @@
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
-[![Docs](https://img.shields.io/badge/docs-online-blue)](https://raphschlatt.github.io/ADS_Pipeline/)
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://raphschlatt.github.io/ads-bib/)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ads-bib/blob/main/pipeline.ipynb)
 
 `ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND via [ads-and](https://github.com/raphschlatt/ads-and)), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
-
-Try out an example:
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
 
 ## Installation
 
@@ -42,7 +39,7 @@ with `--set author_disambiguation.enabled=true`; use
 `--set author_disambiguation.backend=modal` only when your Modal credentials are
 configured.
 
-Full setup details: [Get Started](https://raphschlatt.github.io/ADS_Pipeline/get-started/) | [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/)
+Full setup details: [Get Started](https://raphschlatt.github.io/ads-bib/get-started/) | [Runtime Roads](https://raphschlatt.github.io/ads-bib/runtime-roads/)
 
 ## Python API
 
@@ -55,7 +52,7 @@ ads_bib.run(
 )
 ```
 
-More examples and the `NotebookSession` interface: [Python API docs](https://raphschlatt.github.io/ADS_Pipeline/python-api/)
+More examples and the `NotebookSession` interface: [Python API docs](https://raphschlatt.github.io/ads-bib/python-api/)
 
 ## Pick a Runtime Road
 
@@ -66,7 +63,7 @@ More examples and the `NotebookSession` interface: [Python API docs](https://rap
 | `local_cpu` | CPU only | model downloads only | free after setup |
 | `local_gpu` | NVIDIA + CUDA | model downloads only | free after setup |
 
-Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt.github.io/ADS_Pipeline/runtime-roads/)
+Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt.github.io/ads-bib/runtime-roads/)
 
 ## Output
 

@@ -68,7 +68,7 @@ from ads_bib import (
 ```
 
 The full export list is in
-[`src/ads_bib/__init__.py`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/__init__.py).
+[`src/ads_bib/__init__.py`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/__init__.py).
 
 ## End-to-End Example
 
@@ -107,7 +107,7 @@ every stage artifact under the run directory.
 ## `ads_bib.run`
 
 Source:
-[`src/ads_bib/runner.py`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/runner.py)
+[`src/ads_bib/runner.py`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/runner.py)
 
 ```python
 run(
@@ -147,7 +147,7 @@ even if the simple examples ignore it.
 ## `PipelineConfig`
 
 Source:
-[`src/ads_bib/pipeline.py`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/pipeline.py)
+[`src/ads_bib/pipeline.py`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/pipeline.py)
 
 ```python
 PipelineConfig(
@@ -183,7 +183,7 @@ fixed bundle. Set `backend="modal"` only when Modal credentials are configured.
 ## `run_pipeline`
 
 Source:
-[`src/ads_bib/pipeline.py:1804`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/pipeline.py#L1804)
+[`src/ads_bib/pipeline.py:1804`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/pipeline.py#L1804)
 
 ```python
 run_pipeline(
@@ -218,7 +218,7 @@ outputs: `publications`, `refs`, `documents`, `embeddings`, `reduced_5d`,
 ## `NotebookSession`
 
 Source:
-[`src/ads_bib/notebook.py:55`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L55)
+[`src/ads_bib/notebook.py:55`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/notebook.py#L55)
 
 ```python
 NotebookSession(
@@ -251,11 +251,11 @@ session.run_stage("translate")
 ### `set_section(name, values)`
 
 Source:
-[`src/ads_bib/notebook.py:182`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L182)
+[`src/ads_bib/notebook.py:182`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/notebook.py#L182)
 
 Updates one config section in place and rebuilds the prepared config. Valid
 section names (from `SECTION_NAMES` in
-[`src/ads_bib/notebook.py:32`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/notebook.py#L32)):
+[`src/ads_bib/notebook.py:32`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/notebook.py#L32)):
 
 ```
 run
@@ -291,7 +291,7 @@ full pipeline. They are all row-aligned: `documents[i]`, `embeddings[i]`,
 ### `compute_embeddings`
 
 Source:
-[`src/ads_bib/topic_model/embeddings.py:171`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/embeddings.py#L171)
+[`src/ads_bib/topic_model/embeddings.py:171`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/topic_model/embeddings.py#L171)
 
 ```python
 compute_embeddings(
@@ -328,7 +328,7 @@ embeddings = compute_embeddings(
 ### `reduce_dimensions`
 
 Source:
-[`src/ads_bib/topic_model/reduction.py:166`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/reduction.py#L166)
+[`src/ads_bib/topic_model/reduction.py:166`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/topic_model/reduction.py#L166)
 
 ```python
 reduce_dimensions(
@@ -360,7 +360,7 @@ reduced_5d, reduced_2d = reduce_dimensions(
 ### `fit_bertopic`
 
 Source:
-[`src/ads_bib/topic_model/backends.py:1820`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/backends.py#L1820)
+[`src/ads_bib/topic_model/backends.py:1820`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/topic_model/backends.py#L1820)
 
 ```python
 fit_bertopic(
@@ -382,7 +382,7 @@ Returns a fitted `BERTopic` model. Pass the result to
 ### `fit_toponymy`
 
 Source:
-[`src/ads_bib/topic_model/backends.py:2009`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/backends.py#L2009)
+[`src/ads_bib/topic_model/backends.py:2009`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/topic_model/backends.py#L2009)
 
 ```python
 fit_toponymy(
@@ -409,7 +409,7 @@ and end up on the topic DataFrame when you pass it through
 ### `build_topic_dataframe`
 
 Source:
-[`src/ads_bib/topic_model/output.py:40`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/topic_model/output.py#L40)
+[`src/ads_bib/topic_model/output.py:40`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/topic_model/output.py#L40)
 
 ```python
 build_topic_dataframe(
@@ -430,7 +430,7 @@ Returns a copy of `df` with `topic_id`, `Name`, `embedding_2d_x`,
 ### `process_all_citations`
 
 Source:
-[`src/ads_bib/citations.py:632`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/src/ads_bib/citations.py#L632)
+[`src/ads_bib/citations.py:632`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/citations.py#L632)
 
 ```python
 process_all_citations(
@@ -470,7 +470,7 @@ rows are written to CSV sidecars.
 ## Notebook Companion
 
 The repository also includes
-[`pipeline.ipynb`](https://github.com/raphschlatt/ADS_Pipeline/blob/main/pipeline.ipynb)
+[`pipeline.ipynb`](https://github.com/raphschlatt/ads-bib/blob/main/pipeline.ipynb)
 as an optional interactive frontend for the same `NotebookSession` API.
 It is not shipped in the `ads-bib` wheel — clone or download the repository
 if you want to use it. The notebook uses the same config keys documented

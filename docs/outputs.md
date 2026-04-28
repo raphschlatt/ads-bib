@@ -172,7 +172,7 @@ interpretation of each.
     height="520"
     allowfullscreen="true"
     title="Gephi Lite co-citation preview"
-    src="https://lite.gephi.org/?file=https://raphschlatt.github.io/ADS_Pipeline/assets/author_co_citation_filtered.json"
+    src="https://lite.gephi.org/?file=https://raphschlatt.github.io/ads-bib/assets/author_co_citation_filtered.json"
     style="border: none; width: 150%; height: 150%; max-width: none; max-height: none; transform: scale(0.667); transform-origin: 0 0;"
   ></iframe>
 </div>

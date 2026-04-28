@@ -30,7 +30,7 @@ def main() -> int:
 
     if package_name != "ads-bib":
         fail(f"pyproject.toml project name must be 'ads-bib', got {package_name!r}")
-    if docs_url != "https://raphschlatt.github.io/ADS_Pipeline/":
+    if docs_url != "https://raphschlatt.github.io/ads-bib/":
         fail(f"unexpected documentation URL in pyproject.toml: {docs_url!r}")
 
     readme = read_text(ROOT / "README.md")
