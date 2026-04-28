@@ -1,6 +1,7 @@
 # Python API
 
-This page is for developers and researchers who want to integrate the pipeline's internals into their own Python scripts or notebooks. If you just want to run the standard pipeline, use the CLI or the high-level `ads_bib.run(...)` command instead.
+Use the Python API when you need `ads-bib` inside scripts or notebooks. For
+standard runs, prefer the CLI or the high-level `ads_bib.run(...)` command.
 
 The CLI (`ads-bib run --preset ...`) and the high-level Python function
 (`ads_bib.run(...)`) share the same preset-driven run path. Use the lower-level
@@ -419,13 +420,16 @@ build_topic_dataframe(
     reduced_2d: np.ndarray,
     embeddings: np.ndarray | None = None,
     topic_info: pd.DataFrame | None = None,
+    *,
+    reduced_5d: np.ndarray | None = None,
 ) -> pd.DataFrame
 ```
 
 Returns a copy of `df` with `topic_id`, `Name`, `embedding_2d_x`,
-`embedding_2d_y`, optional `full_embeddings`, and — for Toponymy — the
-`topic_layer_<n>_id` / `topic_layer_<n>_label` hierarchy columns plus
-`topic_primary_layer_index` and `topic_layer_count`.
+`embedding_2d_y`, optional `embedding_5d_<n>` columns, optional
+`full_embeddings`, and — for Toponymy — the `topic_layer_<n>_id` /
+`topic_layer_<n>_label` hierarchy columns plus `topic_primary_layer_index` and
+`topic_layer_count`.
 
 ### `process_all_citations`
 

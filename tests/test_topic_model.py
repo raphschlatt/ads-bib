@@ -66,13 +66,23 @@ def test_build_topic_dataframe_uses_new_generic_columns():
     model = _FakeTopicModel()
     df = pd.DataFrame({"Bibcode": ["a", "b", "c"]})
     reduced_2d = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float32)
+    reduced_5d = np.array(
+        [
+            [1.0, 2.0, 3.0, 4.0, 5.0],
+            [6.0, 7.0, 8.0, 9.0, 10.0],
+            [11.0, 12.0, 13.0, 14.0, 15.0],
+        ],
+        dtype=np.float32,
+    )
     topics = np.array([0, 1, 0])
     embeddings = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]], dtype=np.float32)
 
-    out = tm.build_topic_dataframe(df, model, topics, reduced_2d, embeddings)
+    out = tm.build_topic_dataframe(df, model, topics, reduced_2d, embeddings, reduced_5d=reduced_5d)
 
     assert "embedding_2d_x" in out.columns
     assert "embedding_2d_y" in out.columns
+    assert all(f"embedding_5d_{i}" in out.columns for i in range(5))
+    assert out["embedding_5d_4"].tolist() == [5.0, 10.0, 15.0]
     assert "topic_id" in out.columns
     assert "UMAP-1" not in out.columns
     assert "UMAP-2" not in out.columns

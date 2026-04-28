@@ -1628,6 +1628,7 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.reduced_2d,
         embeddings=None,
         topic_info=ctx.topic_info,
+        reduced_5d=ctx.reduced_5d,
     )
     _write_dataset_bundle(
         publications=ctx.topic_df,

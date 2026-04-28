@@ -1,7 +1,7 @@
 # Install & First Run
 
-This page takes you from zero to a completed `ads-bib` run. If you are not
-sure which road fits your setup, read [Runtime Roads](runtime-roads.md) first.
+Install `ads-bib`, set the credentials for your runtime road, and run one NASA
+ADS query end to end.
 
 ## Install
 
@@ -130,7 +130,8 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── run_summary.yaml
 ├── logs/runtime.log
 ├── data/
-│   ├── curated_dataset.parquet
+│   ├── publications.parquet
+│   ├── references.parquet
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf

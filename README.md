@@ -69,7 +69,8 @@ Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt
 
 Each run produces a self-contained output directory:
 
-- **`curated_dataset.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
+- **`publications.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
+- **`references.parquet`** — normalized cited-reference metadata, with disambiguated authors when AND is enabled
 - **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
 - **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
 - **`download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)

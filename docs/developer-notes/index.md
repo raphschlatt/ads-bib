@@ -1,8 +1,7 @@
 # Developer Notes
 
-This section is for maintainers and contributors. It covers docs maintenance,
-GitHub Pages hosting, and manual validation runbooks that do not belong in the
-new-user path.
+Maintainer notes for docs maintenance, GitHub Pages hosting, and manual
+validation runbooks that do not belong in the new-user path.
 
 ## Docs maintenance
 

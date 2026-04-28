@@ -44,6 +44,8 @@ def build_topic_dataframe(
     reduced_2d: np.ndarray,
     embeddings: np.ndarray | None = None,
     topic_info: pd.DataFrame | None = None,
+    *,
+    reduced_5d: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Return a topic-enriched copy of *df*.
 
@@ -63,12 +65,15 @@ def build_topic_dataframe(
     topic_info : pd.DataFrame, optional
         Optional topic info table with at least ``Topic`` and ``Name``.
         If omitted, ``topic_model.get_topic_info()`` is used.
+    reduced_5d : np.ndarray, optional
+        Five-dimensional projection used for clustering. When provided,
+        persisted as scalar ``embedding_5d_<n>`` columns.
 
     Returns
     -------
     pd.DataFrame
         Copy of *df* with added columns:
-        ``embedding_2d_x``, ``embedding_2d_y``, ``topic_id``,
+        ``topic_id``, ``embedding_5d_<n>``, ``embedding_2d_x``, ``embedding_2d_y``,
         topic label columns (for example ``Name``/``Main``/``MMR``/``POS``/``KeyBERT``),
         optional ``full_embeddings``, and optional Toponymy hierarchy columns
         such as ``topic_layer_0_id``, ``topic_layer_0_label``,
@@ -78,8 +83,6 @@ def build_topic_dataframe(
         working layer; the hierarchy columns are the canonical multi-layer output.
     """
     df = df.copy()
-    df["embedding_2d_x"] = reduced_2d[:, 0]
-    df["embedding_2d_y"] = reduced_2d[:, 1]
     df["topic_id"] = topics
 
     info = topic_info if topic_info is not None else topic_model.get_topic_info()
@@ -108,6 +111,12 @@ def build_topic_dataframe(
         set_topic_labels(labels)
 
     _persist_topic_hierarchy_metadata(df, topic_model)
+
+    if reduced_5d is not None:
+        for i in range(reduced_5d.shape[1]):
+            df[f"embedding_5d_{i}"] = reduced_5d[:, i]
+    df["embedding_2d_x"] = reduced_2d[:, 0]
+    df["embedding_2d_y"] = reduced_2d[:, 1]
 
     return df
 

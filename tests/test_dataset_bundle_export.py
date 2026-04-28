@@ -112,14 +112,19 @@ def _fake_topic_dataframe(
     _topic_model,
     topics: np.ndarray,
     reduced_2d: np.ndarray,
-    **_kwargs,
+    **kwargs,
 ) -> pd.DataFrame:
-    return topic_input_df.assign(
+    reduced_5d = kwargs.get("reduced_5d")
+    out = topic_input_df.assign(
         topic_id=topics,
         Name=[f"Topic {int(topic)}" for topic in topics],
         embedding_2d_x=reduced_2d[:, 0],
         embedding_2d_y=reduced_2d[:, 1],
     )
+    if reduced_5d is not None:
+        for i in range(reduced_5d.shape[1]):
+            out[f"embedding_5d_{i}"] = reduced_5d[:, i]
+    return out
 
 
 def _normalized_records(df: pd.DataFrame) -> list[dict[str, object]]:
@@ -142,6 +147,10 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
     ctx.topic_model = _DummyTopicModel()
     ctx.topics = np.asarray([0, 1])
     ctx.reduced_2d = np.asarray([[0.15, 0.25], [1.15, 1.25]])
+    ctx.reduced_5d = np.asarray(
+        [[0.1, 0.2, 0.3, 0.4, 0.5], [1.1, 1.2, 1.3, 1.4, 1.5]],
+        dtype=np.float32,
+    )
 
     monkeypatch.setattr(pipeline, "build_topic_dataframe", _fake_topic_dataframe)
 
@@ -178,9 +187,28 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
         "tokens",
         "embedding_2d_x",
         "embedding_2d_y",
+        "embedding_5d_0",
+        "embedding_5d_4",
         "author_uids",
         "author_display_names",
     }
+    assert publications.columns[-7:].tolist() == [
+        "embedding_5d_0",
+        "embedding_5d_1",
+        "embedding_5d_2",
+        "embedding_5d_3",
+        "embedding_5d_4",
+        "embedding_2d_x",
+        "embedding_2d_y",
+    ]
+    assert references.columns[:6].tolist() == [
+        "Bibcode",
+        "Year",
+        "Author",
+        "author_display_names",
+        "author_uids",
+        "Title_en",
+    ]
     assert _normalized_records(references) == _normalized_records(ctx.refs)
     assert manifest == {
         "and_enabled": True,

@@ -142,9 +142,9 @@ stage-boundary behavior.
   the 5D output feeds clustering.
 - **`topic_fit` stage** — fits BERTopic or Toponymy. This is the stage you
   rerun repeatedly while tuning.
-- **`topic_dataframe` stage** — attaches `topic_id`, `embedding_2d_x/y`,
-  optional hierarchy columns, and the working-layer label onto the main
-  DataFrame.
+- **`topic_dataframe` stage** — attaches `topic_id`, reduced 5D/2D coordinate
+  columns, optional hierarchy columns, and the working-layer label onto the
+  main DataFrame.
 - **`visualize` stage** — renders the interactive HTML topic map.
 
 For CLI tuning loops:
@@ -214,8 +214,8 @@ The final phase builds four networks from your curated dataset:
 
 Each network is exported as a GEXF file. Every node carries the full
 publication metadata (Bibcode, Author, Title, Year, Journal, Abstract,
-Citation Count, DOI, `topic_id`, `Name`, `embedding_2d_x/y`, `Title_en`,
-`Abstract_en`, and Toponymy hierarchy columns where applicable).
+Citation Count, DOI, `topic_id`, `Name`, reduced coordinate columns,
+`Title_en`, `Abstract_en`, and Toponymy hierarchy columns where applicable).
 
 The `min_counts` parameter sets the minimum edge weight per metric. The
 packaged presets use `{direct: 2, co_citation: 3, bibliographic_coupling: 2,

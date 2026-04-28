@@ -259,4 +259,5 @@ def test_build_topic_dataframe_signature_contract():
         "reduced_2d",
         "embeddings",
         "topic_info",
+        "reduced_5d",
     ]

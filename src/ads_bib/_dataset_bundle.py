@@ -12,6 +12,97 @@ from ads_bib._utils.io import load_parquet, save_parquet
 
 logger = logging.getLogger(__name__)
 
+_FRONT_COLUMNS: tuple[str, ...] = (
+    "Bibcode",
+    "Year",
+    "Author",
+    "author_display_names",
+    "author_uids",
+    "Title",
+    "Title_lang",
+    "Title_en",
+    "Abstract",
+    "Abstract_lang",
+    "Abstract_en",
+    "Journal",
+    "Journal Abbreviation",
+    "Citation Count",
+    "DOI",
+    "Affiliation",
+    "Keywords",
+    "Category",
+    "Volume",
+    "Issue",
+    "First Page",
+    "Last Page",
+    "References",
+    "full_text",
+    "tokens",
+    "topic_id",
+    "Name",
+    "Main",
+    "MMR",
+    "POS",
+    "KeyBERT",
+    "topic_primary_layer_index",
+    "topic_layer_count",
+)
+
+_TAIL_COLUMNS: tuple[str, ...] = (
+    "full_embeddings",
+)
+
+
+def _is_embedding_column(column: str) -> bool:
+    return column.startswith("embedding_5d_") or column in {"embedding_2d_x", "embedding_2d_y"}
+
+
+def _embedding_sort_key(column: str) -> tuple[int, int, str]:
+    if column.startswith("embedding_5d_"):
+        suffix = column.removeprefix("embedding_5d_")
+        if suffix.isdigit():
+            return (0, int(suffix), column)
+    if column == "embedding_2d_x":
+        return (1, 0, column)
+    if column == "embedding_2d_y":
+        return (1, 1, column)
+    return (10**6, 10**6, column)
+
+
+def _topic_layer_sort_key(column: str) -> tuple[int, int, str]:
+    if column.startswith("topic_layer_"):
+        parts = column.split("_")
+        if len(parts) >= 4 and parts[2].isdigit():
+            kind = 0 if column.endswith("_id") else 1
+            return (int(parts[2]), kind, column)
+    if column.startswith("Topic_Layer_"):
+        suffix = column.removeprefix("Topic_Layer_")
+        if suffix.isdigit():
+            return (int(suffix), 2, column)
+    return (10**6, 10**6, column)
+
+
+def _ordered_dataset_frame(df: pd.DataFrame) -> pd.DataFrame:
+    columns = list(df.columns)
+    front = [column for column in _FRONT_COLUMNS if column in columns]
+    topic_layers = sorted(
+        [
+            column
+            for column in columns
+            if (column.startswith("topic_layer_") or column.startswith("Topic_Layer_"))
+            and column not in front
+        ],
+        key=_topic_layer_sort_key,
+    )
+    embeddings = sorted(
+        [column for column in columns if _is_embedding_column(column)],
+        key=_embedding_sort_key,
+    )
+    tail = [column for column in _TAIL_COLUMNS if column in columns]
+    used = set(front) | set(topic_layers) | set(embeddings) | set(tail)
+    middle = [column for column in columns if column not in used]
+    return df.loc[:, [*front, *topic_layers, *middle, *embeddings, *tail]]
+
 
 def ensure_run_references_artifact(
     *,
@@ -22,7 +113,7 @@ def ensure_run_references_artifact(
     run_data_dir = Path(run_data_dir)
     references_path = run_data_dir / "references.parquet"
     if force or not references_path.exists():
-        save_parquet(refs, references_path)
+        save_parquet(_ordered_dataset_frame(refs), references_path)
     return references_path
 
 
@@ -47,6 +138,7 @@ def write_dataset_bundle(
         refs=refs,
         run_data_dir=run_data_dir,
     )
+    publications = _ordered_dataset_frame(publications)
     save_parquet(publications, publications_path)
 
     try:

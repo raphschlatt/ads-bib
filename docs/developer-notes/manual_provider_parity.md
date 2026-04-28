@@ -58,7 +58,8 @@ TOPIC_MODEL = {
 Run notebook top-to-bottom and record:
 
 1. No uncaught exceptions.
-2. Topic dataframe columns include `topic_id`, `embedding_2d_x`, `embedding_2d_y`.
+2. Topic dataframe columns include `topic_id`, `embedding_5d_0` ...
+   `embedding_5d_4`, `embedding_2d_x`, `embedding_2d_y`.
 3. Topic map HTML exists.
 4. Citation exports exist.
 

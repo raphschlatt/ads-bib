@@ -1,9 +1,8 @@
 # Output Artifacts
 
-This page is the authoritative reference for everything a completed
-`ads-bib` run writes to disk. For interpretation of the citation networks,
-see [Citation Networks](citation-networks.md). For the Python symbols that
-produce these artifacts, see [Python API](python-api.md).
+A completed `ads-bib` run writes a resolved config, a run summary, tabular
+publication/reference data, citation-network exports, and an interactive topic
+map.
 
 ## Run Layout
 
@@ -14,7 +13,8 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── logs/
 │   └── runtime.log
 ├── data/
-│   ├── curated_dataset.parquet
+│   ├── publications.parquet
+│   ├── references.parquet
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
@@ -108,18 +108,18 @@ Key fields:
   respects `openrouter_cost_mode`; HF API calls are not billed through this
   tracker).
 
-## `curated_dataset.parquet`
+## `publications.parquet`
 
-The main document-level output. Columns accumulate across stages:
+The curated document-level output. Columns accumulate across stages:
 
 | Stage | Columns |
 | --- | --- |
 | Export | `Bibcode`, `Author`, `Title`, `Year`, `Journal`, `Abstract`, `Citation Count`, `DOI`, `Affiliation`, ... |
-| Translation | `Title_lang`, `Abstract_lang`, `Title_en`, `Abstract_en` |
+| Translation | `Title_lang`, `Title_en`, `Abstract_lang`, `Abstract_en` |
 | Tokenization | `full_text`, `tokens` |
 | AND (optional) | `author_uids`, `author_display_names` |
 | Embeddings | (cached separately, not in DataFrame) |
-| Reduction | `embedding_2d_x`, `embedding_2d_y` |
+| Reduction | `embedding_5d_0` ... `embedding_5d_4`, `embedding_2d_x`, `embedding_2d_y` |
 | Topic (BERTopic) | `topic_id`, `Name` |
 | Topic (Toponymy) | `topic_id`, `Name`, `topic_layer_<n>_id`, `topic_layer_<n>_label`, `topic_primary_layer_index`, `topic_layer_count` |
 
@@ -128,8 +128,11 @@ Schema conventions:
 - All pipeline-produced columns use `snake_case`.
 - `topic_id` is the document-topic membership column (int). `-1` = outlier.
 - `Name` is the human-readable topic label.
-- `embedding_2d_x` / `embedding_2d_y` are the 2D coordinates for
-  visualization.
+- `embedding_5d_0` ... `embedding_5d_4` are the reduced coordinates used for
+  clustering.
+- `embedding_2d_x` / `embedding_2d_y` are the 2D coordinates for visualization.
+- Full embedding vectors stay in `data/cache/embeddings/*.npz`; they are not
+  written into the run parquet files.
 - For Toponymy, `topic_id` and `Name` are **working-layer aliases**. The
   canonical hierarchy is `topic_layer_<n>_id` / `topic_layer_<n>_label`,
   where layer 0 is the finest and higher layers are coarser.
@@ -138,26 +141,34 @@ A typical row after a completed BERTopic run looks like this (truncated to
 the most useful columns):
 
 ```text
-Bibcode          Year  Title_en                                   topic_id  Name                        embedding_2d_x  embedding_2d_y
-1974Natur.248..  1974  Black hole explosions?                     2         Hawking radiation           -3.42           1.88
-1975CMaPh..43..  1975  Particle creation by black holes           2         Hawking radiation           -3.18           2.04
-1988PhRvD..37..  1988  Wave function of the Universe              4         Quantum cosmology            1.67          -0.92
-1996PhRvL..77..  1996  Microscopic origin of the entropy          1         Black hole thermodynamics   -2.15          -0.41
-2005PhRvD..72..  2005  Information loss in black holes            2         Hawking radiation           -3.01           1.73
+Bibcode          Year  Title_en                                   topic_id  Name                        embedding_5d_0  embedding_2d_x  embedding_2d_y
+1974Natur.248..  1974  Black hole explosions?                     2         Hawking radiation           0.14          -3.42           1.88
+1975CMaPh..43..  1975  Particle creation by black holes           2         Hawking radiation           0.18          -3.18           2.04
+1988PhRvD..37..  1988  Wave function of the Universe              4         Quantum cosmology           -0.31           1.67          -0.92
+1996PhRvL..77..  1996  Microscopic origin of the entropy          1         Black hole thermodynamics    0.06          -2.15          -0.41
+2005PhRvD..72..  2005  Information loss in black holes            2         Hawking radiation           0.16          -3.01           1.73
 ```
 
-Load it back with `pandas.read_parquet("runs/<run_id>/data/curated_dataset.parquet")`.
+Load it back with `pandas.read_parquet("runs/<run_id>/data/publications.parquet")`.
 For Toponymy runs, each row additionally carries `topic_layer_0_id`,
 `topic_layer_0_label`, … up to `topic_layer_<n>_*` and the two hierarchy
 metadata columns `topic_primary_layer_index` and `topic_layer_count`.
+
+## `references.parquet`
+
+The normalized cited-reference table. It uses the same front-loaded metadata
+ordering as `publications.parquet` where columns overlap: `Bibcode`, `Year`,
+`Author`, `Title`, translated title/abstract columns, journal metadata, DOI,
+and optional author-disambiguation columns.
 
 ## `.gexf` Node Attributes
 
 Every publication node in the exported `.gexf` files carries:
 
 `Bibcode`, `Author`, `Title`, `Year`, `Journal`, `Abstract`,
-`Citation Count`, `DOI`, `topic_id`, `Name`, `embedding_2d_x`,
-`embedding_2d_y`, `Title_en`, `Abstract_en`.
+`Citation Count`, `DOI`, `topic_id`, `Name`, `embedding_5d_0` ...
+`embedding_5d_4`, `embedding_2d_x`, `embedding_2d_y`, `Title_en`,
+`Abstract_en`.
 
 For Toponymy runs, nodes additionally carry `topic_layer_<n>_id`,
 `topic_layer_<n>_label`, `topic_primary_layer_index`, and

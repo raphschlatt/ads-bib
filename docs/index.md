@@ -1,10 +1,5 @@
 # ads-bib
 
-This page is the entry point: what the pipeline produces, a minimal command,
-and two live demos. For a first install and run, go to
-[Install & First Run](get-started.md); for choosing API vs local execution, see
-[Runtime Roads](runtime-roads.md).
-
 `ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND via [ads-and](https://github.com/raphschlatt/ads-and)), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
 ## Quickstart
@@ -74,7 +69,8 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── run_summary.yaml          # run metadata, counts, costs
 ├── logs/runtime.log
 ├── data/
-│   ├── curated_dataset.parquet
+│   ├── publications.parquet
+│   ├── references.parquet
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf

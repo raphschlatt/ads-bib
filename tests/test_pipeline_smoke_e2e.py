@@ -552,6 +552,7 @@ def _run_offline_mocked_pipeline(
         reduced_2d=reduced_2d,
         embeddings=embeddings,
         topic_info=topic_info,
+        reduced_5d=reduced_5d,
     )
 
     # 6) Visualize (with fake datamapplot backend)
@@ -622,7 +623,13 @@ def test_offline_mocked_pipeline_smoke_e2e_provider_profile(monkeypatch, tmp_pat
     assert "tokens" in out["publications"].columns
 
     df_topics = out["df_topics"]
-    assert {"embedding_2d_x", "embedding_2d_y", "topic_id"} <= set(df_topics.columns)
+    assert {
+        "embedding_5d_0",
+        "embedding_5d_4",
+        "embedding_2d_x",
+        "embedding_2d_y",
+        "topic_id",
+    } <= set(df_topics.columns)
     assert "UMAP-1" not in df_topics.columns
     assert "UMAP-2" not in df_topics.columns
     assert "Cluster" not in df_topics.columns
