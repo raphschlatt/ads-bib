@@ -85,10 +85,7 @@ Use `pytest -m "not slow"` for the fast inner loop and
 
 - The package version is tracked in
   [`pyproject.toml`](../../pyproject.toml) under `[project].version`.
-- Bump the version, run `ads-bib check`, tag the commit, and push. The
-  tagged build is the source of truth for reproducibility metadata
-  (`run_summary.yaml` records the git commit and whether the working tree
-  was dirty).
+- The release runbook lives in [Release](release.md).
 - Docs deploy automatically from `main` via
   [`.github/workflows/docs.yml`](../../.github/workflows/docs.yml).
 
@@ -115,6 +112,7 @@ to change it.
 ## Validation runbooks
 
 - [Manual Provider Parity](manual_provider_parity.md)
+- [Release](release.md)
 
 These notes may still mention repo-local workflows, manual validation steps,
 and legacy env names. That is intentional here and should not leak back into

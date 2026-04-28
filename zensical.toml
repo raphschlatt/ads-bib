@@ -36,6 +36,7 @@ nav = [
   { "Developer Notes" = [
     { Overview = "developer-notes/index.md" },
     { "Manual Provider Parity" = "developer-notes/manual_provider_parity.md" },
+    { Release = "developer-notes/release.md" },
   ] },
 ]
 

@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: pypi
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Free disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+
+      - name: Check lockfile
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: |
+          uv pip install "torch==2.6.0" --index-url https://download.pytorch.org/whl/cpu
+          uv pip install -e ".[test,umap,hdbscan]"
+          uv pip install zensical
+
+      - name: Release metadata checks
+        run: |
+          uv run python scripts/ops/check_release_version.py "$GITHUB_REF_NAME" --notes-out "$RUNNER_TEMP/release_notes.md"
+          uv run python scripts/ops/check_release_docs.py
+
+      - name: Ruff
+        run: uv run ruff check src tests scripts
+
+      - name: Pytest
+        run: uv run pytest -q
+
+      - name: Build docs
+        run: uv run zensical build --clean
+
+      - name: Build package
+        run: uv build
+
+      - name: Twine check
+        run: uvx twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release_notes.md"

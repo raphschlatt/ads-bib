@@ -4,7 +4,7 @@
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://raphschlatt.github.io/ADS_Pipeline/)
 
-`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
+`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND via [ads-and](https://github.com/raphschlatt/ads-and)), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
 Try out an example:
 
@@ -13,26 +13,14 @@ Try out an example:
 ## Installation
 
 Use [uv](https://docs.astral.sh/uv/) and Python 3.12.
-
-The validated local Hugging Face stack for this release is Torch 2.6.x with
-Transformers 4.56.x. Author name disambiguation is installed with the package
-and can run locally or on Modal when enabled.
-
 ```bash
 uv pip install ads-bib
 # or: pip install ads-bib
 ```
 
-> **Note:** `ads-bib` is not yet on PyPI. For now, install from the repository:
-> ```bash
-> git clone https://github.com/raphschlatt/ADS_Pipeline.git
-> cd ADS_Pipeline
-> uv pip install .
-> ```
-
 ## Quick Start
 
-Create a `.env` file in your project root with your API keys.
+Create a `.env` file in your project root with the relevant API keys.
 
 ```bash
 ADS_TOKEN=your-ads-token           # required
@@ -49,7 +37,7 @@ Then run in your terminal:
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
 
-Author name disambiguation is off by default. Enable the local cost-free path
+Author name disambiguation is off by default. Enable the local CPU/GPU path
 with `--set author_disambiguation.enabled=true`; use
 `--set author_disambiguation.backend=modal` only when your Modal credentials are
 configured.
@@ -84,7 +72,7 @@ Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt
 
 Each run produces a self-contained output directory:
 
-- **`curated_dataset.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors
+- **`curated_dataset.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
 - **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
 - **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
 - **`download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)

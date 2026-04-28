@@ -80,28 +80,25 @@ jobs:
 
       - name: Wheel smoke (core)
         run: |
-          python -m venv /tmp/ads_pkg_smoke
-          . /tmp/ads_pkg_smoke/bin/activate
           WHEEL="$(ls dist/*.whl | head -n 1)"
-          python -m pip install "$WHEEL"
-          python -c "import ads_bib; print(ads_bib.__version__)"
-          python -c "import ads_bib.search, ads_bib.export, ads_bib.tokenize, ads_bib.translate, ads_bib.citations"
-          ads-bib preset list
-          ads-bib preset write openrouter --output /tmp/ads-bib-smoke.yaml
+          uv pip install --reinstall --no-deps "$WHEEL"
+          uv run python -c "import ads_bib; print(ads_bib.__version__)"
+          uv run python -c "import ads_bib.search, ads_bib.export, ads_bib.tokenize, ads_bib.translate, ads_bib.citations"
+          uv run ads-bib preset list
+          uv run ads-bib preset write openrouter --output /tmp/ads-bib-smoke.yaml
           test -f /tmp/ads-bib-smoke.yaml
           grep -q "run_name: ads_bib_openrouter" /tmp/ads-bib-smoke.yaml
-          ads-bib bootstrap --project-root /tmp/ads_bootstrap_smoke --env-file .env
+          uv run ads-bib bootstrap --project-root /tmp/ads_bootstrap_smoke --env-file .env
           test -d /tmp/ads_bootstrap_smoke/data/raw
           test -d /tmp/ads_bootstrap_smoke/runs
           grep -q "ADS_TOKEN=" /tmp/ads_bootstrap_smoke/.env
-          ADS_TOKEN=dummy ads-bib doctor --config /tmp/ads-bib-smoke.yaml --to search --set search.query='author:"test"'
+          ADS_TOKEN=dummy uv run ads-bib doctor --config /tmp/ads-bib-smoke.yaml --to search --set search.query='author:"test"'
 
       - name: Wheel smoke (optional overrides)
         run: |
-          . /tmp/ads_pkg_smoke/bin/activate
           WHEEL="$(ls dist/*.whl | head -n 1)"
-          python -m pip install "$WHEEL[umap,hdbscan]"
-          python -c "import ads_bib.topic_model, ads_bib.visualize"
+          uv pip install --reinstall --no-deps "$WHEEL"
+          uv run python -c "import ads_bib.topic_model, ads_bib.visualize"
 
   windows-managed-runtime-smoke:
     runs-on: windows-latest

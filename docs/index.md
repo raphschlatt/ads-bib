@@ -5,16 +5,37 @@ and two live demos. For a first install and run, go to
 [Install & First Run](get-started.md); for choosing API vs local execution, see
 [Runtime Roads](runtime-roads.md).
 
-`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for [Gephi](https://gephi.org/), [CiteSpace](https://citespace.podia.com/), and [VOSviewer](https://www.vosviewer.com/), locally or via API.
+`ads-bib` takes a NASA ADS search query and produces a normalized, curated dataset, with disambiguated author names (AND via [ads-and](https://github.com/raphschlatt/ads-and)), topic models (via [BERTopic](https://maartengr.github.io/BERTopic/) or [Toponymy](https://github.com/TutteInstitute/toponymy)), and citation networks ready for e.g. [Gephi](https://gephi.org/), [CiteSpace](http://cluster.cis.drexel.edu/~cchen/citespace/), or [VOSviewer](https://www.vosviewer.com/), locally or via API.
 
 ## Quickstart
 
-In an active Python environment:
-
+Use [uv](https://docs.astral.sh/uv/) and Python 3.12.
 ```bash
 uv pip install ads-bib
+# or: pip install ads-bib
+```
+
+Create a `.env` file in your project root with the relevant API keys.
+
+```bash
+ADS_TOKEN=your-ads-token           # required
+OPENROUTER_API_KEY=your-key        # only for the openrouter road
+HF_TOKEN=your-key                  # only for the huggingface road
+MODAL_TOKEN_ID=your-modal-id       # only for AND with backend=modal
+MODAL_TOKEN_SECRET=your-modal-secret
+```
+[ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
+
+Then run in your terminal:
+
+```bash
 ads-bib run --preset openrouter --set search.query='author:"Hawking, S*"'
 ```
+
+Author name disambiguation is off by default. Enable the local CPU/GPU path
+with `--set author_disambiguation.enabled=true`; use
+`--set author_disambiguation.backend=modal` only when your Modal credentials are
+configured.
 
 ## Pick your Runtime Road
 
