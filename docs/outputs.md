@@ -235,7 +235,7 @@ Author Name Disambiguation stays an optional external integration.
 - calls an external source-based disambiguation function,
 - validates the source-mirrored outputs and maps them back into pipeline
   DataFrames,
-- persists disambiguated source snapshots,
+- caches disambiguated stage snapshots for resume,
 - passes disambiguated author IDs into author-based citation exports.
 
 **Expected source inputs:**

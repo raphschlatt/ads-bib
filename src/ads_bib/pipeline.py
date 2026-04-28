@@ -519,7 +519,6 @@ def _try_load_snapshot(
         try:
             ctx.publications, ctx.refs = load_fn(
                 cache_dir=ctx.paths["cache"],
-                run_data_dir=ctx.run.paths["data"],
             )
             return True
         except FileNotFoundError:
@@ -1006,7 +1005,6 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.publications,
             ctx.refs,
             cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
         )
         _advance_resume_block(ctx, "translate")
         return ctx
@@ -1128,7 +1126,6 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.publications,
         ctx.refs,
         cache_dir=ctx.paths["cache"],
-        run_data_dir=ctx.run.paths["data"],
     )
     _advance_resume_block(ctx, "translate")
     return ctx
@@ -1157,7 +1154,6 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.publications,
             ctx.refs,
             cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
         )
         _advance_resume_block(ctx, "tokenize")
         return ctx
@@ -1202,7 +1198,6 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.publications,
         ctx.refs,
         cache_dir=ctx.paths["cache"],
-        run_data_dir=ctx.run.paths["data"],
     )
     _ensure_run_references_artifact(
         refs=ctx.refs,
@@ -1305,7 +1300,6 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.publications,
             ctx.refs,
             cache_dir=ctx.paths["cache"],
-            run_data_dir=ctx.run.paths["data"],
         )
     _ensure_run_references_artifact(
         refs=ctx.refs,

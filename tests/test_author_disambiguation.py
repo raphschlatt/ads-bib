@@ -230,8 +230,8 @@ def test_apply_author_disambiguation_stages_source_inputs_and_maps_outputs(tmp_p
     assert refs_out["author_uids"].tolist() == [["uid:treder", "uid:miller"]]
     assert "AuthorUID" not in pubs_out.columns
     assert "AuthorDisplayName" not in pubs_out.columns
-    assert (tmp_path / "run" / "publications_disambiguated.parquet").exists()
-    assert (tmp_path / "run" / "references_disambiguated.parquet").exists()
+    assert not (tmp_path / "run" / "publications_disambiguated.parquet").exists()
+    assert not (tmp_path / "run" / "references_disambiguated.parquet").exists()
     assert (tmp_path / "run" / "and" / "source_author_assignments.parquet").exists()
     assert (tmp_path / "run" / "and" / "author_entities.parquet").exists()
     assert (tmp_path / "run" / "and" / "mention_clusters.parquet").exists()

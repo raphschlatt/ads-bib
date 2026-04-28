@@ -399,7 +399,6 @@ def apply_author_disambiguation(
         try:
             pubs_cached, refs_cached = load_disambiguated_snapshot(
                 cache_dir=cache_dir,
-                run_data_dir=run_data_dir,
             )
         except FileNotFoundError:
             pass
@@ -421,7 +420,6 @@ def apply_author_disambiguation(
             pubs_out,
             refs_out,
             cache_dir=cache_dir,
-            run_data_dir=run_data_dir,
         )
         logger.info("Author disambiguation skipped: no source rows available.")
         return pubs_out, refs_out
@@ -464,7 +462,6 @@ def apply_author_disambiguation(
         pubs_out,
         refs_out,
         cache_dir=cache_dir,
-        run_data_dir=run_data_dir,
     )
     _save_cache_metadata(cache_dir, expected_cache_metadata)
     _copy_optional_and_artifacts(result, run_data_dir=run_data_dir)
