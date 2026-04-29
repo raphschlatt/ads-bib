@@ -184,6 +184,7 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
         "topic_clusters_per_layer": [3, 2],
         "topic_primary_layer_selection": "auto",
     }
+    assert parsed["reproducibility"]["config_file"] == "config_used.yaml"
     assert parsed["reproducibility"]["config_sha256"]
 
 

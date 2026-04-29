@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ads_bib._utils.io import load_parquet, save_parquet
+from ads_bib._utils.io import load_parquet, save_parquet, sha256_file
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +152,16 @@ def ensure_run_topic_info_artifact(
     return topic_info_path
 
 
+def _artifact_manifest(path: Path | None) -> dict[str, int | str] | None:
+    if path is None or not path.exists() or not path.is_file():
+        return None
+    return {
+        "path": path.name,
+        "bytes": int(path.stat().st_size),
+        "sha256": sha256_file(path),
+    }
+
+
 def write_dataset_bundle(
     *,
     publications: pd.DataFrame,
@@ -193,6 +203,17 @@ def write_dataset_bundle(
         [column for column in publications.columns if _is_embedding_column(column)],
         key=_embedding_sort_key,
     )
+    artifact_paths = {
+        "publications": publications_path,
+        "references": references_path,
+        "topic_info": topic_info_path,
+    }
+    artifacts = {
+        name: payload
+        for name, path in artifact_paths.items()
+        if (payload := _artifact_manifest(path)) is not None
+    }
+
     manifest = {
         "schema_version": 1,
         "producer": "ads_bib",
@@ -208,6 +229,7 @@ def write_dataset_bundle(
             "publications": int(len(publications)),
             "references": int(len(refs)),
         },
+        "artifacts": artifacts,
         "has_author_uids": bool(
             "author_uids" in publications.columns and "author_uids" in refs.columns
         ),

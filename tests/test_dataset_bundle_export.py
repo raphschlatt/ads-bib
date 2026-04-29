@@ -9,6 +9,7 @@ import pytest
 
 import ads_bib._dataset_bundle as dataset_bundle
 import ads_bib.pipeline as pipeline
+from ads_bib._utils.io import sha256_file
 
 
 class _DummyTopicModel:
@@ -140,6 +141,17 @@ def _normalized_records(df: pd.DataFrame) -> list[dict[str, object]]:
     return records
 
 
+def _assert_manifest_artifact(manifest: dict[str, object], name: str, path: Path) -> None:
+    artifacts = manifest["artifacts"]
+    assert isinstance(artifacts, dict)
+    artifact = artifacts[name]
+    assert artifact == {
+        "path": path.name,
+        "bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+
+
 def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
     ctx = _make_context(tmp_path, and_enabled=True)
     ctx.topic_input_df = _topic_input_df(with_author_ids=True)
@@ -215,7 +227,12 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
     assert topic_info.columns.tolist() == ["Topic", "Name"]
     assert topic_info["Name"].tolist() == ["Topic 0", "Topic 1"]
     assert _normalized_records(references) == _normalized_records(ctx.refs)
-    assert manifest == {
+    _assert_manifest_artifact(manifest, "publications", publications_path)
+    _assert_manifest_artifact(manifest, "references", references_path)
+    _assert_manifest_artifact(manifest, "topic_info", topic_info_path)
+    manifest_without_artifacts = dict(manifest)
+    manifest_without_artifacts.pop("artifacts")
+    assert manifest_without_artifacts == {
         "and_enabled": True,
         "coordinate_columns": [
             "embedding_5d_0",
@@ -267,6 +284,8 @@ def test_run_curate_stage_refreshes_dataset_bundle_and_manifest(tmp_path):
     assert manifest["and_enabled"] is False
     assert manifest["has_author_uids"] is False
     assert manifest["has_author_display_names"] is False
+    _assert_manifest_artifact(manifest, "publications", ctx.run.paths["data"] / "publications.parquet")
+    _assert_manifest_artifact(manifest, "references", ctx.run.paths["data"] / "references.parquet")
 
 
 def test_run_topic_dataframe_stage_reuses_existing_references_artifact(tmp_path, monkeypatch):

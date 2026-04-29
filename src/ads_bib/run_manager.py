@@ -304,6 +304,7 @@ class RunManager:
                 "failed_stage": failed_stage,
             },
             "reproducibility": {
+                "config_file": config_path.name,
                 "config_path": str(config_path),
                 "config_sha256": sha256_file(config_path) if config_path.exists() else None,
                 "git_commit": git_commit,
