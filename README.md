@@ -26,7 +26,7 @@ HF_TOKEN=your-key                  # only for the huggingface road
 MODAL_TOKEN_ID=your-modal-id       # only for AND with backend=modal
 MODAL_TOKEN_SECRET=your-modal-secret
 ```
-[ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
+[ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens) | [Modal](https://modal.com/).
 
 Then run in your terminal:
 

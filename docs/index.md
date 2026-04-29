@@ -19,7 +19,7 @@ HF_TOKEN=your-key                  # only for the huggingface road
 MODAL_TOKEN_ID=your-modal-id       # only for AND with backend=modal
 MODAL_TOKEN_SECRET=your-modal-secret
 ```
-[ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
+[ADS user token settings](https://ui.adsabs.harvard.edu/user/settings/token) | [OpenRouter Keys](https://openrouter.ai/settings/keys) | [Hugging Face Access Tokens](https://huggingface.co/settings/tokens) | [Modal](https://modal.com/).
 
 Then run in your terminal:
 
@@ -47,16 +47,15 @@ See [Runtime Roads](runtime-roads.md) for hardware, keys, and cost trade-offs.
 
 A raw ADS export gives you metadata in mixed languages, without thematic
 structure and without network files. `ads-bib` homogenizes the languages,
-assigns topics, and exports citation networks for
-[Gephi](https://gephi.org/), [CiteSpace](https://citespace.podia.com/), and
-[VOSviewer](https://www.vosviewer.com/) — end to end, from one CLI command.
+assigns topics, disambiguates author names (AND), and exports citation networks end to end, from one CLI command.
 
 ``` mermaid
 graph LR
     A[Search & Export] --> B[Translate & Tokenize]
-    B --> C[Topic Modeling]
-    C --> D[Curation]
-    D --> E[Citation Networks]
+    B --> C[AND]
+    C --> D[Topic Modeling]
+    D --> E[Curation]
+    E --> F[Citation Networks]
 ```
 
 ## Run Outputs
