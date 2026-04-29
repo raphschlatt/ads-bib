@@ -72,12 +72,7 @@ def build_citation_inputs_from_publications(
 
     bibcodes = publications["Bibcode"].fillna("").astype(str).tolist()
 
-    def _normalize_refs(value: object) -> list[str]:
-        if isinstance(value, list):
-            return [str(ref) for ref in value if isinstance(ref, str) and ref]
-        return []
-
-    references = publications["References"].apply(_normalize_refs).tolist()
+    references = publications["References"].apply(_normalize_reference_list).tolist()
     return bibcodes, references
 
 def build_all_nodes(
@@ -220,6 +215,7 @@ def _build_author_nodes(
     else:
         nodes["author_display_name"] = pd.NA
 
+    nodes["author_uid"] = nodes["id"]
     nodes["author_display_name"] = (
         nodes["author_display_name"]
         .fillna(nodes["id"].map(label_map))
@@ -889,8 +885,12 @@ def _filter_by_authors(
 
 def _normalize_reference_list(value: object) -> list[str]:
     """Normalize a publication's reference list to a compact list of bibcodes."""
-    if isinstance(value, list):
+    if isinstance(value, str) or value is None:
+        return []
+    if isinstance(value, Sequence):
         return [str(ref) for ref in value if isinstance(ref, str) and ref]
+    if isinstance(value, np.ndarray):
+        return [str(ref) for ref in value.tolist() if isinstance(ref, str) and ref]
     return []
 
 

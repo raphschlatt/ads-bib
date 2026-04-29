@@ -1408,6 +1408,7 @@ def test_run_citations_stage_uses_explicit_cited_author_excludes(tmp_path, monke
     ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
     ctx.curated_df = pd.DataFrame({"Bibcode": ["PUB-1"]})
     ctx.refs = pd.DataFrame({"Bibcode": ["PUB-1"], "RefBibcode": ["REF-1"]})
+    ctx.author_entities = pd.DataFrame([{"author_uid": "uid:hawking"}])
 
     calls: dict[str, object] = {}
 
@@ -1450,6 +1451,7 @@ def test_run_citations_stage_uses_explicit_cited_author_excludes(tmp_path, monke
     }
     assert calls["process_kwargs"]["cited_authors_exclude"] == ["Ellis, G"]
     assert calls["process_kwargs"]["cited_author_uids_exclude"] == ["uid:hawking"]
+    assert calls["process_kwargs"]["author_entities"] is ctx.author_entities
     assert Path(calls["wos_output_path"]).name == "download_wos_export_filtered.txt"
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -200,6 +201,7 @@ def test_process_all_citations_author_co_citation_uses_author_nodes(monkeypatch,
     assert captured["edges"]["target"].tolist() == ["uid:miller"]
     assert captured["edges"]["weight"].tolist() == [1]
     assert set(captured["nodes"]["id"]) == {"uid:borz", "uid:miller"}
+    assert set(captured["nodes"]["author_uid"]) == {"uid:borz", "uid:miller"}
     assert set(captured["nodes"]["label"]) == {"Borz, Karl", "Miller, Alice"}
     assert set(captured["evidence"].columns) == {
         "id",
@@ -224,6 +226,20 @@ def test_build_citation_inputs_from_publications_normalizes_invalid_references()
 
     assert bibcodes == ["p1", "", "p3"]
     assert references == [["r1", "r2"], [], []]
+
+
+def test_build_citation_inputs_from_publications_accepts_parquet_array_references():
+    publications = pd.DataFrame(
+        {
+            "Bibcode": ["p1", "p2"],
+            "References": [np.array(["r1", "r2"], dtype=object), np.array([], dtype=object)],
+        }
+    )
+
+    bibcodes, references = cit.build_citation_inputs_from_publications(publications)
+
+    assert bibcodes == ["p1", "p2"]
+    assert references == [["r1", "r2"], []]
 
 
 def test_build_citation_inputs_from_publications_requires_columns():

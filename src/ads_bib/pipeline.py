@@ -445,6 +445,7 @@ class PipelineContext:
     topic_df: pd.DataFrame | None = None
     curated_df: pd.DataFrame | None = None
     citation_results: dict[str, pd.DataFrame] | None = None
+    author_entities: pd.DataFrame | None = None
     resume_blocked_from: StageName | None = None
 
     def __repr__(self) -> str:
@@ -1306,6 +1307,12 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
         run_data_dir=ctx.run.paths["data"],
         force=cfg.enabled,
     )
+    author_entities_path = ctx.run.paths["data"] / "and" / "author_entities.parquet"
+    ctx.author_entities = (
+        pd.read_parquet(author_entities_path)
+        if cfg.enabled and author_entities_path.exists()
+        else None
+    )
     _advance_resume_block(ctx, "author_disambiguation")
     return ctx
 
@@ -1788,6 +1795,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         cited_author_uids_exclude=cfg.cited_author_uids_exclude,
         output_format=cfg.output_format,
         output_dir=ctx.run.paths["data"],
+        author_entities=ctx.author_entities,
         show_progress=False if ctx.reporter is not None else True,
     )
     suffix = (
