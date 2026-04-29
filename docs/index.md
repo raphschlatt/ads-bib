@@ -79,12 +79,6 @@ runs/run_20260407_120000_ads_bib_openrouter/
 └── plots/topic_map.html
 ```
 
-!!! note "Embed demos and network"
-    The topic map below loads from this site’s `assets/topic_map.html` (works
-    offline). The Gephi panel loads **Gephi Lite** in an iframe and needs
-    network access to fetch the example graph; if it stays blank, check your
-    connection or try opening [Gephi Lite](https://gephi.org/gephi-lite/) in a
-    separate tab.
 
 <div class="doc-embed" style="width: 100%; height: 520px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.5rem; background: #161b22;">
     <iframe src="assets/topic_map.html" style="width: 140%; height: 140%; max-width: none; max-height: none; border: none; transform: scale(0.714); transform-origin: 0 0;" title="Topic map preview"></iframe>
