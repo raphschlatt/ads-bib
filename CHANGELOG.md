@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-30
+
+### Fixed
+- Toponymy fitting now avoids a large fixed-width Unicode array allocation that could cause memory errors on large corpora.
+- Notebook and session resume now load translated, tokenized, and author-disambiguated snapshots even when earlier-stage frames are already in memory.
+
+### Changed
+- The OpenRouter notebook example now uses Gemini Flash 3 for translation and topic labeling, with Qwen3 embeddings.
+
 ## [0.1.0] - 2026-04-28
 
 ### Added

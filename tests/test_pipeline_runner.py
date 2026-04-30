@@ -748,7 +748,7 @@ def test_run_pipeline_writes_failed_summary_on_stage_error(tmp_path, monkeypatch
     assert summary["stages"]["failed_stage"] == "tokenize"
 
 
-def test_run_translate_stage_prefers_current_export_results_over_snapshot(tmp_path, monkeypatch):
+def test_run_translate_stage_uses_current_export_results_when_snapshot_blocked(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
@@ -764,6 +764,7 @@ def test_run_translate_stage_prefers_current_export_results_over_snapshot(tmp_pa
     ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
     ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title": "T", "Abstract": "A"}])
     ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title": "RT", "Abstract": "RA"}])
+    ctx.resume_blocked_from = "translate"
 
     monkeypatch.setattr(
         pipeline,
@@ -817,7 +818,7 @@ def test_run_translate_stage_requires_export_when_no_inputs(tmp_path, monkeypatc
     assert excinfo.value.required_stage == "export"
 
 
-def test_run_tokenize_stage_prefers_current_translated_results_over_snapshot(tmp_path, monkeypatch):
+def test_run_tokenize_stage_uses_current_translated_results_when_snapshot_blocked(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
@@ -828,6 +829,7 @@ def test_run_tokenize_stage_prefers_current_translated_results_over_snapshot(tmp
     ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
     ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title_en": "T", "Abstract_en": "A"}])
     ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+    ctx.resume_blocked_from = "tokenize"
 
     monkeypatch.setattr(
         pipeline,

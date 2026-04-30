@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ads-bib"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pipeline for querying and turning NASA's ADS publications metadata into curated, analysis-ready datasets, topic maps, and citation networks."
 readme = "README.md"
 license = "MIT"
