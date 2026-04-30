@@ -395,6 +395,35 @@ def test_translate_after_export_uses_current_export_state_without_snapshot(tmp_p
     assert session.refs["Bibcode"].tolist() == ["ref"]
 
 
+def test_translate_with_exported_frames_loads_valid_snapshot_when_enabled(tmp_path, monkeypatch):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    session.set_section(
+        "translate",
+        {
+            "enabled": True,
+            "provider": "nllb",
+            "model": "stub",
+            "fasttext_model": str(tmp_path / "lid.176.bin"),
+        },
+    )
+    assert session._context is not None
+    session._context.resume_blocked_from = None
+    session._context.publications = pd.DataFrame([{"Bibcode": "export-pub", "Title": "T", "Abstract": "A"}])
+    session._context.refs = pd.DataFrame([{"Bibcode": "export-ref", "Title": "RT", "Abstract": "RA"}])
+
+    pubs = pd.DataFrame([{"Bibcode": "snap-pub", "Title_en": "T", "Abstract_en": "A"}])
+    refs = pd.DataFrame([{"Bibcode": "snap-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+    monkeypatch.setattr(pipeline, "load_translated_snapshot", lambda **kwargs: (pubs.copy(), refs.copy()))
+
+    session.run_stage("translate")
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["snap-pub"]
+    assert session.refs["Bibcode"].tolist() == ["snap-ref"]
+
+
 def test_translate_after_search_change_requires_fresh_export_and_does_not_load_snapshot(
     tmp_path,
     monkeypatch,
@@ -464,6 +493,34 @@ def test_tokenize_config_change_preserves_translated_inputs_and_drops_tokens(tmp
     assert "author_display_names" not in session.refs.columns
 
 
+def test_tokenize_with_translated_frames_loads_valid_snapshot_when_enabled(tmp_path, monkeypatch):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    session.set_section("tokenize", {"enabled": True})
+    assert session._context is not None
+    session._context.resume_blocked_from = None
+    session._context.publications = pd.DataFrame(
+        [{"Bibcode": "translated-pub", "Title_en": "T", "Abstract_en": "A"}]
+    )
+    session._context.refs = pd.DataFrame(
+        [{"Bibcode": "translated-ref", "Title_en": "RT", "Abstract_en": "RA"}]
+    )
+
+    pubs = pd.DataFrame(
+        [{"Bibcode": "snap-pub", "Title_en": "T", "Abstract_en": "A", "tokens": ["tok"]}]
+    )
+    refs = pd.DataFrame([{"Bibcode": "snap-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+    monkeypatch.setattr(pipeline, "load_tokenized_snapshot", lambda **kwargs: (pubs.copy(), refs.copy()))
+
+    session.run_stage("tokenize")
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["snap-pub"]
+    assert session.publications["tokens"].tolist() == [["tok"]]
+    assert session.refs["Bibcode"].tolist() == ["snap-ref"]
+
+
 def test_author_disambiguation_config_change_preserves_tokens_and_drops_author_columns(tmp_path):
     session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
     session.set_section("search", {"query": "q", "ads_token": "token"})
@@ -503,6 +560,45 @@ def test_author_disambiguation_config_change_preserves_tokens_and_drops_author_c
     assert "author_display_names" not in session.publications.columns
     assert "author_uids" not in session.refs.columns
     assert "author_display_names" not in session.refs.columns
+
+
+def test_author_disambiguation_with_tokenized_frames_loads_valid_snapshot_when_enabled(
+    tmp_path,
+    monkeypatch,
+):
+    session = notebook_module.NotebookSession(project_root=tmp_path, run_name="nb")
+    session.set_section("search", {"query": "q", "ads_token": "token"})
+    session.set_section("author_disambiguation", {"enabled": True})
+    assert session._context is not None
+    session._context.resume_blocked_from = None
+    session._context.publications = pd.DataFrame(
+        [{"Bibcode": "token-pub", "Title_en": "T", "Abstract_en": "A", "tokens": ["tok"]}]
+    )
+    session._context.refs = pd.DataFrame(
+        [{"Bibcode": "token-ref", "Title_en": "RT", "Abstract_en": "RA"}]
+    )
+
+    pubs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "snap-pub",
+                "Title_en": "T",
+                "Abstract_en": "A",
+                "tokens": ["tok"],
+                "author_uids": [["u1"]],
+            }
+        ]
+    )
+    refs = pd.DataFrame([{"Bibcode": "snap-ref", "author_uids": [["u2"]]}])
+    monkeypatch.setattr(pipeline, "load_disambiguated_snapshot", lambda **kwargs: (pubs.copy(), refs.copy()))
+
+    session.run_stage("author_disambiguation")
+
+    assert session.publications is not None
+    assert session.refs is not None
+    assert session.publications["Bibcode"].tolist() == ["snap-pub"]
+    assert session.publications["author_uids"].tolist() == [[["u1"]]]
+    assert session.refs["Bibcode"].tolist() == ["snap-ref"]
 
 
 def test_llm_prompt_name_resolution_and_explicit_override(tmp_path, monkeypatch):

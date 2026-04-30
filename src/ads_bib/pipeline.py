@@ -514,9 +514,11 @@ def _try_load_snapshot(
     ctx: PipelineContext,
     stage: StageName,
     load_fn: Callable[..., tuple[pd.DataFrame, pd.DataFrame]],
+    *,
+    allow_with_source_frames: bool = False,
 ) -> bool:
     """Try loading a snapshot for *stage*; return True on success."""
-    if not _has_source_frames(ctx) and _snapshot_allowed(ctx, stage):
+    if (allow_with_source_frames or not _has_source_frames(ctx)) and _snapshot_allowed(ctx, stage):
         try:
             ctx.publications, ctx.refs = load_fn(
                 cache_dir=ctx.paths["cache"],
@@ -987,7 +989,13 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
     if _has_translated_frames(ctx):
         return ctx
 
-    if _try_load_snapshot(ctx, "translate", load_translated_snapshot):
+    cfg = ctx.config.translate
+    if _try_load_snapshot(
+        ctx,
+        "translate",
+        load_translated_snapshot,
+        allow_with_source_frames=cfg.enabled,
+    ):
         return ctx
 
     if not _has_source_frames(ctx):
@@ -1000,7 +1008,6 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
 
     assert ctx.publications is not None
     assert ctx.refs is not None
-    cfg = ctx.config.translate
     if not cfg.enabled:
         save_translated_snapshot(
             ctx.publications,
@@ -1136,7 +1143,13 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     if ctx.publications is not None and ctx.refs is not None and "tokens" in ctx.publications.columns:
         return ctx
 
-    if _try_load_snapshot(ctx, "tokenize", load_tokenized_snapshot):
+    cfg = ctx.config.tokenize
+    if _try_load_snapshot(
+        ctx,
+        "tokenize",
+        load_tokenized_snapshot,
+        allow_with_source_frames=cfg.enabled,
+    ):
         return ctx
 
     if not _has_translated_frames(ctx):
@@ -1149,7 +1162,6 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
 
     assert ctx.publications is not None
     assert ctx.refs is not None
-    cfg = ctx.config.tokenize
     if not cfg.enabled:
         save_tokenized_snapshot(
             ctx.publications,
@@ -1237,9 +1249,16 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
     if _has_author_uid_frames(ctx):
         return ctx
 
+    cfg = ctx.config.author_disambiguation
+    if _try_load_snapshot(
+        ctx,
+        "author_disambiguation",
+        load_disambiguated_snapshot,
+        allow_with_source_frames=cfg.enabled,
+    ):
+        return ctx
+
     if ctx.publications is None or "tokens" not in ctx.publications.columns or ctx.refs is None:
-        if _try_load_snapshot(ctx, "author_disambiguation", load_disambiguated_snapshot):
-            return ctx
         raise _require_stage(
             "author_disambiguation",
             "tokenize",
@@ -1249,7 +1268,6 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
 
     assert ctx.publications is not None
     assert ctx.refs is not None
-    cfg = ctx.config.author_disambiguation
     if cfg.enabled:
         reporter = ctx.reporter
         if reporter is None:
