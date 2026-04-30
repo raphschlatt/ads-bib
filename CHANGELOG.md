@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+- Final dataset bundle exports now clean publication/reference keys, prune dangling reference IDs, and remove placeholder or duplicate author UIDs before writing public Parquet outputs and the dataset manifest.
+
 ## [0.1.1] - 2026-04-30
 
 ### Fixed

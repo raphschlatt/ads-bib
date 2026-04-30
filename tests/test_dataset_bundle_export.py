@@ -152,6 +152,127 @@ def _assert_manifest_artifact(manifest: dict[str, object], name: str, path: Path
     }
 
 
+def test_prepare_dataset_bundle_cleans_keys_references_and_author_uids():
+    publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": " p1 ",
+                "Year": 2000,
+                "Author": ["No author"],
+                "References": ["r1"],
+                "Title": "Sparse duplicate",
+                "author_uids": ["run::n.author::1"],
+                "author_display_names": ["No author"],
+            },
+            {
+                "Bibcode": "p1",
+                "Year": 2000,
+                "Author": ["Real, A.", "Real, A."],
+                "References": ["r1", "r1", "r2", "missing"],
+                "Title": "Best duplicate",
+                "Abstract": "More complete row",
+                "author_uids": ["uid:real", "uid:real"],
+                "author_display_names": ["Real, A.", "Real, A."],
+            },
+            {
+                "Bibcode": "p2",
+                "Year": 2001,
+                "Author": ["Unknown", "Known, B."],
+                "References": ["r2", "missing"],
+                "Title": "Placeholder author",
+                "author_uids": ["run::unknown::0", "uid:known"],
+                "author_display_names": ["Unknown", "Known, B."],
+            },
+            {
+                "Bibcode": "",
+                "Year": 2002,
+                "Author": ["Empty, E."],
+                "References": ["r1"],
+            },
+        ]
+    )
+    references = pd.DataFrame(
+        [
+            {"Bibcode": " r1 ", "Year": 1990, "Title": "Reference 1"},
+            {"Bibcode": "r1", "Year": 1990, "Title": "Reference 1 duplicate", "Abstract": "Longer"},
+            {
+                "Bibcode": "r2",
+                "Year": 1991,
+                "Title": "Reference 2",
+                "author_uids": ["uid:ref", "uid:ref", "run::unknown::0"],
+                "author_display_names": ["Ref, R.", "Ref, R.", "Unknown"],
+            },
+            {"Bibcode": None, "Year": 1992, "Title": "Empty key"},
+        ]
+    )
+
+    pubs_clean, refs_clean, report = dataset_bundle.prepare_dataset_bundle(publications, references)
+
+    assert pubs_clean["Bibcode"].tolist() == ["p1", "p2"]
+    assert refs_clean["Bibcode"].tolist() == ["r1", "r2"]
+    assert pubs_clean.loc[pubs_clean["Bibcode"].eq("p1"), "Title"].iloc[0] == "Best duplicate"
+    assert pubs_clean["References"].tolist() == [["r1", "r2"], ["r2"]]
+    assert pubs_clean.loc[pubs_clean["Bibcode"].eq("p1"), "Author"].iloc[0] == [
+        "Real, A.",
+        "Real, A.",
+    ]
+    assert pubs_clean["author_uids"].tolist() == [["uid:real"], ["uid:known"]]
+    assert pubs_clean["author_display_names"].tolist() == [["Real, A."], ["Known, B."]]
+    assert refs_clean.loc[refs_clean["Bibcode"].eq("r2"), "author_uids"].iloc[0] == ["uid:ref"]
+    assert refs_clean.loc[refs_clean["Bibcode"].eq("r2"), "author_display_names"].iloc[0] == [
+        "Ref, R."
+    ]
+
+    assert report["input_counts"] == {"publications": 4, "references": 4}
+    assert report["output_counts"] == {"publications": 2, "references": 2}
+    assert report["publications"]["empty_bibcodes_removed"] == 1
+    assert report["publications"]["duplicate_rows_removed"] == 1
+    assert report["publications"]["references"]["duplicate_mentions_removed"] == 1
+    assert report["publications"]["references"]["missing_reference_bibcodes"] == 1
+    assert report["publications"]["references"]["missing_mentions_removed"] == 2
+    assert report["publications"]["author_uids"]["placeholder_uid_mentions_removed"] == 1
+    assert report["publications"]["author_uids"]["duplicate_uid_mentions_removed"] == 1
+    assert report["references"]["empty_bibcodes_removed"] == 1
+    assert report["references"]["duplicate_rows_removed"] == 1
+    assert report["references"]["author_uids"]["placeholder_uid_mentions_removed"] == 1
+    assert report["references"]["author_uids"]["duplicate_uid_mentions_removed"] == 1
+
+
+def test_write_dataset_bundle_syncs_topic_info_counts_after_cleaning(tmp_path):
+    publications = pd.DataFrame(
+        [
+            {"Bibcode": "p1", "References": ["r1"], "topic_id": 1},
+            {"Bibcode": "p1", "References": ["r1"], "topic_id": 1, "Title": "better"},
+            {"Bibcode": "p2", "References": ["r1"], "topic_id": 2},
+        ]
+    )
+    references = pd.DataFrame([{"Bibcode": "r1", "Title": "Reference"}])
+    topic_info = pd.DataFrame(
+        {
+            "Topic": [1, 2, 3],
+            "Count": [99, 99, 99],
+            "Name": ["One", "Two", "Gone"],
+        }
+    )
+
+    dataset_bundle.write_dataset_bundle(
+        publications=publications,
+        refs=references,
+        topic_info=topic_info,
+        run_data_dir=tmp_path,
+        run_id="run",
+        source_stage="test",
+        and_enabled=False,
+    )
+
+    written_topic_info = pd.read_parquet(tmp_path / "topic_info.parquet")
+    assert written_topic_info[["Topic", "Count"]].to_dict(orient="records") == [
+        {"Topic": 1, "Count": 1},
+        {"Topic": 2, "Count": 1},
+        {"Topic": 3, "Count": 0},
+    ]
+
+
 def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
     ctx = _make_context(tmp_path, and_enabled=True)
     ctx.topic_input_df = _topic_input_df(with_author_ids=True)
@@ -232,6 +353,9 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
     _assert_manifest_artifact(manifest, "topic_info", topic_info_path)
     manifest_without_artifacts = dict(manifest)
     manifest_without_artifacts.pop("artifacts")
+    cleaning = manifest_without_artifacts.pop("cleaning")
+    assert cleaning["input_counts"] == {"publications": 2, "references": 2}
+    assert cleaning["output_counts"] == {"publications": 2, "references": 2}
     assert manifest_without_artifacts == {
         "and_enabled": True,
         "coordinate_columns": [
@@ -288,7 +412,7 @@ def test_run_curate_stage_refreshes_dataset_bundle_and_manifest(tmp_path):
     _assert_manifest_artifact(manifest, "references", ctx.run.paths["data"] / "references.parquet")
 
 
-def test_run_topic_dataframe_stage_reuses_existing_references_artifact(tmp_path, monkeypatch):
+def test_run_topic_dataframe_stage_refreshes_existing_references_artifact(tmp_path, monkeypatch):
     ctx = _make_context(tmp_path, and_enabled=False)
     ctx.topic_input_df = _topic_input_df(with_author_ids=False)
     ctx.refs = _references_df(with_author_ids=False)
@@ -313,11 +437,11 @@ def test_run_topic_dataframe_stage_reuses_existing_references_artifact(tmp_path,
     references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
 
     assert "publications.parquet" in writes
-    assert "references.parquet" not in writes
-    assert _normalized_records(references) == _normalized_records(existing_references)
+    assert "references.parquet" in writes
+    assert _normalized_records(references) == _normalized_records(ctx.refs)
 
 
-def test_run_curate_stage_reuses_existing_references_artifact(tmp_path, monkeypatch):
+def test_run_curate_stage_refreshes_existing_references_artifact(tmp_path, monkeypatch):
     ctx = _make_context(tmp_path, and_enabled=False)
     ctx.topic_df = _fake_topic_dataframe(
         _topic_input_df(with_author_ids=False),
@@ -342,8 +466,8 @@ def test_run_curate_stage_reuses_existing_references_artifact(tmp_path, monkeypa
     references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
 
     assert "publications.parquet" in writes
-    assert "references.parquet" not in writes
-    assert _normalized_records(references) == _normalized_records(existing_references)
+    assert "references.parquet" in writes
+    assert _normalized_records(references) == _normalized_records(ctx.refs)
 
 
 def test_exported_dataset_bundle_loads_in_trajectories(tmp_path, monkeypatch):

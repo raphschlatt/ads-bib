@@ -76,6 +76,7 @@ Each run produces a self-contained output directory:
 - **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
 - **`download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
 - **`run_summary.yaml`** — full run metadata and stage timings
+- **`dataset_manifest.json`** — artifact hashes plus bundle-cleaning provenance
 
 [![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
 *Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*

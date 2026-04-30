@@ -18,6 +18,7 @@ import yaml
 from . import prompts
 from ads_bib._dataset_bundle import (
     ensure_run_references_artifact as _ensure_run_references_artifact,
+    prepare_dataset_bundle as _prepare_dataset_bundle,
     write_dataset_bundle as _write_dataset_bundle,
 )
 from ads_bib._stage_state import (
@@ -1654,6 +1655,9 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         topic_info=topic_info,
         reduced_5d=ctx.reduced_5d,
     )
+    cleaning_report = None
+    if ctx.refs is not None:
+        ctx.topic_df, ctx.refs, cleaning_report = _prepare_dataset_bundle(ctx.topic_df, ctx.refs)
     _write_dataset_bundle(
         publications=ctx.topic_df,
         refs=ctx.refs,
@@ -1662,6 +1666,8 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         run_id=ctx.run.run_id,
         source_stage="topic_dataframe",
         and_enabled=ctx.config.author_disambiguation.enabled,
+        prepare_bundle=False,
+        cleaning_report=cleaning_report,
     )
     return ctx
 
@@ -1764,6 +1770,9 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.curated_df,
             ctx.config.curation.clusters_to_remove,
         )
+    cleaning_report = None
+    if ctx.refs is not None:
+        ctx.curated_df, ctx.refs, cleaning_report = _prepare_dataset_bundle(ctx.curated_df, ctx.refs)
     _write_dataset_bundle(
         publications=ctx.curated_df,
         refs=ctx.refs,
@@ -1772,6 +1781,8 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
         run_id=ctx.run.run_id,
         source_stage="curate",
         and_enabled=ctx.config.author_disambiguation.enabled,
+        prepare_bundle=False,
+        cleaning_report=cleaning_report,
     )
     return ctx
 

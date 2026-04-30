@@ -16,6 +16,7 @@ runs/run_20260407_120000_ads_bib_openrouter/
 │   ├── publications.parquet
 │   ├── references.parquet
 │   ├── topic_info.parquet
+│   ├── dataset_manifest.json
 │   ├── direct.gexf
 │   ├── co_citation.gexf
 │   ├── bibliographic_coupling.gexf
@@ -26,6 +27,12 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ```
 
 Every file in that tree has a single canonical owner described below.
+
+The public Parquet bundle is prepared for downstream analysis when it is
+written: duplicate `Bibcode` rows are reduced deterministically, publication
+`References` lists are normalized to known reference rows, and optional
+`author_uids` contain unique real-person entities rather than placeholders
+such as `No author`.
 
 ## `config_used.yaml`
 
@@ -155,12 +162,28 @@ For Toponymy runs, each row additionally carries `topic_layer_0_id`,
 `topic_layer_0_label`, … up to `topic_layer_<n>_*` and the two hierarchy
 metadata columns `topic_primary_layer_index` and `topic_layer_count`.
 
+If author disambiguation ran, `author_uids` and `author_display_names` are
+cleaned entity lists for analysis. They may be shorter than the raw `Author`
+list because duplicate person IDs and non-person placeholders are removed.
+The raw `Author` list remains unchanged for provenance and display.
+
 ## `references.parquet`
 
 The normalized cited-reference table. It uses the same front-loaded metadata
 ordering as `publications.parquet` where columns overlap: `Bibcode`, `Year`,
 `Author`, `Title`, translated title/abstract columns, journal metadata, DOI,
 and optional author-disambiguation columns.
+
+Every ID retained in `publications.References` is present in
+`references.Bibcode`. Missing reference rows from the ADS export are pruned
+from the final reference lists and recorded in `dataset_manifest.json`.
+
+## `dataset_manifest.json`
+
+Manifest for the final bundle. It records artifact hashes, row counts, topic
+coordinate columns, author-disambiguation availability, and a `cleaning` block
+with the number of duplicate keys, dangling reference mentions, placeholder
+author UIDs, and duplicate author UID mentions removed during bundle export.
 
 ## `topic_info.parquet`
 
