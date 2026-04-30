@@ -528,6 +528,35 @@ def test_fit_toponymy_uses_toponymy_clusterer_and_tracks_step(monkeypatch):
     assert calls["namer"]["max_workers"] == 5
 
 
+def test_fit_toponymy_passes_documents_as_object_array(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    long_doc = "x" * 50_000
+    model, _, _ = tm.fit_toponymy(
+        documents=["short", long_doc, "medium"],
+        embeddings=np.ones((3, 3), dtype=np.float32),
+        clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+        backend="toponymy",
+        layer_index=0,
+        llm_provider="openrouter",
+        llm_model="google/gemini-3-flash-preview",
+        embedding_provider="openrouter",
+        embedding_model="google/gemini-embedding-001",
+        api_key="key",
+    )
+
+    assert isinstance(model.objects, np.ndarray)
+    assert model.objects.dtype == object
+    assert model.objects.tolist() == ["short", long_doc, "medium"]
+
+
 def test_fit_toponymy_auto_selects_coarsest_layer(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 

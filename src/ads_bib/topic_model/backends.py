@@ -1741,9 +1741,14 @@ def _fit_and_extract_toponymy_outputs(
         clusterable_vectors=clusterable_vectors,
         backend_norm=backend_norm,
     )
+    # Toponymy's exemplar selection calls np.array(objects). Passing a Python
+    # list of long strings lets NumPy infer a fixed-width Unicode dtype sized
+    # by the longest document, which can allocate tens of GiB on large corpora.
+    # An object array preserves the same strings without that fixed-width copy.
+    fit_documents = np.asarray(documents, dtype=object)
     try:
         topic_model.fit(
-            documents,
+            fit_documents,
             embedding_vectors=fit_embeddings,
             clusterable_vectors=fit_clusterable_vectors,
         )
