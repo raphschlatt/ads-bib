@@ -77,6 +77,7 @@ def _handle_run(args: argparse.Namespace) -> int:
                 start_stage=args.from_stage,
                 stop_stage=args.to_stage,
                 run_name=args.run_name,
+                hydrate=not args.dry_run,
             )
             if args.dry_run:
                 sys.stdout.write(format_variant_plan(plan) + "\n")

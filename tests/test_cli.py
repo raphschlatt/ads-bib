@@ -5,6 +5,7 @@ import sys
 import ads_bib.cli as cli
 import ads_bib.doctor as doctor
 import ads_bib.runner as runner
+import pandas as pd
 import pytest
 import yaml
 
@@ -122,6 +123,21 @@ def test_main_dispatches_run_with_preset(monkeypatch):
 def _write_base_variant_run(tmp_path):
     run_dir = tmp_path / "runs" / "run_20260101_010101_base"
     run_dir.mkdir(parents=True)
+    data_dir = run_dir / "data" / "dataset"
+    data_dir.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "full_text": "alpha beta",
+                "tokens": [["alpha", "beta"]],
+                "author_uids": [["u1"]],
+            }
+        ]
+    ).to_parquet(data_dir / "publications.parquet")
+    pd.DataFrame([{"Bibcode": "r1", "author_uids": [["u2"]]}]).to_parquet(
+        data_dir / "references.parquet"
+    )
     config = {
         "run": {"run_name": "base"},
         "search": {"query": "author:test", "ads_token": "token"},

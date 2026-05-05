@@ -4,6 +4,7 @@ import yaml
 import pandas as pd
 import pytest
 
+from ads_bib.run_stage_artifacts import save_frame_pair, save_search_artifact
 from ads_bib.run_variants import load_base_run_config, plan_run_variant
 
 
@@ -51,8 +52,59 @@ def _write_run(tmp_path, config: dict[str, object] | None = None):
     return run_dir
 
 
+def _write_dataset_artifacts(run_dir):
+    data_dir = run_dir / "data" / "dataset"
+    and_dir = run_dir / "data" / "and"
+    data_dir.mkdir(parents=True)
+    and_dir.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "full_text": "alpha beta",
+                "tokens": [["alpha", "beta"]],
+                "author_uids": [["u1"]],
+                "Title_en": "Alpha",
+                "Abstract_en": "Beta",
+            }
+        ]
+    ).to_parquet(data_dir / "publications.parquet")
+    pd.DataFrame([{"Bibcode": "r1", "author_uids": [["u2"]]}]).to_parquet(
+        data_dir / "references.parquet"
+    )
+    pd.DataFrame([{"author_uid": "u1"}]).to_parquet(and_dir / "author_entities.parquet")
+
+
+def _write_stage_artifacts(run_dir):
+    search_dir = run_dir / "data" / "search"
+    export_dir = run_dir / "data" / "export"
+    translated_dir = run_dir / "data" / "translated"
+    tokenized_dir = run_dir / "data" / "tokenized"
+    and_dir = run_dir / "data" / "and"
+    save_search_artifact(
+        search_dir,
+        bibcodes=["p1"],
+        references=[["r1"]],
+        esources=[["ADS_PDF"]],
+        fulltext_urls=["https://example.test/p1.pdf"],
+    )
+    exported = pd.DataFrame([{"Bibcode": "p1", "Title": "Alpha", "Abstract": "Beta"}])
+    exported_refs = pd.DataFrame([{"Bibcode": "r1", "Title": "Ref", "Abstract": "Gamma"}])
+    save_frame_pair(export_dir, publications=exported, refs=exported_refs)
+    translated = exported.assign(Title_en="Alpha", Abstract_en="Beta")
+    translated_refs = exported_refs.assign(Title_en="Ref", Abstract_en="Gamma")
+    save_frame_pair(translated_dir, publications=translated, refs=translated_refs)
+    tokenized = translated.assign(full_text="Alpha Beta", tokens=[["Alpha", "Beta"]])
+    tokenized_refs = translated_refs.copy()
+    save_frame_pair(tokenized_dir, publications=tokenized, refs=tokenized_refs)
+    disambiguated = tokenized.assign(author_uids=[[["u1"]]])
+    disambiguated_refs = tokenized_refs.assign(author_uids=[[["u2"]]])
+    save_frame_pair(and_dir, publications=disambiguated, refs=disambiguated_refs)
+
+
 def test_embedding_model_change_starts_at_embeddings(tmp_path):
     run_dir = _write_run(tmp_path)
+    _write_dataset_artifacts(run_dir)
 
     plan = plan_run_variant(
         from_run=run_dir,
@@ -63,10 +115,17 @@ def test_embedding_model_change_starts_at_embeddings(tmp_path):
     assert plan.reused_until == "author_disambiguation"
     assert plan.changed_keys == ("topic_model.embedding_model",)
     assert plan.config.author_disambiguation.dataset_id == "run_20260101_010101_base"
+    assert plan.initial_state is not None
+    assert plan.initial_state.publications is not None
+    assert plan.initial_state.publications["Bibcode"].tolist() == ["p1"]
+    assert plan.initial_state.refs is not None
+    assert plan.initial_state.refs["Bibcode"].tolist() == ["r1"]
+    assert plan.initial_state.author_entities is not None
 
 
 def test_reduction_params_change_starts_at_reduction(tmp_path):
     run_dir = _write_run(tmp_path)
+    _write_dataset_artifacts(run_dir)
 
     plan = plan_run_variant(
         from_run=run_dir,
@@ -74,10 +133,14 @@ def test_reduction_params_change_starts_at_reduction(tmp_path):
     )
 
     assert plan.effective_start_stage == "reduction"
+    assert plan.initial_state is not None
+    assert plan.initial_state.publications is not None
+    assert plan.initial_state.publications["Bibcode"].tolist() == ["p1"]
 
 
 def test_topic_backend_clusterer_and_labeler_changes_start_at_topic_fit(tmp_path):
     run_dir = _write_run(tmp_path)
+    _write_dataset_artifacts(run_dir)
 
     for override in (
         {"topic_model.backend": "toponymy"},
@@ -117,6 +180,7 @@ def test_citation_threshold_change_starts_at_citations_and_hydrates_base_artifac
 
 def test_translation_model_change_starts_at_translate(tmp_path):
     run_dir = _write_run(tmp_path)
+    _write_stage_artifacts(run_dir)
 
     plan = plan_run_variant(
         from_run=run_dir,
@@ -124,6 +188,57 @@ def test_translation_model_change_starts_at_translate(tmp_path):
     )
 
     assert plan.effective_start_stage == "translate"
+    assert plan.initial_state is not None
+    assert plan.initial_state.publications is not None
+    assert plan.initial_state.publications["Bibcode"].tolist() == ["p1"]
+    assert "Title_en" not in plan.initial_state.publications.columns
+
+
+def test_explicit_export_stage_hydrates_search_results(tmp_path):
+    run_dir = _write_run(tmp_path)
+    _write_stage_artifacts(run_dir)
+
+    plan = plan_run_variant(
+        from_run=run_dir,
+        start_stage="export",
+    )
+
+    assert plan.effective_start_stage == "export"
+    assert plan.initial_state is not None
+    assert plan.initial_state.bibcodes == ["p1"]
+    assert plan.initial_state.references == [["r1"]]
+
+
+def test_tokenize_change_hydrates_translated_artifacts(tmp_path):
+    run_dir = _write_run(tmp_path)
+    _write_stage_artifacts(run_dir)
+
+    plan = plan_run_variant(
+        from_run=run_dir,
+        overrides={"tokenize.batch_size": 1024},
+    )
+
+    assert plan.effective_start_stage == "tokenize"
+    assert plan.initial_state is not None
+    assert plan.initial_state.publications is not None
+    assert "Title_en" in plan.initial_state.publications.columns
+    assert "tokens" not in plan.initial_state.publications.columns
+
+
+def test_author_disambiguation_change_hydrates_tokenized_artifacts(tmp_path):
+    run_dir = _write_run(tmp_path)
+    _write_stage_artifacts(run_dir)
+
+    plan = plan_run_variant(
+        from_run=run_dir,
+        overrides={"author_disambiguation.force_refresh": True},
+    )
+
+    assert plan.effective_start_stage == "author_disambiguation"
+    assert plan.initial_state is not None
+    assert plan.initial_state.publications is not None
+    assert "tokens" in plan.initial_state.publications.columns
+    assert "author_uids" not in plan.initial_state.publications.columns
 
 
 def test_visualization_change_starts_at_visualize_and_hydrates_topic_dataframe(tmp_path):
@@ -148,6 +263,7 @@ def test_visualization_change_starts_at_visualize_and_hydrates_topic_dataframe(t
 
 def test_curation_change_reruns_from_topic_fit_in_v02(tmp_path):
     run_dir = _write_run(tmp_path)
+    _write_dataset_artifacts(run_dir)
 
     plan = plan_run_variant(
         from_run=run_dir,
@@ -160,6 +276,7 @@ def test_curation_change_reruns_from_topic_fit_in_v02(tmp_path):
 
 def test_explicit_from_overrides_automatic_planning(tmp_path):
     run_dir = _write_run(tmp_path)
+    _write_dataset_artifacts(run_dir)
 
     plan = plan_run_variant(
         from_run=run_dir,

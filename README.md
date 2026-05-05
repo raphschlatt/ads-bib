@@ -89,13 +89,19 @@ runs/<run_id>/
 ├── config_used.yaml
 ├── run_summary.yaml
 ├── data/
-│   ├── dataset/       # publications, references, topic_info, manifest
-│   ├── and/           # optional ads-and diagnostics
+│   ├── search/        # run-local ADS search result used for export variants
+│   ├── export/        # pre-translation publications and references
+│   ├── translated/    # translated publications and references
+│   ├── tokenized/     # tokenized publications and references
+│   ├── and/           # disambiguated frames plus optional ads-and diagnostics
+│   ├── dataset/       # final publications, references, topic_info, manifest
 │   └── citations/     # GEXF/CSV/JSON networks and WOS export
 ├── plots/topic_map.html
 └── logs/runtime.log
 ```
 
+- **`data/search|export|translated|tokenized|and/`** — run-local stage
+  boundaries used by `--from-run` variants
 - **`data/dataset/publications.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
 - **`data/dataset/references.parquet`** — normalized cited-reference metadata, with disambiguated authors when AND is enabled
 - **`data/dataset/topic_info.parquet`** — one row per topic with labels, counts, and representation fields

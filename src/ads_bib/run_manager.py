@@ -114,6 +114,10 @@ class RunArtifactLayout:
 
     root: Path
     data: Path
+    search: Path
+    export: Path
+    translated: Path
+    tokenized: Path
     dataset: Path
     and_dir: Path
     citations: Path
@@ -127,6 +131,10 @@ class RunArtifactLayout:
         return cls(
             root=root,
             data=data,
+            search=data / "search",
+            export=data / "export",
+            translated=data / "translated",
+            tokenized=data / "tokenized",
             dataset=data / "dataset",
             and_dir=data / "and",
             citations=data / "citations",
@@ -138,6 +146,10 @@ class RunArtifactLayout:
         return {
             "root": self.root,
             "data": self.data,
+            "search": self.search,
+            "export": self.export,
+            "translated": self.translated,
+            "tokenized": self.tokenized,
             "dataset": self.dataset,
             "and": self.and_dir,
             "citations": self.citations,
@@ -227,8 +239,9 @@ class RunManager:
         Parameters
         ----------
         asset_type : str
-            One of ``"data"``, ``"dataset"``, ``"and"``, ``"citations"``,
-            ``"plots"``, or ``"logs"``.
+            One of the run artifact keys, including ``"data"``, ``"search"``,
+            ``"export"``, ``"translated"``, ``"tokenized"``, ``"dataset"``,
+            ``"and"``, ``"citations"``, ``"plots"``, or ``"logs"``.
 
         Returns
         -------

@@ -68,8 +68,12 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── run_summary.yaml          # run metadata, counts, costs
 ├── logs/runtime.log
 ├── data/
-│   ├── dataset/              # publications, references, topic_info, manifest
-│   ├── and/                  # optional ads-and diagnostics
+│   ├── search/               # ADS search result for export variants
+│   ├── export/               # pre-translation frames
+│   ├── translated/           # translated frames
+│   ├── tokenized/            # tokenized frames
+│   ├── and/                  # disambiguated frames and diagnostics
+│   ├── dataset/              # final publications, references, topic_info, manifest
 │   └── citations/            # GEXF/CSV/JSON networks and WOS export
 └── plots/topic_map.html
 ```

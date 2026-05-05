@@ -19,6 +19,7 @@ from ads_bib._stage_state import (
 from ads_bib._utils.io import load_parquet
 from ads_bib.pipeline import PipelineConfig, PipelineInitialState
 from ads_bib.run_manager import ARTIFACT_LAYOUT_VERSION, RunArtifactLayout, _is_secret_key
+from ads_bib.run_stage_artifacts import load_frame_pair, load_search_artifact
 
 _CONFIG_USED = "config_used.yaml"
 _SUMMARY = "run_summary.yaml"
@@ -50,6 +51,7 @@ def plan_run_variant(
     stop_stage: StageName | str | None = None,
     run_name: str | None = None,
     project_root: Path | str | None = None,
+    hydrate: bool = True,
 ) -> RunVariantPlan:
     """Return an executable variant plan for a completed base run."""
     base_run_path = resolve_base_run_path(from_run, project_root=project_root)
@@ -79,9 +81,13 @@ def plan_run_variant(
 
     variant_run_name = run_name or f"{config.run.run_name}_variant"
     reused_until = _previous_stage(effective_start)
-    initial_state = hydrate_initial_state(
-        base_run_path=base_run_path,
-        start_stage=effective_start,
+    initial_state = (
+        hydrate_initial_state(
+            base_run_path=base_run_path,
+            start_stage=effective_start,
+        )
+        if hydrate
+        else None
     )
     variant = {
         "base_run_id": base_run_id,
@@ -150,11 +156,42 @@ def hydrate_initial_state(
     """Load practical downstream inputs from a base run when they are sufficient."""
     stage = validate_stage_name(start_stage)
     layout = RunArtifactLayout.from_run_dir(base_run_path)
+    if stage == "search":
+        return None
+    if stage == "export":
+        bibcodes, references, esources, fulltext_urls = load_search_artifact(layout.search)
+        return PipelineInitialState(
+            bibcodes=bibcodes,
+            references=references,
+            esources=esources,
+            fulltext_urls=fulltext_urls,
+        )
+    if stage == "translate":
+        publications, refs = _load_required_frame_pair(layout.export, stage=stage)
+        return PipelineInitialState(publications=publications, refs=refs)
+    if stage == "tokenize":
+        publications, refs = _load_required_frame_pair(layout.translated, stage=stage)
+        return PipelineInitialState(publications=publications, refs=refs)
+    if stage == "author_disambiguation":
+        publications, refs = _load_required_frame_pair(layout.tokenized, stage=stage)
+        return PipelineInitialState(publications=publications, refs=refs)
+    if stage in {"embeddings", "reduction", "topic_fit"}:
+        publications, refs = _load_post_and_frames(layout, stage=stage)
+        return PipelineInitialState(
+            publications=publications,
+            refs=refs,
+            author_entities=_load_optional_parquet(layout.and_dir / "author_entities.parquet"),
+        )
+    if stage == "topic_dataframe":
+        topic_df, refs = _load_base_dataset_pair(layout, stage=stage)
+        return PipelineInitialState(
+            publications=topic_df,
+            refs=refs,
+            topic_df=topic_df,
+            topic_info=_load_optional_parquet(layout.dataset / "topic_info.parquet"),
+        )
     if stage == "citations":
-        curated_df = _load_optional_parquet(layout.dataset / "publications.parquet")
-        refs = _load_optional_parquet(layout.dataset / "references.parquet")
-        if curated_df is None or refs is None:
-            return None
+        curated_df, refs = _load_base_dataset_pair(layout, stage=stage)
         return PipelineInitialState(
             publications=curated_df,
             refs=refs,
@@ -314,6 +351,37 @@ def _load_optional_parquet(path: Path) -> Any | None:
     if not path.exists():
         return None
     return load_parquet(path)
+
+
+def _load_required_frame_pair(directory: Path, *, stage: StageName) -> tuple[Any, Any]:
+    try:
+        return load_frame_pair(directory)
+    except FileNotFoundError as exc:
+        raise ValueError(
+            f"Base run cannot hydrate variant stage '{stage}' from {directory}. "
+            "Use a run that includes v0.2 stage artifacts for that stage."
+        ) from exc
+
+
+def _load_post_and_frames(layout: RunArtifactLayout, *, stage: StageName) -> tuple[Any, Any]:
+    try:
+        return load_frame_pair(layout.and_dir)
+    except FileNotFoundError:
+        return _load_base_dataset_pair(layout, stage=stage)
+
+
+def _load_base_dataset_pair(layout: RunArtifactLayout, *, stage: StageName) -> tuple[Any, Any]:
+    publications_path = layout.dataset / "publications.parquet"
+    references_path = layout.dataset / "references.parquet"
+    missing = [
+        str(path)
+        for path in (publications_path, references_path)
+        if not path.exists()
+    ]
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(f"Base run cannot hydrate variant stage '{stage}'; missing {joined}.")
+    return load_parquet(publications_path), load_parquet(references_path)
 
 
 def _unique_existing_run_dirs(candidates: list[Path]) -> list[Path]:

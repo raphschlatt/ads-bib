@@ -22,6 +22,10 @@ def test_run_manager_creates_expected_run_directories(tmp_path, caplog):
     assert run.runs_dir == tmp_path / "runs"
     assert run.paths["root"].exists()
     assert run.paths["data"].exists()
+    assert run.paths["search"].exists()
+    assert run.paths["export"].exists()
+    assert run.paths["translated"].exists()
+    assert run.paths["tokenized"].exists()
     assert run.paths["dataset"].exists()
     assert run.paths["and"].exists()
     assert run.paths["citations"].exists()
@@ -115,6 +119,10 @@ def test_run_manager_get_path_validates_asset_type(tmp_path):
     run = RunManager(run_name="path_test", project_root=tmp_path)
 
     assert run.get_path("data") == run.paths["data"]
+    assert run.get_path("search") == run.paths["search"]
+    assert run.get_path("export") == run.paths["export"]
+    assert run.get_path("translated") == run.paths["translated"]
+    assert run.get_path("tokenized") == run.paths["tokenized"]
     assert run.get_path("dataset") == run.paths["dataset"]
     assert run.get_path("and") == run.paths["and"]
     assert run.get_path("citations") == run.paths["citations"]

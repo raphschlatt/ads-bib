@@ -66,19 +66,23 @@ keys, reused stages, recomputed stages, effective start stage, and target run
 name without creating a folder.
 
 Runs use one project-wide cache under `data/cache/` and one self-contained
-output folder under `runs/<run_id>/`. `--from-run` reads the canonical v0.2
-artifact layout.
+output folder under `runs/<run_id>/`. `--from-run` takes the data basis from
+the selected run's stage artifacts first (`data/search/`, `data/export/`,
+`data/translated/`, `data/tokenized/`, `data/and/`, `data/dataset/`). The
+project cache may speed up exact embedding/reduction matches, but it does not
+choose the corpus.
 
 | Change | Recomputed From | What Is Reused |
 | --- | --- | --- |
+| explicit `--from export` | `export` | run-local ADS search result |
+| `translate.*` or `run.openrouter_cost_mode` | `translate` | exported publication/reference frames |
+| `tokenize.*` | `tokenize` | translated frames |
+| `author_disambiguation.*` | `author_disambiguation` | tokenized frames |
 | `topic_model.embedding_model`, `embedding_provider`, embedding batch/concurrency, `sample_size` | `embeddings` | search/export, translation, tokenization, optional AND |
 | `topic_model.params_5d` or `params_2d` | `reduction` | embeddings and all earlier data |
 | `topic_model.backend`, `cluster_params`, `toponymy_cluster_params`, `llm_model`, `llm_prompt`, labeler provider/path | `topic_fit` | embeddings and reductions |
 | `visualization.*` | `visualize` | topic dataframe from the base run |
 | `citations.*` | `citations` | curated publications, references, and AND author entities when present |
-| `translate.*` or `run.openrouter_cost_mode` | `translate` | search/export only; translated and tokenized snapshots must match metadata |
-| `tokenize.*` | `tokenize` | translated frames when their snapshot metadata matches |
-| `author_disambiguation.*` | `author_disambiguation` | tokenized frames; enabled AND validates its own cache metadata |
 | `curation.*` | `topic_fit` in this release | earlier corpus preparation and embeddings; this avoids curating an already curated public artifact |
 
 Each variant writes normal outputs plus a `variant` block in

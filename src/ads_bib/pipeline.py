@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
+from copy import deepcopy
 import hashlib
 import logging
 import os
@@ -71,6 +72,11 @@ from ads_bib.curate import (
 )
 from ads_bib.export import resolve_dataset
 from ads_bib.run_manager import RunManager
+from ads_bib.run_stage_artifacts import (
+    copy_reused_artifacts,
+    save_frame_pair,
+    save_search_artifact,
+)
 from ads_bib.search import search_ads
 from ads_bib.tokenize import ensure_spacy_model, tokenize_texts
 from ads_bib.topic_model import (
@@ -425,6 +431,10 @@ def _shape_repr(value: object) -> str:
 
 @dataclass
 class PipelineInitialState:
+    bibcodes: list[str] | None = None
+    references: list[list[str]] | None = None
+    esources: list[list[str]] | None = None
+    fulltext_urls: list[str | None] | None = None
     publications: pd.DataFrame | None = None
     refs: pd.DataFrame | None = None
     topic_info: pd.DataFrame | None = None
@@ -522,6 +532,10 @@ def _has_source_frames(ctx: PipelineContext) -> bool:
 def _apply_initial_state(ctx: PipelineContext, initial_state: PipelineInitialState | None) -> None:
     if initial_state is None:
         return
+    for field_name in ("bibcodes", "references", "esources", "fulltext_urls"):
+        value = getattr(initial_state, field_name)
+        if value is not None:
+            setattr(ctx, field_name, deepcopy(value))
     for field_name in (
         "publications",
         "refs",
@@ -533,6 +547,36 @@ def _apply_initial_state(ctx: PipelineContext, initial_state: PipelineInitialSta
         value = getattr(initial_state, field_name)
         if value is not None:
             setattr(ctx, field_name, value.copy())
+
+
+def _copy_variant_reused_artifacts(ctx: PipelineContext) -> None:
+    variant = ctx.variant or {}
+    base_run_path = variant.get("base_run_path")
+    reused_until = variant.get("reused_until")
+    if not base_run_path or reused_until is None:
+        return
+    copy_reused_artifacts(
+        base_run_path=Path(str(base_run_path)),
+        target_run_path=ctx.run.paths["root"],
+        reused_until=str(reused_until),
+    )
+
+
+def _persist_variant_stage_anchor(ctx: PipelineContext) -> None:
+    """Persist hydrated run-local inputs when an older base lacks stage artifacts."""
+    variant = ctx.variant or {}
+    reused_until = variant.get("reused_until")
+    if reused_until not in {"author_disambiguation", "embeddings", "reduction", "topic_fit"}:
+        return
+    if ctx.publications is None or ctx.refs is None:
+        return
+    if "tokens" not in ctx.publications.columns or not _has_author_uid_frames(ctx):
+        return
+    save_frame_pair(
+        ctx.run.paths["and"],
+        publications=ctx.publications,
+        refs=ctx.refs,
+    )
 
 
 def _has_translated_frames(ctx: PipelineContext) -> bool:
@@ -1062,17 +1106,23 @@ def run_search_stage(ctx: PipelineContext) -> PipelineContext:
             raw_dir=ctx.paths["raw"],
             force_refresh=cfg.refresh_search,
         )
-        return ctx
-
-    with reporter.progress(total=None, desc="fetch") as pbar:
-        progress_callback = None if pbar is None else pbar.update
-        ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
-            cfg.query,
-            cfg.ads_token,
-            raw_dir=ctx.paths["raw"],
-            force_refresh=cfg.refresh_search,
-            progress_callback=progress_callback,
-        )
+    else:
+        with reporter.progress(total=None, desc="fetch") as pbar:
+            progress_callback = None if pbar is None else pbar.update
+            ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
+                cfg.query,
+                cfg.ads_token,
+                raw_dir=ctx.paths["raw"],
+                force_refresh=cfg.refresh_search,
+                progress_callback=progress_callback,
+            )
+    save_search_artifact(
+        ctx.run.paths["search"],
+        bibcodes=ctx.bibcodes,
+        references=ctx.references,
+        esources=ctx.esources,
+        fulltext_urls=ctx.fulltext_urls,
+    )
     return ctx
 
 
@@ -1104,21 +1154,25 @@ def run_export_stage(ctx: PipelineContext) -> PipelineContext:
             cache_dir=ctx.paths["raw"],
             force_refresh=cfg.refresh_export,
         )
-        return ctx
-
-    with reporter.progress(total=len(ctx.bibcodes) + len(flat_refs), desc="export") as pbar:
-        progress_callback = None if pbar is None else pbar.update
-        ctx.publications, ctx.refs = resolve_dataset(
-            ctx.bibcodes,
-            ctx.references,
-            ctx.esources,
-            ctx.fulltext_urls,
-            cfg.ads_token or "",
-            cache_dir=ctx.paths["raw"],
-            force_refresh=cfg.refresh_export,
-            show_progress=False,
-            progress_callback=progress_callback,
-        )
+    else:
+        with reporter.progress(total=len(ctx.bibcodes) + len(flat_refs), desc="export") as pbar:
+            progress_callback = None if pbar is None else pbar.update
+            ctx.publications, ctx.refs = resolve_dataset(
+                ctx.bibcodes,
+                ctx.references,
+                ctx.esources,
+                ctx.fulltext_urls,
+                cfg.ads_token or "",
+                cache_dir=ctx.paths["raw"],
+                force_refresh=cfg.refresh_export,
+                show_progress=False,
+                progress_callback=progress_callback,
+            )
+    save_frame_pair(
+        ctx.run.paths["export"],
+        publications=ctx.publications,
+        refs=ctx.refs,
+    )
     return ctx
 
 
@@ -1155,6 +1209,11 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.refs,
             cache_dir=ctx.paths["cache"],
             metadata=_translation_snapshot_metadata(ctx),
+        )
+        save_frame_pair(
+            ctx.run.paths["translated"],
+            publications=ctx.publications,
+            refs=ctx.refs,
         )
         _advance_resume_block(ctx, "translate")
         return ctx
@@ -1278,6 +1337,11 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         cache_dir=ctx.paths["cache"],
         metadata=_translation_snapshot_metadata(ctx),
     )
+    save_frame_pair(
+        ctx.run.paths["translated"],
+        publications=ctx.publications,
+        refs=ctx.refs,
+    )
     _advance_resume_block(ctx, "translate")
     return ctx
 
@@ -1315,6 +1379,11 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.refs,
             cache_dir=ctx.paths["cache"],
             metadata=_tokenized_snapshot_metadata(ctx),
+        )
+        save_frame_pair(
+            ctx.run.paths["tokenized"],
+            publications=ctx.publications,
+            refs=ctx.refs,
         )
         _advance_resume_block(ctx, "tokenize")
         return ctx
@@ -1360,6 +1429,11 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.refs,
         cache_dir=ctx.paths["cache"],
         metadata=_tokenized_snapshot_metadata(ctx),
+    )
+    save_frame_pair(
+        ctx.run.paths["tokenized"],
+        publications=ctx.publications,
+        refs=ctx.refs,
     )
     _ensure_run_references_artifact(
         refs=ctx.refs,
@@ -1473,6 +1547,11 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.refs,
             cache_dir=ctx.paths["cache"],
         )
+    save_frame_pair(
+        ctx.run.paths["and"],
+        publications=ctx.publications,
+        refs=ctx.refs,
+    )
     _ensure_run_references_artifact(
         refs=ctx.refs,
         run_data_dir=ctx.run.paths["dataset"],
@@ -2102,6 +2181,8 @@ def run_pipeline(
     )
     ctx.variant = dict(variant) if variant is not None else None
     _apply_initial_state(ctx, initial_state)
+    _copy_variant_reused_artifacts(ctx)
+    _persist_variant_stage_anchor(ctx)
     ctx.run.save_config(prepared_config)
     reporter = getattr(ctx, "reporter", None)
     if reporter is not None:

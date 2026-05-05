@@ -103,7 +103,9 @@ print(result.curated_df.head())
 
 `ads_bib.run` creates shared project data directories and `runs/` under
 `project_root`, writes `config_used.yaml` and `run_summary.yaml`, and persists
-run artifacts under `runs/<run_id>/data/{dataset,and,citations}/`.
+run artifacts under `runs/<run_id>/data/`, including stage restart points
+(`search`, `export`, `translated`, `tokenized`, `and`) and final outputs
+(`dataset`, `citations`).
 
 ## `ads_bib.run`
 

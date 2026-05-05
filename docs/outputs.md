@@ -13,13 +13,26 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── logs/
 │   └── runtime.log
 ├── data/
+│   ├── search/
+│   │   └── search_results.json
+│   ├── export/
+│   │   ├── publications.parquet
+│   │   └── references.parquet
+│   ├── translated/
+│   │   ├── publications.parquet
+│   │   └── references.parquet
+│   ├── tokenized/
+│   │   ├── publications.parquet
+│   │   └── references.parquet
+│   ├── and/
+│   │   ├── publications.parquet
+│   │   ├── references.parquet
+│   │   └── author_entities.parquet
 │   ├── dataset/
 │   │   ├── publications.parquet
 │   │   ├── references.parquet
 │   │   ├── topic_info.parquet
 │   │   └── dataset_manifest.json
-│   ├── and/
-│   │   └── author_entities.parquet
 │   └── citations/
 │       ├── direct.gexf
 │       ├── co_citation.gexf
@@ -32,6 +45,9 @@ runs/run_20260407_120000_ads_bib_openrouter/
 
 `data/cache/` lives outside the run folder and is shared by later runs and
 variants. Files inside `runs/<run_id>/` are the artifacts for that exact run.
+The stage directories (`search`, `export`, `translated`, `tokenized`, `and`)
+are run-local restart points; `--from-run` uses them before consulting any
+project-wide cache.
 
 The public Parquet bundle is prepared for downstream analysis when it is
 written: duplicate `Bibcode` rows are reduced deterministically, publication
