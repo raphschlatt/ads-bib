@@ -77,6 +77,7 @@ def test_topic_backend_clusterer_and_labeler_changes_start_at_topic_fit(tmp_path
         {"topic_model.backend": "toponymy"},
         {"topic_model.cluster_params.min_cluster_size": 40},
         {"topic_model.llm_model": "openai/gpt-4.1-mini"},
+        {"topic_model.toponymy_embedding_batch_size": 128},
     ):
         plan = plan_run_variant(from_run=run_dir, overrides=override)
         assert plan.effective_start_stage == "topic_fit"

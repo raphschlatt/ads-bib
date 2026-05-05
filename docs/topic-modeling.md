@@ -93,6 +93,11 @@ ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
 This keeps search/export, translation, tokenization, and optional AND outputs,
 then recomputes embeddings and later topic artifacts.
 
+When using the OpenRouter preset with Toponymy, `toponymy_embedding_model` is
+set separately to `qwen/qwen3-embedding-8b`. That keeps Toponymy's short
+keyphrase/name embeddings fast even when the main document embedding model is
+swapped for a larger model.
+
 !!! warning "Common failure patterns (embeddings)"
     - **Cache miss you did not expect** (the corpus re-embeds in full) → check
       whether `embedding_model` or the input text changed; the cache key is a
@@ -155,7 +160,9 @@ formula `max(15, n_docs * 0.001)` kicks in. Override via
 Toponymy currently uses Fast-HDBSCAN internals through the 0.2.x call
 signature, so the package pins `fast-hdbscan>=0.2.2,<0.3`. This is separate
 from `toponymy_max_workers`, which controls concurrent remote labeling and
-embedding calls rather than clustering threads.
+embedding calls rather than clustering threads. For API-based Toponymy-internal
+embeddings, `toponymy_embedding_batch_size` controls how many keyphrases or
+topic names are sent per embedding request.
 
 !!! warning "Common failure patterns (clustering)"
     - **Too few topics** (2–3) with a large outlier set → lower `min_cluster_size`.

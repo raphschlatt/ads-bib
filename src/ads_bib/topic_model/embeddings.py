@@ -34,6 +34,7 @@ from ads_bib._utils.openrouter_costs import (
     normalize_openrouter_cost_mode,
     resolve_openrouter_costs,
 )
+from ads_bib._utils.openrouter_client import should_retry_openrouter_error
 from ads_bib.config import validate_provider
 from ads_bib.topic_model._runtime import EMBEDDING_PROVIDER_IMPORTS, EMBEDDING_PROVIDERS
 
@@ -579,7 +580,7 @@ class OpenRouterEmbedder:
         *,
         api_key: str | None,
         model: str,
-        batch_size: int = 64,
+        batch_size: int = 96,
         max_workers: int = 5,
         dtype: Any = np.float32,
         api_base: str | None = None,
@@ -704,6 +705,7 @@ class OpenRouterEmbedder:
                     delay=2.0,
                     backoff="exponential",
                     on_retry=_on_retry,
+                    retry_if=should_retry_openrouter_error,
                 )
             except Exception as exc:
                 logger.warning(

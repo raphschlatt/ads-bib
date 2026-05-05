@@ -1591,6 +1591,7 @@ def _build_toponymy_models(
     api_key: str | None,
     openrouter_api_base: str,
     llm_specific_instructions: str | None,
+    embedding_batch_size: int,
     max_workers: int,
     local_llm_max_new_tokens: int,
     cost_tracker: "CostTracker | None",
@@ -1715,12 +1716,14 @@ def _build_toponymy_models(
             api_key=api_key,
             model=embedding_model,
             api_base=openrouter_api_base,
+            batch_size=embedding_batch_size,
             max_workers=max_workers,
         )
     elif embedding_provider_norm == "huggingface_api":
         text_embedding_model = HuggingFaceAPIEmbedder(
             api_key=api_key,
             model=embedding_model,
+            batch_size=embedding_batch_size,
             max_workers=max_workers,
         )
     else:
@@ -2091,6 +2094,7 @@ def fit_toponymy(
     api_key: str | None = None,
     openrouter_api_base: str = DEFAULT_OPENROUTER_API_BASE,
     openrouter_cost_mode: str = "hybrid",
+    embedding_batch_size: int = 96,
     max_workers: int = 5,
     local_llm_max_new_tokens: int = DEFAULT_TOPONYMY_LOCAL_LLM_MAX_NEW_TOKENS,
     clusterer_params: dict | None = None,
@@ -2129,6 +2133,8 @@ def fit_toponymy(
         Max generated tokens per local Toponymy naming call.
     embedding_model : str
         Text embedding model for Toponymy internals.
+    embedding_batch_size : int
+        Batch size for API-based Toponymy-internal embedding calls.
     api_key : str, optional
         Provider key where required.
     clusterer_params : dict, optional
@@ -2169,6 +2175,7 @@ def fit_toponymy(
 
     openrouter_cost_mode = normalize_openrouter_cost_mode(openrouter_cost_mode)
     openrouter_api_base = normalize_openrouter_api_base(openrouter_api_base)
+    embedding_batch_size = max(1, int(embedding_batch_size))
     max_workers = max(1, int(max_workers))
     clusterer_params = dict(clusterer_params or {})
 
@@ -2186,6 +2193,7 @@ def fit_toponymy(
         api_key=api_key,
         openrouter_api_base=openrouter_api_base,
         llm_specific_instructions=llm_prompt,
+        embedding_batch_size=embedding_batch_size,
         max_workers=max_workers,
         local_llm_max_new_tokens=local_llm_max_new_tokens,
         cost_tracker=cost_tracker,

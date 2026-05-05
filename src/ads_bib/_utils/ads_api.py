@@ -21,6 +21,7 @@ def retry_call(
     delay: float = 1.0,
     backoff: Literal["linear", "exponential"] = "linear",
     on_retry: Callable[[int, int, float, Exception], None] | None = None,
+    retry_if: Callable[[Exception], bool] | None = None,
 ) -> T:
     """Execute *func* with retries and configurable backoff.
 
@@ -37,12 +38,16 @@ def retry_call(
     on_retry : callable, optional
         Callback called as ``on_retry(retry_index, max_retries, wait, exc)``
         where ``retry_index`` starts at ``1``.
+    retry_if : callable, optional
+        Predicate deciding whether an exception is retryable.
     """
     retries = max(0, int(max_retries))
     for attempt in range(retries + 1):
         try:
             return func()
         except Exception as exc:
+            if retry_if is not None and not retry_if(exc):
+                raise
             if attempt >= retries:
                 raise
             if backoff == "exponential":

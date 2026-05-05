@@ -301,7 +301,7 @@ compute_embeddings(
     provider: str,           # "local" | "huggingface_api" | "openrouter"
     model: str,
     cache_dir: Path | None = None,
-    batch_size: int = 64,
+    batch_size: int = 96,
     max_workers: int = 5,
     api_key: str | None = None,
     openrouter_cost_mode: str = "hybrid",

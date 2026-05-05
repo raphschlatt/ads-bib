@@ -72,7 +72,8 @@ Smallest local footprint. Good default for the first remote run.
 - **Hardware**: any machine that can run the Python package
 - **Defaults**:
     - translation: remote OpenRouter chat model
-    - embeddings: remote OpenRouter embedding model
+    - document embeddings: remote OpenRouter embedding model
+    - Toponymy-internal embeddings: Qwen3 through OpenRouter
     - labeling: remote OpenRouter LLM
     - backend: `toponymy`
 - **Not used**: no local model downloads, no `llama-server`

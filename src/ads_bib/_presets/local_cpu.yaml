@@ -104,6 +104,7 @@ topic_model:
     - POS
     - KeyBERT
   toponymy_embedding_model: null
+  toponymy_embedding_batch_size: 96
   toponymy_max_workers: 10
   min_df: 3
   outlier_threshold: 0.5

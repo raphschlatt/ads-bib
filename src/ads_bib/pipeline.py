@@ -37,6 +37,7 @@ from ads_bib._utils.model_specs import ModelSpec
 from ads_bib._utils.checkpoints import (
     load_disambiguated_snapshot,
     load_tokenized_snapshot,
+    load_tokenized_snapshot_metadata,
     load_translated_snapshot,
     save_disambiguated_snapshot,
     save_tokenized_snapshot,
@@ -49,7 +50,10 @@ from ads_bib._utils.logging import (
     capture_external_output,
     configure_runtime_logging,
 )
-from ads_bib.author_disambiguation import apply_author_disambiguation
+from ads_bib.author_disambiguation import (
+    _source_frame_fingerprint as _and_source_frame_fingerprint,
+    apply_author_disambiguation,
+)
 from ads_bib.citations import (
     build_all_nodes,
     build_citation_inputs_from_publications,
@@ -182,7 +186,7 @@ class TopicModelConfig:
     embedding_provider: str = "openrouter"
     embedding_model: str = "google/gemini-embedding-001"
     embedding_api_key: str | None = field(default=None, repr=False)
-    embedding_batch_size: int = 64
+    embedding_batch_size: int = 96
     embedding_max_workers: int = 20
     reduction_method: str = "pacmap"
     params_5d: dict[str, Any] = field(default_factory=dict)
@@ -205,6 +209,7 @@ class TopicModelConfig:
     pipeline_models: list[str] = field(default_factory=lambda: ["POS", "KeyBERT", "MMR"])
     parallel_models: list[str] = field(default_factory=lambda: ["MMR", "POS", "KeyBERT"])
     toponymy_embedding_model: str | None = None
+    toponymy_embedding_batch_size: int = 96
     toponymy_max_workers: int = 10
     min_df: int | None = None
     outlier_threshold: float = 0.5
@@ -621,7 +626,31 @@ def _tokenized_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
             "publications": _frame_fingerprint(ctx.publications, source_columns),
             "references": _frame_fingerprint(ctx.refs, source_columns),
         },
+        "and_source": _and_source_fingerprints(ctx),
     }
+
+
+def _and_source_fingerprints(ctx: PipelineContext) -> dict[str, str] | None:
+    if ctx.publications is None or ctx.refs is None:
+        return None
+    return {
+        "publications": _and_source_frame_fingerprint(ctx.publications),
+        "references": _and_source_frame_fingerprint(ctx.refs),
+    }
+
+
+def _cached_and_source_fingerprints(ctx: PipelineContext) -> dict[str, str] | None:
+    metadata = load_tokenized_snapshot_metadata(cache_dir=ctx.paths["cache"])
+    if not isinstance(metadata, dict):
+        return None
+    fingerprints = metadata.get("and_source")
+    if not isinstance(fingerprints, dict):
+        return None
+    publications = fingerprints.get("publications")
+    references = fingerprints.get("references")
+    if not isinstance(publications, str) or not isinstance(references, str):
+        return None
+    return {"publications": publications, "references": references}
 
 
 def _variant_recomputes(ctx: PipelineContext, stage: StageName) -> bool:
@@ -1387,6 +1416,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
 
     assert ctx.publications is not None
     assert ctx.refs is not None
+    source_fingerprints = _cached_and_source_fingerprints(ctx)
     if cfg.enabled:
         reporter = ctx.reporter
         if reporter is None:
@@ -1402,6 +1432,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
                 run_data_dir=ctx.run.paths["data"],
                 force_refresh=cfg.force_refresh,
                 infer_stage=cfg.infer_stage,
+                source_fingerprints=source_fingerprints,
             )
         else:
             progress_total = 1 if cfg.backend == "modal" else 8
@@ -1423,6 +1454,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
                     run_data_dir=ctx.run.paths["data"],
                     force_refresh=cfg.force_refresh,
                     infer_stage=cfg.infer_stage,
+                    source_fingerprints=source_fingerprints,
                     progress=cfg.backend != "modal",
                     progress_handler=progress_handler,
                 )
@@ -1665,6 +1697,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                     local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
                     api_key=toponymy_api_key,
                     openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+                    embedding_batch_size=cfg.toponymy_embedding_batch_size,
                     max_workers=cfg.toponymy_max_workers,
                     clusterer_params=clusterer_params,
                     cost_tracker=ctx.tracker,
@@ -1691,6 +1724,7 @@ def run_topic_fit_stage(ctx: PipelineContext) -> PipelineContext:
                         local_llm_max_new_tokens=cfg.toponymy_local_label_max_tokens,
                         api_key=toponymy_api_key,
                         openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
+                        embedding_batch_size=cfg.toponymy_embedding_batch_size,
                         max_workers=cfg.toponymy_max_workers,
                         clusterer_params=clusterer_params,
                         cost_tracker=ctx.tracker,

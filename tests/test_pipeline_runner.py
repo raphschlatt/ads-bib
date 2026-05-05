@@ -48,6 +48,38 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert "keybert_model" not in data["topic_model"]
 
 
+def test_tokenized_snapshot_metadata_includes_and_source_fingerprints(tmp_path):
+    config = pipeline.PipelineConfig.from_dict({"run": {"project_root": str(tmp_path)}})
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Author": ["A"],
+                "Year": 2000,
+                "Title_en": "Title",
+                "Abstract_en": "Abstract",
+            }
+        ]
+    )
+    ctx.refs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "r1",
+                "Author": ["B"],
+                "Year": 1999,
+                "Title_en": "Ref",
+                "Abstract_en": "Ref abstract",
+            }
+        ]
+    )
+
+    metadata = pipeline._tokenized_snapshot_metadata(ctx)
+
+    assert metadata["and_source"]["publications"]
+    assert metadata["and_source"]["references"]
+
+
 @pytest.mark.parametrize(
     ("section", "message"),
     [
@@ -92,11 +124,14 @@ def test_openrouter_package_preset_loads():
     assert data["llama_server"]["command"] == "llama-server"
     assert data["llama_server"]["reasoning"] == "off"
     assert data["topic_model"]["embedding_model"] == "qwen/qwen3-embedding-8b"
+    assert data["topic_model"]["embedding_batch_size"] == 96
     assert data["topic_model"]["llm_model"] == "google/gemini-3-flash-preview"
     assert data["topic_model"]["llm_model_repo"] is None
     assert data["topic_model"]["llm_model_file"] is None
     assert data["topic_model"]["llm_model_path"] is None
     assert data["topic_model"]["toponymy_layer_index"] == "auto"
+    assert data["topic_model"]["toponymy_embedding_model"] == "qwen/qwen3-embedding-8b"
+    assert data["topic_model"]["toponymy_embedding_batch_size"] == 96
     assert data["topic_model"]["toponymy_local_label_max_tokens"] == 128
     assert data["visualization"]["font_family"] == "Cinzel"
     assert data["visualization"]["title"] == "ADS Topic Map"

@@ -72,6 +72,17 @@ def _assert_snapshot_metadata(
         raise FileNotFoundError(f"Snapshot metadata mismatch for {path}")
 
 
+def load_tokenized_snapshot_metadata(*, cache_dir: Path | str) -> dict[str, Any] | None:
+    """Return tokenized snapshot metadata when available."""
+    path = Path(cache_dir) / _TOKENIZED_METADATA
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def save_translated_snapshot(
     publications: pd.DataFrame,
     references: pd.DataFrame,

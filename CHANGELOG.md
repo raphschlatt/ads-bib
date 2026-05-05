@@ -12,6 +12,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Changed
 - Final dataset bundle exports now clean publication/reference keys, prune dangling reference IDs, and remove placeholder or duplicate author UIDs before writing public Parquet outputs and the dataset manifest.
 - Translated and tokenized snapshots now carry metadata fingerprints so changed-config variants do not reuse stale source/config combinations, and enabled AND runs let `ads-and` validate its own cache metadata instead of loading disambiguated snapshots directly.
+- OpenRouter embedding defaults now use larger documented batch sizes, the OpenRouter preset pins Toponymy-internal embeddings to Qwen3, and OpenRouter retries now fail fast on non-retryable request/auth/payment errors.
+- Tokenized snapshot metadata now stores AND source fingerprints so validated AND cache hits can avoid recomputing expensive frame fingerprints on future runs.
 
 ## [0.1.1] - 2026-04-30
 

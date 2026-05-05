@@ -235,6 +235,7 @@ _INVALIDATION_RULES: dict[StageName, _InvalidationRule] = {
             ("topic_model", "pipeline_models"),
             ("topic_model", "parallel_models"),
             ("topic_model", "toponymy_embedding_model"),
+            ("topic_model", "toponymy_embedding_batch_size"),
             ("topic_model", "toponymy_max_workers"),
             ("topic_model", "min_df"),
             ("topic_model", "outlier_threshold"),

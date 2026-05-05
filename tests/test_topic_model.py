@@ -823,7 +823,8 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
 
     class _FakeOpenRouterEmbedder:
         def __init__(self, *, api_key, model, batch_size=64, max_workers=5, dtype=np.float32, api_base=None):
-            del api_key, model, batch_size, dtype, api_base
+            del api_key, model, dtype, api_base
+            calls["embedder_batch_size"] = batch_size
             calls["embedder_workers"] = max_workers
             self.max_workers = max_workers
             self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
@@ -851,11 +852,13 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
         embedding_provider="openrouter",
         embedding_model="google/gemini-embedding-001",
         api_key="key",
+        embedding_batch_size=123,
         max_workers=9,
     )
 
     assert calls["namer_workers"] == 9
     assert calls["embedder_workers"] == 9
+    assert calls["embedder_batch_size"] == 123
 
 
 def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeypatch):
@@ -1147,10 +1150,11 @@ def test_fit_toponymy_supports_huggingface_api(monkeypatch):
         return object(), {"prompt_tokens": 12, "completion_tokens": 4, "call_records": []}
 
     class _FakeHFEmbedder:
-        def __init__(self, *, api_key, model, max_workers):
+        def __init__(self, *, api_key, model, batch_size=96, max_workers):
             calls["embedder_init"] = {
                 "api_key": api_key,
                 "model": model,
+                "batch_size": batch_size,
                 "max_workers": max_workers,
             }
             self.usage = {"prompt_tokens": 3, "total_tokens": 3}
@@ -1561,12 +1565,14 @@ def test_openrouter_embedder_retries_when_data_is_none(monkeypatch):
             "data": [{"embedding": [1.0, 2.0]} for _ in input],
         }
 
-    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
+    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None, retry_if=None):
         del delay, backoff
         for attempt in range(max_retries + 1):
             try:
                 return func()
             except Exception as exc:
+                if retry_if is not None and not retry_if(exc):
+                    raise
                 if attempt >= max_retries:
                     raise
                 if on_retry is not None:
@@ -1673,12 +1679,14 @@ def test_openrouter_embedder_resumes_from_partial_checkpoint(monkeypatch, tmp_pa
             "data": [{"embedding": [float(int(text.split('_')[1]))]} for text in input],
         }
 
-    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
+    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None, retry_if=None):
         del delay, backoff
         for attempt in range(max_retries + 1):
             try:
                 return func()
             except Exception as exc:
+                if retry_if is not None and not retry_if(exc):
+                    raise
                 if attempt >= max_retries:
                     raise
                 if on_retry is not None:

@@ -216,7 +216,7 @@ CPU is useful for small checks; use local GPU or Modal for larger corpora.
 | `embedding_provider` | string | varies | `local`, `openrouter`, or `huggingface_api` |
 | `embedding_model` | string | varies | Model identifier (HF name or OpenRouter name) |
 | `embedding_api_key` | string \| null | `null` | API key override for embedding provider |
-| `embedding_batch_size` | int | `64` | Documents per embedding batch |
+| `embedding_batch_size` | int | `96` | Documents per embedding batch |
 | `embedding_max_workers` | int | `20` | Concurrent embedding requests |
 
 ### Dimensionality Reduction
@@ -278,10 +278,14 @@ cluster_params:
 | `toponymy_layer_index` | string \| int | `"auto"` | Working-layer selector; `auto` picks the coarsest layer |
 | `toponymy_local_label_max_tokens` | int | `128` | Max tokens for local Toponymy labels |
 | `toponymy_embedding_model` | string \| null | `null` | Toponymy-internal embedding model; falls back to main embedding model |
+| `toponymy_embedding_batch_size` | int | `96` | Batch size for API-based Toponymy-internal embedding calls |
 | `toponymy_max_workers` | int | `10` | Concurrent labeling/embedding requests |
 
 Toponymy is validated with `toponymy==0.4.0` and `fast-hdbscan>=0.2.2,<0.3`.
-The `toponymy_max_workers` setting controls concurrent labeling and embedding
+The OpenRouter preset pins `toponymy_embedding_model` to `qwen/qwen3-embedding-8b`
+so swapping the main document embedding model does not accidentally make
+Toponymy keyphrase/name embeddings slower or more expensive. The
+`toponymy_max_workers` setting controls concurrent labeling and embedding
 requests; it does not change the internal HDBSCAN/Boruvka thread count.
 
 ## Visualization

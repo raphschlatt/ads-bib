@@ -289,6 +289,7 @@ def _build_cache_metadata(
     *,
     publications: pd.DataFrame,
     references: pd.DataFrame,
+    source_fingerprints: dict[str, str] | None = None,
     backend: str,
     runtime: str,
     modal_gpu: str | None,
@@ -296,6 +297,9 @@ def _build_cache_metadata(
     dataset_id: str,
     infer_stage: str,
 ) -> dict[str, Any]:
+    source_fingerprints = source_fingerprints or {}
+    publications_fingerprint = source_fingerprints.get("publications") or _source_frame_fingerprint(publications)
+    references_fingerprint = source_fingerprints.get("references") or _source_frame_fingerprint(references)
     return {
         "schema_version": 1,
         "source": "ads-and",
@@ -305,8 +309,8 @@ def _build_cache_metadata(
         "model_bundle": None if model_bundle is None else str(model_bundle),
         "dataset_id": dataset_id,
         "infer_stage": infer_stage,
-        "publications_fingerprint": _source_frame_fingerprint(publications),
-        "references_fingerprint": _source_frame_fingerprint(references),
+        "publications_fingerprint": publications_fingerprint,
+        "references_fingerprint": references_fingerprint,
     }
 
 
@@ -405,6 +409,7 @@ def apply_author_disambiguation(
     force_refresh: bool = False,
     run_data_dir: Path | str | None = None,
     infer_stage: str = "full",
+    source_fingerprints: dict[str, str] | None = None,
     progress: bool = True,
     progress_handler: Callable[[Any], None] | None = None,
     and_runner: SourceAndRunner | None = None,
@@ -428,6 +433,7 @@ def apply_author_disambiguation(
     expected_cache_metadata = _build_cache_metadata(
         publications=publications,
         references=references,
+        source_fingerprints=source_fingerprints,
         backend=backend,
         runtime=runtime,
         modal_gpu=modal_gpu,
