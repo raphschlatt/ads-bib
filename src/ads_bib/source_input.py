@@ -60,6 +60,20 @@ _COMMON_REFERENCE_COLUMNS = (
     "Last Page",
     "source",
 )
+_OPTIONAL_COLUMN_DEFAULTS: dict[str, Any] = {
+    "Journal": "",
+    "Journal Abbreviation": "",
+    "Citation Count": 0,
+    "DOI": "",
+    "Affiliation": [],
+    "Keywords": [],
+    "Category": [],
+    "Volume": "",
+    "Issue": "",
+    "First Page": "",
+    "Last Page": "",
+    "source": "",
+}
 
 
 def load_source_input_frames(
@@ -88,9 +102,13 @@ def normalize_source_input_frames(
     _require_columns(refs, REFERENCE_REQUIRED_COLUMNS, frame_name="references")
     if "Abstract" not in refs.columns:
         refs["Abstract"] = ""
+    pubs = _ensure_common_columns(pubs, _COMMON_PUBLICATION_COLUMNS)
+    refs = _ensure_common_columns(refs, _COMMON_REFERENCE_COLUMNS)
 
     pubs = _normalize_bibcodes(pubs, frame_name="publications")
     refs = _normalize_bibcodes(refs, frame_name="references")
+    pubs = _normalize_text_columns(pubs)
+    refs = _normalize_text_columns(refs)
     pubs = _coerce_list_columns(pubs)
     refs = _coerce_list_columns(refs)
 
@@ -127,6 +145,21 @@ def _normalize_frame(
     return out.loc[:, keep].copy()
 
 
+def _ensure_common_columns(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
+    out = frame.copy()
+    for column in columns:
+        if column in out.columns:
+            continue
+        if column not in _OPTIONAL_COLUMN_DEFAULTS:
+            continue
+        default = _OPTIONAL_COLUMN_DEFAULTS[column]
+        if isinstance(default, list):
+            out[column] = [[] for _ in range(len(out))]
+        else:
+            out[column] = default
+    return out.loc[:, [column for column in columns if column in out.columns]].copy()
+
+
 def _require_columns(frame: pd.DataFrame, required: frozenset[str], *, frame_name: str) -> None:
     missing = sorted(required.difference(frame.columns))
     if missing:
@@ -152,6 +185,18 @@ def _coerce_list_columns(frame: pd.DataFrame) -> pd.DataFrame:
     for column in sorted(_LIST_COLUMNS.intersection(out.columns)):
         out[column] = out[column].map(_coerce_list)
     return out
+
+
+def _normalize_text_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    for column in ("Title", "Abstract"):
+        if column in out.columns:
+            out[column] = out[column].map(_normalize_one_line_text)
+    return out
+
+
+def _normalize_one_line_text(value: Any) -> str:
+    return " ".join(_normalize_string(value).split())
 
 
 def _coerce_list(value: Any) -> list[str]:

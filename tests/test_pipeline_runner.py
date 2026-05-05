@@ -111,6 +111,53 @@ def test_tokenized_snapshot_metadata_includes_and_source_fingerprints(tmp_path):
     assert metadata["and_source"]["references"]
 
 
+def test_snapshot_metadata_fingerprints_pass_through_bibliographic_columns(tmp_path):
+    config = pipeline.PipelineConfig.from_dict({"run": {"project_root": str(tmp_path)}})
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Author": ["A"],
+                "Year": 2000,
+                "Title": "Title",
+                "Abstract": "Abstract",
+                "Title_en": "Title",
+                "Abstract_en": "Abstract",
+                "DOI": "10.1/old",
+                "Journal": "Old Journal",
+                "References": ["r1"],
+            }
+        ]
+    )
+    ctx.refs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "r1",
+                "Author": ["B"],
+                "Year": 1999,
+                "Title": "Ref",
+                "Abstract": "Ref abstract",
+                "Title_en": "Ref",
+                "Abstract_en": "Ref abstract",
+                "DOI": "10.1/ref",
+                "Journal": "Ref Journal",
+            }
+        ]
+    )
+
+    translated_before = pipeline._translation_snapshot_metadata(ctx)
+    tokenized_before = pipeline._tokenized_snapshot_metadata(ctx)
+    ctx.publications.loc[0, "DOI"] = "10.1/new"
+    translated_after = pipeline._translation_snapshot_metadata(ctx)
+    tokenized_after = pipeline._tokenized_snapshot_metadata(ctx)
+
+    assert translated_before["schema_version"] == 2
+    assert tokenized_before["schema_version"] == 2
+    assert translated_before["source"]["publications"] != translated_after["source"]["publications"]
+    assert tokenized_before["source"]["publications"] != tokenized_after["source"]["publications"]
+
+
 def test_author_disambiguation_skips_when_source_input_has_author_uids(tmp_path):
     config = pipeline.PipelineConfig.from_dict(
         {

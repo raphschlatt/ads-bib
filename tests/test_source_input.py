@@ -16,7 +16,7 @@ def test_normalize_source_input_frames_keeps_minimal_shape_and_drops_generated_c
                 "author_uids": ["s2author:a", "s2author:b"],
                 "author_display_names": ["Author A", "Author B"],
                 "Title": "Paper title",
-                "Abstract": "Paper abstract",
+                "Abstract": "Paper\nabstract",
                 "References": ["s2:r1", "missing", "s2:r1"],
                 "citation_count": 12,
                 "venue": "ACL",
@@ -36,7 +36,7 @@ def test_normalize_source_input_frames_keeps_minimal_shape_and_drops_generated_c
                 "Author": ["Reference Author"],
                 "author_uids": ["s2author:r"],
                 "author_display_names": ["Reference Author"],
-                "Title": "Reference title",
+                "Title": "Reference\r\ntitle",
                 "venue": "EMNLP",
             }
         ]
@@ -46,11 +46,16 @@ def test_normalize_source_input_frames_keeps_minimal_shape_and_drops_generated_c
 
     assert pubs.loc[0, "Bibcode"] == "s2:p1"
     assert pubs.loc[0, "Author"] == ["Author A", "Author B"]
+    assert pubs.loc[0, "Abstract"] == "Paper abstract"
     assert pubs.loc[0, "References"] == ["s2:r1"]
     assert pubs.loc[0, "Citation Count"] == 12
     assert pubs.loc[0, "Journal"] == "ACL"
+    assert pubs.loc[0, "DOI"] == ""
     assert refs.loc[0, "Abstract"] == ""
+    assert refs.loc[0, "Title"] == "Reference title"
     assert refs.loc[0, "Journal"] == "EMNLP"
+    assert refs.loc[0, "DOI"] == ""
+    assert refs.loc[0, "Citation Count"] == 0
     for column in ("tokens", "full_text", "embedding_2d_x", "embedding_2d_y", "external_ids"):
         assert column not in pubs.columns
 

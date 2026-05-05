@@ -641,11 +641,34 @@ def _frame_fingerprint(frame: pd.DataFrame | None, columns: tuple[str, ...]) -> 
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+_SNAPSHOT_SOURCE_COLUMNS = (
+    "Bibcode",
+    "Year",
+    "Author",
+    "author_uids",
+    "author_display_names",
+    "Title",
+    "Abstract",
+    "Journal",
+    "Journal Abbreviation",
+    "Citation Count",
+    "DOI",
+    "Affiliation",
+    "Keywords",
+    "Category",
+    "Volume",
+    "Issue",
+    "First Page",
+    "Last Page",
+    "References",
+    "source",
+)
+
+
 def _translation_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
     cfg = ctx.config.translate
-    source_columns = ("Bibcode", "Title", "Abstract", "References")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "stage": "translate",
         "config": {
             "enabled": bool(cfg.enabled),
@@ -659,8 +682,8 @@ def _translation_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
             "openrouter_cost_mode": ctx.config.run.openrouter_cost_mode,
         },
         "source": {
-            "publications": _frame_fingerprint(ctx.publications, source_columns),
-            "references": _frame_fingerprint(ctx.refs, source_columns),
+            "publications": _frame_fingerprint(ctx.publications, _SNAPSHOT_SOURCE_COLUMNS),
+            "references": _frame_fingerprint(ctx.refs, _SNAPSHOT_SOURCE_COLUMNS),
         },
     }
 
@@ -668,15 +691,14 @@ def _translation_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
 def _tokenized_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
     cfg = ctx.config.tokenize
     source_columns = (
-        "Bibcode",
+        *_SNAPSHOT_SOURCE_COLUMNS,
         "Title_en",
         "Abstract_en",
         "Title_lang",
         "Abstract_lang",
-        "References",
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "stage": "tokenize",
         "config": {
             "enabled": bool(cfg.enabled),
