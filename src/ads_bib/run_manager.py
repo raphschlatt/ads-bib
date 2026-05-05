@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import logging
 import re
 import subprocess
@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+ARTIFACT_LAYOUT_VERSION = 2
 
 _SECRET_NAME_PATTERN = re.compile(
     r"(^|[_-])(API[_-]?KEY|KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)($|[_-])"
@@ -106,6 +108,44 @@ def _git_info(project_root: Path) -> tuple[str | None, bool | None]:
         return None, None
 
 
+@dataclass(frozen=True)
+class RunArtifactLayout:
+    """Canonical v0.2 artifact paths for one run directory."""
+
+    root: Path
+    data: Path
+    dataset: Path
+    and_dir: Path
+    citations: Path
+    plots: Path
+    logs: Path
+
+    @classmethod
+    def from_run_dir(cls, run_dir: Path | str) -> "RunArtifactLayout":
+        root = Path(run_dir)
+        data = root / "data"
+        return cls(
+            root=root,
+            data=data,
+            dataset=data / "dataset",
+            and_dir=data / "and",
+            citations=data / "citations",
+            plots=root / "plots",
+            logs=root / "logs",
+        )
+
+    def as_paths(self) -> dict[str, Path]:
+        return {
+            "root": self.root,
+            "data": self.data,
+            "dataset": self.dataset,
+            "and": self.and_dir,
+            "citations": self.citations,
+            "plots": self.plots,
+            "logs": self.logs,
+        }
+
+
 class RunManager:
     """Manages the lifecycle, configuration, and artifacts of a single pipeline run.
     
@@ -135,13 +175,10 @@ class RunManager:
         self.run_id = f"run_{timestamp}_{run_name}"
         self.run_dir = self.runs_dir / self.run_id
         
-        # Specific subdirectories for this run
-        self.paths = {
-            "root": self.run_dir,
-            "data": self.run_dir / "data",
-            "plots": self.run_dir / "plots",
-            "logs": self.run_dir / "logs"
-        }
+        # Specific subdirectories for this run. ``data`` is the parent for
+        # module-level run artifacts; new files should target a module key.
+        self.layout = RunArtifactLayout.from_run_dir(self.run_dir)
+        self.paths = self.layout.as_paths()
         
         self._create_directories()
 
@@ -190,7 +227,8 @@ class RunManager:
         Parameters
         ----------
         asset_type : str
-            One of ``"data"``, ``"plots"``, or ``"logs"``.
+            One of ``"data"``, ``"dataset"``, ``"and"``, ``"citations"``,
+            ``"plots"``, or ``"logs"``.
 
         Returns
         -------
@@ -288,6 +326,7 @@ class RunManager:
         # Build schema dict
         summary = {
             "schema_version": 2,
+            "artifact_layout_version": ARTIFACT_LAYOUT_VERSION,
             "run": {
                 "run_id": self.run_id,
                 "run_name": self.run_name,

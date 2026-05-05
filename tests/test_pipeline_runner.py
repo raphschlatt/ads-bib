@@ -1209,6 +1209,7 @@ def test_run_author_disambiguation_stage_uses_default_ads_and_bundle(tmp_path, m
     assert calls["modal_gpu"] == "l4"
     assert calls["model_bundle"] is None
     assert calls["dataset_id"] == ctx.run.run_id
+    assert calls["run_and_dir"] == ctx.run.paths["and"]
 
 
 def test_run_author_disambiguation_stage_rejects_missing_author_uid_outputs(tmp_path, monkeypatch):
@@ -1673,7 +1674,9 @@ def test_run_citations_stage_uses_explicit_cited_author_excludes(tmp_path, monke
     assert calls["process_kwargs"]["cited_authors_exclude"] == ["Ellis, G"]
     assert calls["process_kwargs"]["cited_author_uids_exclude"] == ["uid:hawking"]
     assert calls["process_kwargs"]["author_entities"] is ctx.author_entities
+    assert Path(calls["process_kwargs"]["output_dir"]) == ctx.run.paths["citations"]
     assert Path(calls["wos_output_path"]).name == "download_wos_export_filtered.txt"
+    assert Path(calls["wos_output_path"]).parent == ctx.run.paths["citations"]
 
 
 def test_validate_stage_name_rejects_unknown_stage():

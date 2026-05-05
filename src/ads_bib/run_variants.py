@@ -18,9 +18,13 @@ from ads_bib._stage_state import (
 )
 from ads_bib._utils.io import load_parquet
 from ads_bib.pipeline import PipelineConfig, PipelineInitialState
-from ads_bib.run_manager import _is_secret_key
+from ads_bib.run_manager import ARTIFACT_LAYOUT_VERSION, RunArtifactLayout, _is_secret_key
 
 _CONFIG_USED = "config_used.yaml"
+_SUMMARY = "run_summary.yaml"
+_LAYOUT_MIGRATION_HINT = (
+    "Base run is not in the v0.2 artifact layout. Use a v0.2 run as the variant base."
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,7 @@ def plan_run_variant(
 ) -> RunVariantPlan:
     """Return an executable variant plan for a completed base run."""
     base_run_path = resolve_base_run_path(from_run, project_root=project_root)
+    _ensure_base_run_layout(base_run_path)
     base_run_id = _read_base_run_id(base_run_path)
     base_config = load_base_run_config(base_run_path)
     base_data = base_config.to_dict()
@@ -118,13 +123,6 @@ def resolve_base_run_path(
     if direct.exists():
         candidates.append(direct)
 
-    if not raw.is_absolute() and runs_root.exists():
-        candidates.extend(
-            path
-            for path in runs_root.rglob(str(value))
-            if path.is_dir() and (path / _CONFIG_USED).exists()
-        )
-
     unique = _unique_existing_run_dirs(candidates)
     if len(unique) == 1:
         return unique[0]
@@ -151,27 +149,27 @@ def hydrate_initial_state(
 ) -> PipelineInitialState | None:
     """Load practical downstream inputs from a base run when they are sufficient."""
     stage = validate_stage_name(start_stage)
-    data_dir = Path(base_run_path) / "data"
+    layout = RunArtifactLayout.from_run_dir(base_run_path)
     if stage == "citations":
-        curated_df = _load_optional_parquet(data_dir / "publications.parquet")
-        refs = _load_optional_parquet(data_dir / "references.parquet")
+        curated_df = _load_optional_parquet(layout.dataset / "publications.parquet")
+        refs = _load_optional_parquet(layout.dataset / "references.parquet")
         if curated_df is None or refs is None:
             return None
         return PipelineInitialState(
             publications=curated_df,
             refs=refs,
             curated_df=curated_df,
-            author_entities=_load_optional_parquet(data_dir / "and" / "author_entities.parquet"),
+            author_entities=_load_optional_parquet(layout.and_dir / "author_entities.parquet"),
         )
     if stage in {"visualize", "curate"}:
-        topic_df = _load_optional_parquet(data_dir / "publications.parquet")
+        topic_df = _load_optional_parquet(layout.dataset / "publications.parquet")
         if topic_df is None:
             return None
         return PipelineInitialState(
             publications=topic_df,
-            refs=_load_optional_parquet(data_dir / "references.parquet"),
+            refs=_load_optional_parquet(layout.dataset / "references.parquet"),
             topic_df=topic_df,
-            topic_info=_load_optional_parquet(data_dir / "topic_info.parquet"),
+            topic_info=_load_optional_parquet(layout.dataset / "topic_info.parquet"),
         )
     return None
 
@@ -284,7 +282,7 @@ def _nested_get(data: Mapping[str, Any], path: tuple[str, ...]) -> Any:
 
 
 def _read_base_run_id(base_run_path: Path) -> str:
-    summary_path = base_run_path / "run_summary.yaml"
+    summary_path = base_run_path / _SUMMARY
     if summary_path.exists():
         try:
             payload = yaml.safe_load(summary_path.read_text(encoding="utf-8")) or {}
@@ -294,6 +292,22 @@ def _read_base_run_id(base_run_path: Path) -> str:
         except Exception:
             pass
     return base_run_path.name
+
+
+def _ensure_base_run_layout(base_run_path: Path) -> None:
+    summary_path = base_run_path / _SUMMARY
+    if not summary_path.exists():
+        raise ValueError(
+            f"Base run summary not found at {summary_path}. "
+            "Variants require a completed v0.2 run."
+        )
+    try:
+        payload = yaml.safe_load(summary_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        raise ValueError(f"Base run summary is not readable at {summary_path}: {exc}") from exc
+    if payload.get("artifact_layout_version") == ARTIFACT_LAYOUT_VERSION:
+        return
+    raise ValueError(_LAYOUT_MIGRATION_HINT)
 
 
 def _load_optional_parquet(path: Path) -> Any | None:

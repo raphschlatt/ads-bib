@@ -1839,7 +1839,13 @@ def test_compute_embeddings_passes_progress_callback_to_local(monkeypatch):
 def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
     model = "local/test-model"
-    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    docs = ["doc-a", "doc-b"]
+    cache_file = tm_embeddings._embedding_cache_file(
+        tmp_path,
+        provider="local",
+        model=model,
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+    )
     np.savez_compressed(
         cache_file,
         embeddings=np.zeros((1, 3), dtype=np.float32),
@@ -1857,7 +1863,7 @@ def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp
 
     monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     out = tm.compute_embeddings(
-        ["doc-a", "doc-b"],
+        docs,
         provider="local",
         model=model,
         cache_dir=tmp_path,
@@ -1871,7 +1877,13 @@ def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp
 def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
     model = "local/test-model"
-    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    docs = ["doc-a", "doc-b"]
+    cache_file = tm_embeddings._embedding_cache_file(
+        tmp_path,
+        provider="local",
+        model=model,
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+    )
     np.savez_compressed(
         cache_file,
         embeddings=np.zeros((2, 2), dtype=np.float32),
@@ -1889,7 +1901,7 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
 
     monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     out = tm.compute_embeddings(
-        ["doc-a", "doc-b"],
+        docs,
         provider="local",
         model=model,
         cache_dir=tmp_path,
@@ -1904,7 +1916,12 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
 def test_compute_embeddings_casts_valid_cache_to_requested_dtype(monkeypatch, tmp_path):
     docs = ["doc-a", "doc-b"]
     model = "local/test-model"
-    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    cache_file = tm_embeddings._embedding_cache_file(
+        tmp_path,
+        provider="local",
+        model=model,
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+    )
     np.savez_compressed(
         cache_file,
         embeddings=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import yaml
 import pandas as pd
+import pytest
 
 from ads_bib.run_variants import load_base_run_config, plan_run_variant
 
@@ -39,7 +40,12 @@ def _write_run(tmp_path, config: dict[str, object] | None = None):
         encoding="utf-8",
     )
     (run_dir / "run_summary.yaml").write_text(
-        yaml.safe_dump({"run": {"run_id": "run_20260101_010101_base"}}),
+        yaml.safe_dump(
+            {
+                "artifact_layout_version": 2,
+                "run": {"run_id": "run_20260101_010101_base"},
+            }
+        ),
         encoding="utf-8",
     )
     return run_dir
@@ -85,11 +91,13 @@ def test_topic_backend_clusterer_and_labeler_changes_start_at_topic_fit(tmp_path
 
 def test_citation_threshold_change_starts_at_citations_and_hydrates_base_artifacts(tmp_path):
     run_dir = _write_run(tmp_path)
-    data_dir = run_dir / "data"
-    (data_dir / "and").mkdir(parents=True)
+    data_dir = run_dir / "data" / "dataset"
+    and_dir = run_dir / "data" / "and"
+    data_dir.mkdir(parents=True)
+    and_dir.mkdir(parents=True)
     pd.DataFrame([{"Bibcode": "p1", "topic_id": 1}]).to_parquet(data_dir / "publications.parquet")
     pd.DataFrame([{"Bibcode": "r1"}]).to_parquet(data_dir / "references.parquet")
-    pd.DataFrame([{"author_uid": "u1"}]).to_parquet(data_dir / "and" / "author_entities.parquet")
+    pd.DataFrame([{"author_uid": "u1"}]).to_parquet(and_dir / "author_entities.parquet")
 
     plan = plan_run_variant(
         from_run=run_dir,
@@ -120,7 +128,7 @@ def test_translation_model_change_starts_at_translate(tmp_path):
 
 def test_visualization_change_starts_at_visualize_and_hydrates_topic_dataframe(tmp_path):
     run_dir = _write_run(tmp_path)
-    data_dir = run_dir / "data"
+    data_dir = run_dir / "data" / "dataset"
     data_dir.mkdir(parents=True)
     pd.DataFrame([{"Bibcode": "p1", "topic_id": 1}]).to_parquet(data_dir / "publications.parquet")
     pd.DataFrame([{"Topic": 1, "Count": 1}]).to_parquet(data_dir / "topic_info.parquet")
@@ -186,3 +194,17 @@ def test_redacted_secret_placeholders_are_loaded_as_none(tmp_path):
     assert loaded.translate.api_key is None
     assert loaded.topic_model.embedding_api_key is None
     assert loaded.topic_model.llm_api_key is None
+
+
+def test_non_v02_base_run_layout_is_rejected(tmp_path):
+    run_dir = _write_run(tmp_path)
+    (run_dir / "run_summary.yaml").write_text(
+        yaml.safe_dump({"run": {"run_id": "run_20260101_010101_base"}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Use a v0.2 run"):
+        plan_run_variant(
+            from_run=run_dir,
+            overrides={"topic_model.embedding_model": "google/gemini-embedding-001"},
+        )

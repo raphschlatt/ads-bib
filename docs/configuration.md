@@ -82,8 +82,9 @@ walk-through.
     ```
 
     `ads-bib` loads `config_used.yaml`, applies the override, picks the first
-    affected stage, and writes a new run folder. Use `--dry-run` to see the
-    changed keys and reused/recomputed stages before creating the variant.
+    affected stage, and writes a new run folder under `runs/`. Use `--dry-run`
+    to see the changed keys and reused/recomputed stages before creating the
+    variant.
 
 Unless stated otherwise, the tables below describe the raw code defaults. The
 `Preset Override` column shows the value used by the four packaged starter
@@ -113,7 +114,7 @@ to notebook dict keys and YAML config keys.
 | `stop_stage` | string \| null | `null` | Last stage to run; `null` runs to the end. CLI `--to` and `ads_bib.run(stop_stage=...)` override this. |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
 | `openrouter_cost_mode` | string | `"hybrid"` | OpenRouter cost resolution. `"hybrid"` combines live usage with a pricing lookup (default). `"strict"` fails fast when cost data is incomplete. `"fast"` skips the extra lookup and trusts the streaming usage payload. |
-| `project_root` | string \| null | `null` | Override project root; defaults to current working directory |
+| `project_root` | string \| null | `null` | Project folder for shared `data/cache/` and run outputs under `runs/`; defaults to current working directory |
 
 ## Search
 

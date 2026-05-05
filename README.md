@@ -81,16 +81,29 @@ Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt
 
 ## Output
 
-Each run produces a self-contained output directory:
+Each project folder keeps shared caches under `data/cache/` and writes every
+run under `runs/<run_id>/`:
 
-- **`publications.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
-- **`references.parquet`** — normalized cited-reference metadata, with disambiguated authors when AND is enabled
-- **`topic_info.parquet`** — one row per topic with labels, counts, and representation fields
-- **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
-- **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
-- **`download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
-- **`run_summary.yaml`** — full run metadata and stage timings
-- **`dataset_manifest.json`** — artifact hashes plus bundle-cleaning provenance
+```text
+runs/<run_id>/
+├── config_used.yaml
+├── run_summary.yaml
+├── data/
+│   ├── dataset/       # publications, references, topic_info, manifest
+│   ├── and/           # optional ads-and diagnostics
+│   └── citations/     # GEXF/CSV/JSON networks and WOS export
+├── plots/topic_map.html
+└── logs/runtime.log
+```
+
+- **`data/dataset/publications.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
+- **`data/dataset/references.parquet`** — normalized cited-reference metadata, with disambiguated authors when AND is enabled
+- **`data/dataset/topic_info.parquet`** — one row per topic with labels, counts, and representation fields
+- **`plots/topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
+- **`data/citations/*.gexf`** — direct citation, co-citation, bibliographic coupling, author co-citation
+- **`data/citations/download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
+- **`run_summary.yaml`** — full run metadata, stage status, and optional variant provenance
+- **`data/dataset/dataset_manifest.json`** — artifact hashes plus bundle-cleaning provenance
 
 [![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
 *Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*

@@ -13,20 +13,25 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── logs/
 │   └── runtime.log
 ├── data/
-│   ├── publications.parquet
-│   ├── references.parquet
-│   ├── topic_info.parquet
-│   ├── dataset_manifest.json
-│   ├── direct.gexf
-│   ├── co_citation.gexf
-│   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf
-│   └── download_wos_export.txt
+│   ├── dataset/
+│   │   ├── publications.parquet
+│   │   ├── references.parquet
+│   │   ├── topic_info.parquet
+│   │   └── dataset_manifest.json
+│   ├── and/
+│   │   └── author_entities.parquet
+│   └── citations/
+│       ├── direct.gexf
+│       ├── co_citation.gexf
+│       ├── bibliographic_coupling.gexf
+│       ├── author_co_citation.gexf
+│       └── download_wos_export.txt
 └── plots/
     └── topic_map.html
 ```
 
-Every file in that tree has a single canonical owner described below.
+`data/cache/` lives outside the run folder and is shared by later runs and
+variants. Files inside `runs/<run_id>/` are the artifacts for that exact run.
 
 The public Parquet bundle is prepared for downstream analysis when it is
 written: duplicate `Bibcode` rows are reduced deterministically, publication
@@ -56,6 +61,7 @@ Compact run report written at the end of each run.
 
 ```yaml
 schema_version: 2
+artifact_layout_version: 2
 run:
   run_id: run_20260407_120000_ads_bib_openrouter
   run_name: ads_bib_openrouter
@@ -115,6 +121,8 @@ costs:
 Key fields:
 
 - **`schema_version`** — bumped on breaking changes to this file.
+- **`artifact_layout_version`** — identifies the canonical v0.2 run folder
+  layout used by `--from-run` variants.
 - **`stages.completed_stages`** — usable for resume-style runs with
   `--from <next_stage>`.
 - **`reproducibility.config_sha256`** — same value for two runs means they
@@ -169,7 +177,7 @@ Bibcode          Year  Title_en                                   topic_id  Name
 2005PhRvD..72..  2005  Information loss in black holes            2         Hawking radiation           0.16          -3.01           1.73
 ```
 
-Load it back with `pandas.read_parquet("runs/<run_id>/data/publications.parquet")`.
+Load it back with `pandas.read_parquet("runs/<run_id>/data/dataset/publications.parquet")`.
 For Toponymy runs, each row additionally carries `topic_layer_0_id`,
 `topic_layer_0_label`, … up to `topic_layer_<n>_*` and the two hierarchy
 metadata columns `topic_primary_layer_index` and `topic_layer_count`.

@@ -334,11 +334,28 @@ def _save_cache_metadata(cache_dir: Path | str, metadata: dict[str, Any]) -> Non
     )
 
 
-def _copy_optional_and_artifacts(result: Any, *, run_data_dir: Path | str | None) -> None:
-    if run_data_dir is None:
+def _resolve_run_and_dir(
+    *,
+    run_data_dir: Path | str | None,
+    run_and_dir: Path | str | None,
+) -> Path | None:
+    if run_and_dir is not None:
+        return Path(run_and_dir)
+    if run_data_dir is not None:
+        return Path(run_data_dir) / "and"
+    return None
+
+
+def _copy_optional_and_artifacts(
+    result: Any,
+    *,
+    run_data_dir: Path | str | None,
+    run_and_dir: Path | str | None,
+) -> None:
+    target_dir = _resolve_run_and_dir(run_data_dir=run_data_dir, run_and_dir=run_and_dir)
+    if target_dir is None:
         return
 
-    target_dir = Path(run_data_dir) / "and"
     copied_any = False
     for key in _OPTIONAL_AND_ARTIFACT_PATH_KEYS:
         raw_path = _result_value(result, key)
@@ -359,15 +376,16 @@ def _copy_cached_and_artifacts(
     cache_dir: Path | str,
     dataset_id: str,
     run_data_dir: Path | str | None,
+    run_and_dir: Path | str | None,
 ) -> None:
-    if run_data_dir is None:
+    target_dir = _resolve_run_and_dir(run_data_dir=run_data_dir, run_and_dir=run_and_dir)
+    if target_dir is None:
         return
 
     source_dir = Path(cache_dir) / "and_bridge" / dataset_id / "output"
     if not source_dir.exists():
         return
 
-    target_dir = Path(run_data_dir) / "and"
     copied: set[Path] = set()
     for pattern in _CACHED_AND_ARTIFACT_PATTERNS:
         for source_path in source_dir.glob(pattern):
@@ -408,6 +426,7 @@ def apply_author_disambiguation(
     dataset_id: str | None = None,
     force_refresh: bool = False,
     run_data_dir: Path | str | None = None,
+    run_and_dir: Path | str | None = None,
     infer_stage: str = "full",
     source_fingerprints: dict[str, str] | None = None,
     progress: bool = True,
@@ -455,6 +474,7 @@ def apply_author_disambiguation(
                 cache_dir=cache_dir,
                 dataset_id=resolved_dataset_id,
                 run_data_dir=run_data_dir,
+                run_and_dir=run_and_dir,
             )
             return (
                 _normalize_list_columns(pubs_cached, ["author_uids", "author_display_names"]),
@@ -516,7 +536,7 @@ def apply_author_disambiguation(
         cache_dir=cache_dir,
     )
     _save_cache_metadata(cache_dir, expected_cache_metadata)
-    _copy_optional_and_artifacts(result, run_data_dir=run_data_dir)
+    _copy_optional_and_artifacts(result, run_data_dir=run_data_dir, run_and_dir=run_and_dir)
 
     logger.info(
         "Author disambiguation complete | publications=%s | references=%s",

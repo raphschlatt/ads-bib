@@ -1,6 +1,6 @@
 """Central path configuration. All paths are relative to the project root.
-These paths handle global storage (raw data, cached embeddings, models) that persist
-across multiple runs. Run-specific outputs (plots, subsets) are handled by the RunManager.
+These paths handle global storage (raw data, caches, models) that persists
+across multiple runs. Run-specific artifacts are handled by the RunManager.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def init_paths(project_root: Path | str | None = None) -> dict[str, Path]:
     dict[str, Path]
         Dictionary with keys: ``project_root``, ``data``, ``raw``,
         ``cache``, ``embeddings_cache``, ``dim_reduction_cache``,
-        ``models``. (outputs and processed are now handled downstream via RunManager).
+        ``models``. Run artifacts are handled downstream via RunManager.
     """
     root = Path(project_root) if project_root else Path.cwd()
     data = root / "data"

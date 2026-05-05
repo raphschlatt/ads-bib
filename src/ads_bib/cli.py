@@ -163,12 +163,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap",
-        help="Optional convenience command to scaffold a working directory for packaged CLI runs.",
+        help="Optional convenience command to scaffold a project folder for packaged CLI runs.",
     )
     bootstrap_parser.add_argument(
         "--project-root",
         default=".",
-        help="Working directory root that should contain data/ and runs/.",
+        help="Project folder that should contain data/ and runs/.",
     )
     bootstrap_parser.add_argument(
         "--preset",
@@ -277,6 +277,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Overwrite the destination file if it already exists.",
     )
     preset_write_parser.set_defaults(handler=_handle_preset_write)
+
     return parser
 
 

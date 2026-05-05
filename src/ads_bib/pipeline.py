@@ -1363,7 +1363,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     )
     _ensure_run_references_artifact(
         refs=ctx.refs,
-        run_data_dir=ctx.run.paths["data"],
+        run_data_dir=ctx.run.paths["dataset"],
     )
     _advance_resume_block(ctx, "tokenize")
     return ctx
@@ -1430,6 +1430,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
                 dataset_id=cfg.dataset_id or ctx.run.run_id,
                 cache_dir=ctx.paths["cache"],
                 run_data_dir=ctx.run.paths["data"],
+                run_and_dir=ctx.run.paths["and"],
                 force_refresh=cfg.force_refresh,
                 infer_stage=cfg.infer_stage,
                 source_fingerprints=source_fingerprints,
@@ -1452,6 +1453,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
                     dataset_id=cfg.dataset_id or ctx.run.run_id,
                     cache_dir=ctx.paths["cache"],
                     run_data_dir=ctx.run.paths["data"],
+                    run_and_dir=ctx.run.paths["and"],
                     force_refresh=cfg.force_refresh,
                     infer_stage=cfg.infer_stage,
                     source_fingerprints=source_fingerprints,
@@ -1473,10 +1475,10 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
         )
     _ensure_run_references_artifact(
         refs=ctx.refs,
-        run_data_dir=ctx.run.paths["data"],
+        run_data_dir=ctx.run.paths["dataset"],
         force=cfg.enabled,
     )
-    author_entities_path = ctx.run.paths["data"] / "and" / "author_entities.parquet"
+    author_entities_path = ctx.run.paths["and"] / "author_entities.parquet"
     ctx.author_entities = (
         pd.read_parquet(author_entities_path)
         if cfg.enabled and author_entities_path.exists()
@@ -1814,7 +1816,7 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         publications=ctx.topic_df,
         refs=ctx.refs,
         topic_info=ctx.topic_info,
-        run_data_dir=ctx.run.paths["data"],
+        run_data_dir=ctx.run.paths["dataset"],
         run_id=ctx.run.run_id,
         source_stage="topic_dataframe",
         and_enabled=ctx.config.author_disambiguation.enabled,
@@ -1929,7 +1931,7 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
         publications=ctx.curated_df,
         refs=ctx.refs,
         topic_info=ctx.topic_info,
-        run_data_dir=ctx.run.paths["data"],
+        run_data_dir=ctx.run.paths["dataset"],
         run_id=ctx.run.run_id,
         source_stage="curate",
         and_enabled=ctx.config.author_disambiguation.enabled,
@@ -1975,7 +1977,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
         cited_authors_exclude=cfg.cited_authors_exclude,
         cited_author_uids_exclude=cfg.cited_author_uids_exclude,
         output_format=cfg.output_format,
-        output_dir=ctx.run.paths["data"],
+        output_dir=ctx.run.paths["citations"],
         author_entities=ctx.author_entities,
         show_progress=False if ctx.reporter is not None else True,
     )
@@ -1994,7 +1996,7 @@ def run_citations_stage(ctx: PipelineContext) -> PipelineContext:
     export_wos_format(
         filtered_publications,
         ctx.refs,
-        output_path=ctx.run.paths["data"] / f"download_wos_export{suffix}.txt",
+        output_path=ctx.run.paths["citations"] / f"download_wos_export{suffix}.txt",
     )
     return ctx
 

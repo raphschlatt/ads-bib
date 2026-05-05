@@ -22,6 +22,9 @@ def test_run_manager_creates_expected_run_directories(tmp_path, caplog):
     assert run.runs_dir == tmp_path / "runs"
     assert run.paths["root"].exists()
     assert run.paths["data"].exists()
+    assert run.paths["dataset"].exists()
+    assert run.paths["and"].exists()
+    assert run.paths["citations"].exists()
     assert run.paths["plots"].exists()
     assert run.paths["logs"].exists()
 
@@ -112,6 +115,9 @@ def test_run_manager_get_path_validates_asset_type(tmp_path):
     run = RunManager(run_name="path_test", project_root=tmp_path)
 
     assert run.get_path("data") == run.paths["data"]
+    assert run.get_path("dataset") == run.paths["dataset"]
+    assert run.get_path("and") == run.paths["and"]
+    assert run.get_path("citations") == run.paths["citations"]
     assert run.get_path("plots") == run.paths["plots"]
 
     with pytest.raises(ValueError, match="Unknown asset type"):
@@ -166,6 +172,7 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
     parsed = yaml.safe_load(summary_path.read_text(encoding="utf-8"))
 
     assert parsed["schema_version"] == 2
+    assert parsed["artifact_layout_version"] == 2
     assert parsed["run"]["status"] == "completed"
     assert parsed["run"]["error"] is None
     assert parsed["stages"]["requested_start_stage"] == "search"

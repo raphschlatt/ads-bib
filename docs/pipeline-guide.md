@@ -65,6 +65,10 @@ keys. With `--from`, your stage wins. `--dry-run` prints the base run, changed
 keys, reused stages, recomputed stages, effective start stage, and target run
 name without creating a folder.
 
+Runs use one project-wide cache under `data/cache/` and one self-contained
+output folder under `runs/<run_id>/`. `--from-run` reads the canonical v0.2
+artifact layout.
+
 | Change | Recomputed From | What Is Reused |
 | --- | --- | --- |
 | `topic_model.embedding_model`, `embedding_provider`, embedding batch/concurrency, `sample_size` | `embeddings` | search/export, translation, tokenization, optional AND |
@@ -176,7 +180,7 @@ stage-boundary behavior.
   rerun repeatedly while tuning.
 - **`topic_dataframe` stage** — attaches `topic_id`, reduced 5D/2D coordinate
   columns, optional hierarchy columns, and the working-layer label onto the
-  main DataFrame; writes `topic_info.parquet` with one row per topic.
+  main DataFrame; writes `data/dataset/topic_info.parquet` with one row per topic.
 - **`visualize` stage** — renders the interactive HTML topic map.
 
 For CLI tuning loops:

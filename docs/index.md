@@ -68,14 +68,9 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── run_summary.yaml          # run metadata, counts, costs
 ├── logs/runtime.log
 ├── data/
-│   ├── publications.parquet
-│   ├── references.parquet
-│   ├── topic_info.parquet
-│   ├── direct.gexf
-│   ├── co_citation.gexf
-│   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf
-│   └── download_wos_export.txt
+│   ├── dataset/              # publications, references, topic_info, manifest
+│   ├── and/                  # optional ads-and diagnostics
+│   └── citations/            # GEXF/CSV/JSON networks and WOS export
 └── plots/topic_map.html
 ```
 

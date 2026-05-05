@@ -101,9 +101,9 @@ print(result.curated_df.head())
 # result.citation_results, result.paths, result.config
 ```
 
-`ads_bib.run` creates the usual `data/` and `runs/` directories under
+`ads_bib.run` creates shared project data directories and `runs/` under
 `project_root`, writes `config_used.yaml` and `run_summary.yaml`, and persists
-every stage artifact under the run directory.
+run artifacts under `runs/<run_id>/data/{dataset,and,citations}/`.
 
 ## `ads_bib.run`
 
@@ -312,7 +312,9 @@ compute_embeddings(
 
 Computes or reloads cached document embeddings. Returns an
 `(n_documents, embedding_dim)` array. Pass a `cache_dir` to enable on-disk
-caching with fingerprint validation.
+caching. Cache files include the provider, model, and input fingerprint so
+different corpora can use the same embedding model without overwriting each
+other.
 
 ```python
 from pathlib import Path

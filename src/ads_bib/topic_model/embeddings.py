@@ -99,6 +99,19 @@ def _documents_fingerprint(documents: list[str]) -> str:
     return hasher.hexdigest()
 
 
+def _embedding_cache_file(
+    cache_dir: Path,
+    *,
+    provider: str,
+    model: str,
+    doc_fingerprint: str,
+) -> Path:
+    """Return the cache path for one provider/model/input combination."""
+    model_safe = model.replace("/", "_")
+    fingerprint_short = doc_fingerprint[:16]
+    return cache_dir / f"embeddings_{provider}_{model_safe}_{fingerprint_short}.npz"
+
+
 def _available_memory_bytes() -> int | None:
     """Return available system memory bytes when discoverable."""
     try:
@@ -198,7 +211,8 @@ def compute_embeddings(
         Provider-specific embedding model identifier.
     cache_dir : Path, optional
         Cache directory. When set, embeddings are loaded from/saved to
-        ``embeddings_{provider}_{model}.npz`` with fingerprint validation.
+        ``embeddings_{provider}_{model}_{input_hash}.npz`` with fingerprint
+        validation.
     batch_size : int
         Per-call batch size for embedding requests.
     max_workers : int
@@ -239,10 +253,18 @@ def compute_embeddings(
     target_dtype = np.dtype(dtype)
     internal_show_progress = bool(show_progress) and progress_callback is None
 
-    model_safe = model.replace("/", "_")
-    cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
-    partial_cache_file = cache_file.with_suffix(".partial.npz") if cache_file else None
     doc_fingerprint = _documents_fingerprint(documents)
+    cache_file = (
+        _embedding_cache_file(
+            cache_dir,
+            provider=provider,
+            model=model,
+            doc_fingerprint=doc_fingerprint,
+        )
+        if cache_dir
+        else None
+    )
+    partial_cache_file = cache_file.with_suffix(".partial.npz") if cache_file else None
 
     if cache_file and cache_file.exists():
         data = np.load(cache_file, allow_pickle=True)

@@ -136,7 +136,12 @@ def _write_base_variant_run(tmp_path):
     }
     (run_dir / "config_used.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
     (run_dir / "run_summary.yaml").write_text(
-        yaml.safe_dump({"run": {"run_id": "run_20260101_010101_base"}}),
+        yaml.safe_dump(
+            {
+                "artifact_layout_version": 2,
+                "run": {"run_id": "run_20260101_010101_base"},
+            }
+        ),
         encoding="utf-8",
     )
     return run_dir
