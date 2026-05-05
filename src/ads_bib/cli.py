@@ -23,6 +23,7 @@ from ads_bib.runner import (
     parse_override as _parse_override,
     run_resolved_config,
 )
+from ads_bib.run_variants import format_variant_plan, plan_run_variant
 
 CommandRunner = Callable[[Sequence[str], dict[str, str] | None], int]
 
@@ -55,7 +56,7 @@ def _handle_check(_args: argparse.Namespace) -> int:
 
 
 def _load_config_from_args(args: argparse.Namespace) -> PipelineConfig:
-    overrides = dict(_parse_override(raw) for raw in getattr(args, "set_values", []) or [])
+    overrides = _overrides_from_args(args)
     return load_run_config(
         preset=getattr(args, "preset", None),
         config=getattr(args, "config", None),
@@ -63,9 +64,38 @@ def _load_config_from_args(args: argparse.Namespace) -> PipelineConfig:
     )
 
 
+def _overrides_from_args(args: argparse.Namespace) -> dict[str, object]:
+    return dict(_parse_override(raw) for raw in getattr(args, "set_values", []) or [])
+
+
 def _handle_run(args: argparse.Namespace) -> int:
-    config = _load_config_from_args(args)
     try:
+        if getattr(args, "from_run", None):
+            plan = plan_run_variant(
+                from_run=args.from_run,
+                overrides=_overrides_from_args(args),
+                start_stage=args.from_stage,
+                stop_stage=args.to_stage,
+                run_name=args.run_name,
+            )
+            if args.dry_run:
+                sys.stdout.write(format_variant_plan(plan) + "\n")
+                return 0
+            run_resolved_config(
+                plan.config,
+                start_stage=plan.effective_start_stage,
+                stop_stage=plan.stop_stage,
+                run_name=plan.run_name,
+                notify=lambda message: sys.stdout.write(f"{message}\n"),
+                output_mode="cli",
+                initial_state=plan.initial_state,
+                variant=plan.variant,
+            )
+            return 0
+
+        if args.dry_run:
+            raise ValueError("--dry-run is only supported together with --from-run.")
+        config = _load_config_from_args(args)
         run_resolved_config(
             config,
             start_stage=args.from_stage,
@@ -180,9 +210,18 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=get_preset_names(),
         help="Official packaged preset name.",
     )
+    run_source.add_argument(
+        "--from-run",
+        help="Base run directory path or run id below runs/ for a reusable variant.",
+    )
     run_parser.add_argument("--from", dest="from_stage", help="Optional stage to start from.")
     run_parser.add_argument("--to", dest="to_stage", help="Optional stage to stop after.")
     run_parser.add_argument("--run-name", help="Optional run name override.")
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the variant reuse plan without creating a run.",
+    )
     run_parser.add_argument(
         "--set",
         dest="set_values",

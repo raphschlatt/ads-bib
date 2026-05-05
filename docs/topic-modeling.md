@@ -82,6 +82,17 @@ CUDA. For early exploration on a large corpus, set
 `topic_model.sample_size` to limit documents and set it back to `null` for
 the final run.
 
+To compare embedding models from the same corpus, start a variant from a
+completed run:
+
+```bash
+ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
+  --set topic_model.embedding_model=google/gemini-embedding-001
+```
+
+This keeps search/export, translation, tokenization, and optional AND outputs,
+then recomputes embeddings and later topic artifacts.
+
 !!! warning "Common failure patterns (embeddings)"
     - **Cache miss you did not expect** (the corpus re-embeds in full) → check
       whether `embedding_model` or the input text changed; the cache key is a
@@ -151,6 +162,21 @@ embedding calls rather than clustering threads.
     - **Too many micro-topics** with <10 documents each → raise `min_cluster_size`.
     - **Noisy borders** → raise `min_samples` from 2 to 3 or higher.
 
+Common clustering variants:
+
+```bash
+# Switch the topic backend.
+ads-bib run --from-run <run_id> --set topic_model.backend=toponymy
+
+# Tune the flat BERTopic clusterer.
+ads-bib run --from-run <run_id> --set topic_model.cluster_params.min_cluster_size=30
+
+# Tune the Toponymy clusterer.
+ads-bib run --from-run <run_id> --set topic_model.toponymy_cluster_params.min_clusters=8
+```
+
+All three start at `topic_fit`, so embeddings and reductions are reused.
+
 ## Labeling
 
 Labeling names each cluster via an LLM. Pick a prompt with
@@ -177,6 +203,17 @@ get pulled into their nearest cluster, then topic labels are refreshed.
       documents get reassigned into their nearest cluster before labels are
       regenerated.
 
+Labeling-only variants also start at `topic_fit` because labels are part of
+the fitted topic model:
+
+```bash
+# Use a different labeler model.
+ads-bib run --from-run <run_id> --set topic_model.llm_model=google/gemini-3-flash-preview
+
+# Switch from the physics prompt to the generic prompt.
+ads-bib run --from-run <run_id> --set topic_model.llm_prompt_name=generic
+```
+
 ## Good Tuning Order
 
 1. Keep the query fixed.
@@ -191,14 +228,13 @@ get pulled into their nearest cluster, then topic labels are refreshed.
 7. Leave `toponymy_layer_index="auto"` unless you need a fixed working layer.
 8. Only after that, experiment with labeling prompts or models.
 
-For CLI iteration, rerun from `topic_fit`:
+For CLI iteration, prefer a variant from the last complete run:
 
 ```bash
-ads-bib run --config ads-bib.yaml --from topic_fit
+ads-bib run --from-run <run_id> --set topic_model.cluster_params.min_cluster_size=30
 ```
 
-Embeddings are cached automatically, so every iteration after the first is
-fast.
+Use `--dry-run` first when you want to confirm which stages will be reused.
 
 For raw config keys, see [Configuration](configuration.md). For phase-level
 tuning advice across the full pipeline, see the

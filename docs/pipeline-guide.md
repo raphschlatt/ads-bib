@@ -14,8 +14,8 @@ internals, see [Topic Modeling](topic-modeling.md).
   hits.
 - Phases 4–7 (reduction, clustering, labeling, curation, citations) are
   iterative. This is where tuning happens.
-- The most common iteration loop is:
-  `change cluster_params` → `ads-bib run --from topic_fit`.
+- The most common iteration loop is now a run variant:
+  `ads-bib run --from-run <run_id> --set topic_model.cluster_params.min_cluster_size=30`.
 
 ## Good Tuning Order
 
@@ -48,6 +48,38 @@ internals, see [Topic Modeling](topic-modeling.md).
 | `citations` | 6 | Build and export citation networks |
 
 These names are used by CLI `--from`/`--to` arguments and log output.
+
+## Reuse From a Completed Run
+
+Use `--from-run` when the input corpus should stay the same and only one
+pipeline choice changes:
+
+```bash
+ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
+  --set citations.min_counts.co_citation=4
+```
+
+The command accepts either a run directory path or a run id below `runs/`.
+Without `--from`, `ads-bib` chooses the first stage affected by your `--set`
+keys. With `--from`, your stage wins. `--dry-run` prints the base run, changed
+keys, reused stages, recomputed stages, effective start stage, and target run
+name without creating a folder.
+
+| Change | Recomputed From | What Is Reused |
+| --- | --- | --- |
+| `topic_model.embedding_model`, `embedding_provider`, embedding batch/concurrency, `sample_size` | `embeddings` | search/export, translation, tokenization, optional AND |
+| `topic_model.params_5d` or `params_2d` | `reduction` | embeddings and all earlier data |
+| `topic_model.backend`, `cluster_params`, `toponymy_cluster_params`, `llm_model`, `llm_prompt`, labeler provider/path | `topic_fit` | embeddings and reductions |
+| `visualization.*` | `visualize` | topic dataframe from the base run |
+| `citations.*` | `citations` | curated publications, references, and AND author entities when present |
+| `translate.*` or `run.openrouter_cost_mode` | `translate` | search/export only; translated and tokenized snapshots must match metadata |
+| `tokenize.*` | `tokenize` | translated frames when their snapshot metadata matches |
+| `author_disambiguation.*` | `author_disambiguation` | tokenized frames; enabled AND validates its own cache metadata |
+| `curation.*` | `topic_fit` in this release | earlier corpus preparation and embeddings; this avoids curating an already curated public artifact |
+
+Each variant writes normal outputs plus a `variant` block in
+`run_summary.yaml` so you can see the base run, changed keys, and reuse
+boundary later.
 
 ## Phase 1: Search & Export
 

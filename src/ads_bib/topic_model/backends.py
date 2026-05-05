@@ -965,10 +965,18 @@ def _create_tracked_toponymy_namer(
             self.client = OpenAI(api_key=api_key, base_url=base_url)
             self.model = model
             self.max_workers = worker_count
-            self._semaphore = asyncio.Semaphore(self.max_workers)
+            self._semaphore: asyncio.Semaphore | None = None
+            self._semaphore_loop: asyncio.AbstractEventLoop | None = None
             self.extra_prompting = (
                 f"\n\n{llm_specific_instructions}" if llm_specific_instructions else ""
             )
+
+        def _get_semaphore(self) -> asyncio.Semaphore:
+            loop = asyncio.get_running_loop()
+            if self._semaphore is None or self._semaphore_loop is not loop:
+                self._semaphore = asyncio.Semaphore(self.max_workers)
+                self._semaphore_loop = loop
+            return self._semaphore
 
         async def _call_single(
             self,
@@ -978,7 +986,7 @@ def _create_tracked_toponymy_namer(
             max_tokens: int,
         ) -> str:
             try:
-                async with self._semaphore:
+                async with self._get_semaphore():
                     response = await asyncio.to_thread(
                         openrouter_chat_completion,
                         client=self.client,
@@ -1279,6 +1287,35 @@ def _build_toponymy_topic_info(topics: np.ndarray, topic_names: list[str] | None
             name = f"Topic {topic_id}"
         rows.append({"Topic": topic_id, "Name": name, "Main": name})
     return pd.DataFrame(rows)
+
+
+def _validate_toponymy_topic_names(
+    *,
+    topics: np.ndarray,
+    topic_names: list[str] | None,
+    selected_layer_index: int,
+) -> None:
+    """Fail fast when Toponymy produced missing names for used clusters."""
+    topic_names = topic_names or []
+    missing: list[int] = []
+    blank: list[int] = []
+    for topic_id in sorted(int(t) for t in np.unique(topics) if int(t) >= 0):
+        if topic_id >= len(topic_names):
+            missing.append(topic_id)
+        elif not str(topic_names[topic_id]).strip():
+            blank.append(topic_id)
+
+    if missing or blank:
+        details: list[str] = []
+        if missing:
+            details.append(f"missing={missing[:10]}")
+        if blank:
+            details.append(f"blank={blank[:10]}")
+        raise ValueError(
+            "Toponymy returned missing or blank topic names for the selected layer "
+            f"{selected_layer_index} ({'; '.join(details)}). "
+            "Check the Toponymy LLM wrapper and provider errors before producing final artifacts."
+        )
 
 
 def _instantiate_with_filtered_kwargs(
@@ -1814,6 +1851,11 @@ def _fit_and_extract_toponymy_outputs(
     )
 
     topic_names = topic_model.topic_names_[selected_layer_index]
+    _validate_toponymy_topic_names(
+        topics=topics,
+        topic_names=topic_names,
+        selected_layer_index=selected_layer_index,
+    )
     topic_info = _build_toponymy_topic_info(topics, topic_names)
     return topic_model, topics, topic_info
 

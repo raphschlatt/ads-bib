@@ -218,6 +218,7 @@ class RunManager:
         completed_stages: list[str] | None = None,
         failed_stage: str | None = None,
         error: str | None = None,
+        variant: dict[str, Any] | None = None,
     ) -> Path:
         """Write a comprehensive summary of the pipeline run to run_summary.yaml.
 
@@ -338,6 +339,9 @@ class RunManager:
                     topic_hierarchy.get("topic_primary_layer_selection", "manual")
                 ),
             }
+
+        if variant:
+            summary["variant"] = variant
 
         # Add cost tracker details if available
         if cost_tracker is not None:

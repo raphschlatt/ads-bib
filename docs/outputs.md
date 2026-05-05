@@ -45,8 +45,10 @@ ads-bib run --config runs/<run_id>/config_used.yaml
 
 Secrets such as ADS tokens, OpenRouter keys, and Hugging Face tokens are written
 as `<redacted>`, so keep real credentials in `.env` or your shell environment.
-Use the file to audit what values the preset + CLI overrides resolved to, or
-diff two runs to see which knobs changed.
+Use the file to audit what values the preset + CLI overrides resolved to. For
+iteration, prefer `ads-bib run --from-run <run_id> --set ...`; it loads this
+file safely, restores redacted secrets from `.env`/environment values, and
+reuses any still-valid artifacts.
 
 ## `run_summary.yaml`
 
@@ -89,6 +91,13 @@ topic_hierarchy:             # Toponymy only
   topic_primary_layer_index: 2
   topic_clusters_per_layer: [15, 8, 4]
   topic_primary_layer_selection: auto
+variant:                     # only for --from-run variants
+  base_run_id: run_20260407_120000_ads_bib_openrouter
+  base_run_path: runs/run_20260407_120000_ads_bib_openrouter
+  changed_keys:
+    - topic_model.embedding_model
+  recomputed_from: embeddings
+  reused_until: author_disambiguation
 costs:
   total_tokens: 125000
   total_cost_usd: 0.0234
@@ -115,6 +124,9 @@ Key fields:
 - **`costs`** — only populated for providers with cost tracking (OpenRouter
   respects `openrouter_cost_mode`; HF API calls are not billed through this
   tracker).
+- **`variant`** — present only for `--from-run` variants. It records the base
+  run, changed keys, first recomputed stage, and last reused stage. This is
+  additive under `schema_version: 2`.
 
 ## `publications.parquet`
 

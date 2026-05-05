@@ -562,7 +562,7 @@ def test_author_disambiguation_config_change_preserves_tokens_and_drops_author_c
     assert "author_display_names" not in session.refs.columns
 
 
-def test_author_disambiguation_with_tokenized_frames_loads_valid_snapshot_when_enabled(
+def test_author_disambiguation_with_tokenized_frames_delegates_cache_validation_when_enabled(
     tmp_path,
     monkeypatch,
 ):
@@ -581,7 +581,7 @@ def test_author_disambiguation_with_tokenized_frames_loads_valid_snapshot_when_e
     pubs = pd.DataFrame(
         [
             {
-                "Bibcode": "snap-pub",
+                "Bibcode": "and-pub",
                 "Title_en": "T",
                 "Abstract_en": "A",
                 "tokens": ["tok"],
@@ -589,16 +589,27 @@ def test_author_disambiguation_with_tokenized_frames_loads_valid_snapshot_when_e
             }
         ]
     )
-    refs = pd.DataFrame([{"Bibcode": "snap-ref", "author_uids": [["u2"]]}])
-    monkeypatch.setattr(pipeline, "load_disambiguated_snapshot", lambda **kwargs: (pubs.copy(), refs.copy()))
+    refs = pd.DataFrame([{"Bibcode": "and-ref", "author_uids": [["u2"]]}])
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(
+        pipeline,
+        "load_disambiguated_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("ads-and cache must validate metadata")),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "apply_author_disambiguation",
+        lambda publications, references, **kwargs: calls.update(kwargs) or (pubs.copy(), refs.copy()),
+    )
 
     session.run_stage("author_disambiguation")
 
     assert session.publications is not None
     assert session.refs is not None
-    assert session.publications["Bibcode"].tolist() == ["snap-pub"]
+    assert calls["dataset_id"] == session.run.run_id
+    assert session.publications["Bibcode"].tolist() == ["and-pub"]
     assert session.publications["author_uids"].tolist() == [[["u1"]]]
-    assert session.refs["Bibcode"].tolist() == ["snap-ref"]
+    assert session.refs["Bibcode"].tolist() == ["and-ref"]
 
 
 def test_llm_prompt_name_resolution_and_explicit_override(tmp_path, monkeypatch):

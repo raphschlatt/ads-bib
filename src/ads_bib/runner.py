@@ -13,7 +13,13 @@ from ads_bib._utils.logging import OutputMode
 from ads_bib._utils.llama_server import prepare_llama_server_runtime
 from ads_bib.bootstrap import ensure_default_fasttext_model
 from ads_bib.doctor import DoctorReport, collect_doctor_report
-from ads_bib.pipeline import PipelineConfig, PipelineContext, StageName, run_pipeline
+from ads_bib.pipeline import (
+    PipelineConfig,
+    PipelineContext,
+    PipelineInitialState,
+    StageName,
+    run_pipeline,
+)
 from ads_bib.presets import load_preset_config
 
 Notify = Callable[[str], None]
@@ -122,19 +128,25 @@ def run_resolved_config(
     preflight: bool = True,
     notify: Notify | None = None,
     output_mode: OutputMode | None = None,
+    initial_state: PipelineInitialState | None = None,
+    variant: dict[str, Any] | None = None,
 ) -> PipelineContext:
     """Run an already resolved config through the shared high-level path."""
     if preflight:
         _prepare_run(config, start_stage=start_stage, stop_stage=stop_stage, notify=notify)
     resolved_output_mode = _resolve_output_mode(output_mode)
-    return run_pipeline(
-        config,
-        start_stage=start_stage,
-        stop_stage=stop_stage,
-        project_root=project_root,
-        run_name=run_name,
-        output_mode=resolved_output_mode,
-    )
+    pipeline_kwargs: dict[str, Any] = {
+        "start_stage": start_stage,
+        "stop_stage": stop_stage,
+        "project_root": project_root,
+        "run_name": run_name,
+        "output_mode": resolved_output_mode,
+    }
+    if initial_state is not None:
+        pipeline_kwargs["initial_state"] = initial_state
+    if variant is not None:
+        pipeline_kwargs["variant"] = variant
+    return run_pipeline(config, **pipeline_kwargs)
 
 
 def _resolve_output_mode(output_mode: OutputMode | None) -> OutputMode:

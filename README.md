@@ -41,6 +41,20 @@ configured.
 
 Full setup details: [Get Started](https://raphschlatt.github.io/ads-bib/get-started/) | [Runtime Roads](https://raphschlatt.github.io/ads-bib/runtime-roads/)
 
+## Iterate From a Previous Run
+
+Every run writes `config_used.yaml` and reusable stage artifacts. To try one
+change without repeating the whole pipeline, start a variant from that run:
+
+```bash
+ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
+  --set topic_model.embedding_model=google/gemini-embedding-001
+```
+
+`ads-bib` loads the previous config, applies the override, chooses the earliest
+stage that needs recomputation, and writes a new run folder with a `variant`
+block in `run_summary.yaml`. Preview the reuse plan first with `--dry-run`.
+
 ## Python API
 
 ```python

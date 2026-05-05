@@ -71,11 +71,19 @@ uv pip install "ads-bib[hdbscan]"
 See [Install & First Run](get-started.md#install) for the full first-run
 walk-through.
 
-!!! tip "Reuse `config_used.yaml` from a previous run"
-    Every completed run saves the resolved configuration to
-    `runs/<run_id>/config_used.yaml`. You can hand that file straight back to
-    the CLI (`ads-bib run --config runs/<run_id>/config_used.yaml`) to
-    reproduce the run exactly or as a starting point for incremental tweaks.
+!!! tip "Start a variant from a previous run"
+    Every completed run saves the resolved configuration and reusable stage
+    artifacts. Use `--from-run` when you want to change one key and keep the
+    rest:
+
+    ```bash
+    ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
+      --set topic_model.embedding_model=google/gemini-embedding-001
+    ```
+
+    `ads-bib` loads `config_used.yaml`, applies the override, picks the first
+    affected stage, and writes a new run folder. Use `--dry-run` to see the
+    changed keys and reused/recomputed stages before creating the variant.
 
 Unless stated otherwise, the tables below describe the raw code defaults. The
 `Preset Override` column shows the value used by the four packaged starter

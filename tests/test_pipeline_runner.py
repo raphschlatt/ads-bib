@@ -748,6 +748,99 @@ def test_run_pipeline_writes_failed_summary_on_stage_error(tmp_path, monkeypatch
     assert summary["stages"]["failed_stage"] == "tokenize"
 
 
+def test_run_pipeline_citation_variant_uses_initial_state_and_writes_provenance(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "translate": {"enabled": False, "fasttext_model": "data/models/lid.176.bin"},
+            "citations": {"metrics": ["direct"], "min_counts": {"direct": 2}},
+        }
+    )
+    curated_df = pd.DataFrame([{"Bibcode": "p1", "References": ["r1"], "topic_id": 1}])
+    refs = pd.DataFrame([{"Bibcode": "r1"}])
+    author_entities = pd.DataFrame([{"author_uid": "u1"}])
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        pipeline,
+        "prepare_citation_publications",
+        lambda publications, references, **kwargs: publications,
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "build_citation_inputs_from_publications",
+        lambda publications: (["p1"], [["r1"]]),
+    )
+    monkeypatch.setattr(pipeline, "build_all_nodes", lambda publications, references: {"p1", "r1"})
+    monkeypatch.setattr(
+        pipeline,
+        "process_all_citations",
+        lambda **kwargs: captured.update(kwargs) or {"direct": pd.DataFrame([{"source": "p1", "target": "r1"}])},
+    )
+    monkeypatch.setattr(pipeline, "export_wos_format", lambda *args, **kwargs: None)
+
+    ctx = pipeline.run_pipeline(
+        config,
+        start_stage="citations",
+        stop_stage="citations",
+        project_root=tmp_path,
+        run_name="citation_variant",
+        load_environment=False,
+        initial_state=pipeline.PipelineInitialState(
+            publications=curated_df,
+            refs=refs,
+            curated_df=curated_df,
+            author_entities=author_entities,
+        ),
+        variant={
+            "base_run_id": "run_base",
+            "base_run_path": str(tmp_path / "runs" / "run_base"),
+            "changed_keys": ["citations.min_counts.direct"],
+            "recomputed_from": "citations",
+            "reused_until": "curate",
+        },
+    )
+
+    assert ctx.citation_results is not None
+    assert captured["author_entities"].equals(author_entities)
+    assert captured["min_counts"] == {"direct": 2}
+    summary = yaml.safe_load((ctx.run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["variant"]["base_run_id"] == "run_base"
+    assert summary["variant"]["recomputed_from"] == "citations"
+
+
+def test_run_pipeline_visualization_variant_uses_initial_topic_dataframe(tmp_path, monkeypatch):
+    import ads_bib.visualize as visualize
+
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "visualization": {"title": "Variant Map"},
+        }
+    )
+    topic_df = pd.DataFrame([{"Bibcode": "p1", "topic_id": 1, "Name": "Topic"}])
+    captured: dict[str, object] = {}
+
+    def _fake_create_topic_map(frame, **kwargs):
+        captured["bibcodes"] = frame["Bibcode"].tolist()
+        captured["title"] = kwargs["title"]
+
+    monkeypatch.setattr(visualize, "create_topic_map", _fake_create_topic_map)
+
+    ctx = pipeline.run_pipeline(
+        config,
+        start_stage="visualize",
+        stop_stage="visualize",
+        project_root=tmp_path,
+        run_name="visual_variant",
+        load_environment=False,
+        initial_state=pipeline.PipelineInitialState(topic_df=topic_df),
+    )
+
+    assert ctx.topic_df is not None
+    assert captured == {"bibcodes": ["p1"], "title": "Variant Map"}
+
+
 def test_run_translate_stage_uses_current_export_results_when_snapshot_blocked(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
@@ -794,6 +887,56 @@ def test_run_translate_stage_uses_current_export_results_when_snapshot_blocked(t
     assert ctx.refs["Bibcode"].tolist() == ["fresh-ref"]
     assert "Title_en" in ctx.publications.columns
     assert "Title_en" in ctx.refs.columns
+
+
+def test_run_translate_stage_recomputes_when_snapshot_metadata_mismatches(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {
+                "enabled": True,
+                "provider": "nllb",
+                "model": "stub",
+                "fasttext_model": str(tmp_path / "lid.176.bin"),
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title": "T", "Abstract": "A"}])
+    ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title": "RT", "Abstract": "RA"}])
+    saved: dict[str, object] = {}
+
+    def _load_snapshot(**kwargs):
+        assert kwargs["expected_metadata"] is not None
+        raise FileNotFoundError("metadata mismatch")
+
+    monkeypatch.setattr(pipeline, "load_translated_snapshot", _load_snapshot)
+    monkeypatch.setattr(
+        pipeline,
+        "detect_languages",
+        lambda df, columns, model_path: df.assign(
+            **{f"{col}_lang": "en" for col in columns}
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "translate_dataframe",
+        lambda df, columns, **kwargs: (
+            df.assign(**{f"{col}_en": df[col] for col in columns}),
+            {},
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_translated_snapshot",
+        lambda pubs, refs, **kwargs: saved.update(kwargs),
+    )
+
+    pipeline.run_translate_stage(ctx)
+
+    assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
+    assert saved["metadata"]["stage"] == "translate"
 
 
 def test_run_translate_stage_requires_export_when_no_inputs(tmp_path, monkeypatch):
@@ -856,6 +999,47 @@ def test_run_tokenize_stage_uses_current_translated_results_when_snapshot_blocke
 
     assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
     assert ctx.publications["tokens"].tolist() == [["tok"]]
+
+
+def test_run_tokenize_stage_recomputes_when_snapshot_metadata_mismatches(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {"enabled": False, "fasttext_model": str(tmp_path / "lid.176.bin")},
+            "tokenize": {"enabled": True},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title_en": "T", "Abstract_en": "A"}])
+    ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title_en": "RT", "Abstract_en": "RA"}])
+    saved: dict[str, object] = {}
+
+    def _load_snapshot(**kwargs):
+        assert kwargs["expected_metadata"] is not None
+        raise FileNotFoundError("metadata mismatch")
+
+    monkeypatch.setattr(pipeline, "load_tokenized_snapshot", _load_snapshot)
+    monkeypatch.setattr(pipeline, "ensure_spacy_model", lambda **kwargs: ("en_core_web_md", object()))
+    monkeypatch.setattr(
+        pipeline,
+        "tokenize_texts",
+        lambda df, **kwargs: df.assign(
+            full_text=[f"{row.Title_en}. {row.Abstract_en}" for row in df.itertuples()],
+            tokens=[["tok"] for _ in range(len(df))],
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "save_tokenized_snapshot",
+        lambda pubs, refs, **kwargs: saved.update(kwargs),
+    )
+    monkeypatch.setattr(dataset_bundle, "save_parquet", lambda *args, **kwargs: None)
+
+    pipeline.run_tokenize_stage(ctx)
+
+    assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
+    assert saved["metadata"]["stage"] == "tokenize"
 
 
 def test_run_tokenize_stage_requires_translate_when_no_inputs(tmp_path, monkeypatch):

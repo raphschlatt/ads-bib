@@ -113,6 +113,35 @@ def _write_disambiguated_outputs(
     return payload
 
 
+def test_source_frame_fingerprint_chunking_matches_legacy_payload(monkeypatch):
+    publications, _ = _input_frames()
+    larger = pd.concat([publications] * 3, ignore_index=True)
+    columns = [
+        column
+        for column in (
+            "Bibcode",
+            "Author",
+            "Year",
+            "Title_en",
+            "Title",
+            "Abstract_en",
+            "Abstract",
+            "Affiliation",
+        )
+        if column in larger.columns
+    ]
+    comparable = larger.loc[:, columns].copy()
+    for column in comparable.columns:
+        comparable[column] = comparable[column].map(and_mod._jsonable_value)
+    legacy_payload = comparable.to_json(orient="records", lines=True, force_ascii=False)
+
+    monkeypatch.setattr(and_mod, "_SOURCE_FINGERPRINT_CHUNK_SIZE", 2)
+
+    assert and_mod._source_frame_fingerprint(larger) == and_mod.hashlib.sha256(
+        legacy_payload.encode("utf-8")
+    ).hexdigest()
+
+
 def test_default_runner_uses_public_ads_and_api_without_model_bundle(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
 
@@ -318,11 +347,21 @@ def test_apply_author_disambiguation_loads_cached_outputs_without_runner(tmp_pat
         references,
         dataset_id="dataset-1",
         cache_dir=cache_dir,
+        run_data_dir=tmp_path / "variant_run" / "data",
         and_runner=_failing_runner,
     )
 
     assert first[0]["author_uids"].tolist() == second[0]["author_uids"].tolist()
     assert first[1]["author_display_names"].tolist() == second[1]["author_display_names"].tolist()
+    for filename in [
+        "source_author_assignments.parquet",
+        "author_entities.parquet",
+        "mention_clusters.parquet",
+        "summary.json",
+        "05_stage_metrics_infer_sources.json",
+        "05_go_no_go_infer_sources.json",
+    ]:
+        assert (tmp_path / "variant_run" / "data" / "and" / filename).exists()
 
 
 def test_apply_author_disambiguation_ignores_unmarked_passthrough_cache(tmp_path):

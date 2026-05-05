@@ -26,6 +26,7 @@ _REQUIRED_SOURCE_COLUMNS = {"Bibcode", "Author", "Year"}
 _AUTHOR_UID_COLUMN = "AuthorUID"
 _AUTHOR_DISPLAY_NAME_COLUMN = "AuthorDisplayName"
 _AND_CACHE_METADATA_FILE = "author_disambiguation_cache.json"
+_SOURCE_FINGERPRINT_CHUNK_SIZE = 10_000
 _LIST_OUTPUT_COLUMNS = {
     _AUTHOR_UID_COLUMN: "author_uids",
     _AUTHOR_DISPLAY_NAME_COLUMN: "author_display_names",
@@ -233,6 +234,14 @@ _OPTIONAL_AND_ARTIFACT_PATH_KEYS = (
     "stage_metrics_path",
     "go_no_go_path",
 )
+_CACHED_AND_ARTIFACT_PATTERNS = (
+    "source_author_assignments.parquet",
+    "author_entities.parquet",
+    "mention_clusters.parquet",
+    "summary.json",
+    "*_stage_metrics_*.json",
+    "*_go_no_go_*.json",
+)
 
 
 def _jsonable_value(value: Any) -> str:
@@ -259,11 +268,17 @@ def _source_frame_fingerprint(frame: pd.DataFrame) -> str:
     ]
     if not columns:
         return hashlib.sha256(str(len(frame)).encode("utf-8")).hexdigest()
-    comparable = frame.loc[:, columns].copy()
-    for column in comparable.columns:
-        comparable[column] = comparable[column].map(_jsonable_value)
-    payload = comparable.to_json(orient="records", lines=True, force_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    hasher = hashlib.sha256()
+    for start in range(0, len(frame), _SOURCE_FINGERPRINT_CHUNK_SIZE):
+        comparable = frame.iloc[start : start + _SOURCE_FINGERPRINT_CHUNK_SIZE].loc[
+            :,
+            columns,
+        ].copy()
+        for column in comparable.columns:
+            comparable[column] = comparable[column].map(_jsonable_value)
+        payload = comparable.to_json(orient="records", lines=True, force_ascii=False)
+        hasher.update(payload.encode("utf-8"))
+    return hasher.hexdigest()
 
 
 def _cache_metadata_path(cache_dir: Path | str) -> Path:
@@ -335,6 +350,32 @@ def _copy_optional_and_artifacts(result: Any, *, run_data_dir: Path | str | None
         logger.info("Copied author disambiguation diagnostics to %s", target_dir)
 
 
+def _copy_cached_and_artifacts(
+    *,
+    cache_dir: Path | str,
+    dataset_id: str,
+    run_data_dir: Path | str | None,
+) -> None:
+    if run_data_dir is None:
+        return
+
+    source_dir = Path(cache_dir) / "and_bridge" / dataset_id / "output"
+    if not source_dir.exists():
+        return
+
+    target_dir = Path(run_data_dir) / "and"
+    copied: set[Path] = set()
+    for pattern in _CACHED_AND_ARTIFACT_PATTERNS:
+        for source_path in source_dir.glob(pattern):
+            if not source_path.is_file() or source_path in copied:
+                continue
+            target_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_dir / source_path.name)
+            copied.add(source_path)
+    if copied:
+        logger.info("Copied cached author disambiguation diagnostics to %s", target_dir)
+
+
 def _run_and_runner(runner: SourceAndRunner, **kwargs: Any) -> Any:
     try:
         from torch.jit import TracerWarning
@@ -404,6 +445,11 @@ def apply_author_disambiguation(
             pass
         else:
             logger.info("Loaded cached author disambiguation outputs.")
+            _copy_cached_and_artifacts(
+                cache_dir=cache_dir,
+                dataset_id=resolved_dataset_id,
+                run_data_dir=run_data_dir,
+            )
             return (
                 _normalize_list_columns(pubs_cached, ["author_uids", "author_display_names"]),
                 _normalize_list_columns(refs_cached, ["author_uids", "author_display_names"]),

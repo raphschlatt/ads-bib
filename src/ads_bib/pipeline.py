@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -418,6 +419,16 @@ def _shape_repr(value: object) -> str:
 
 
 @dataclass
+class PipelineInitialState:
+    publications: pd.DataFrame | None = None
+    refs: pd.DataFrame | None = None
+    topic_info: pd.DataFrame | None = None
+    topic_df: pd.DataFrame | None = None
+    curated_df: pd.DataFrame | None = None
+    author_entities: pd.DataFrame | None = None
+
+
+@dataclass
 class PipelineContext:
     config: PipelineConfig
     paths: dict[str, Path]
@@ -448,6 +459,7 @@ class PipelineContext:
     citation_results: dict[str, pd.DataFrame] | None = None
     author_entities: pd.DataFrame | None = None
     resume_blocked_from: StageName | None = None
+    variant: dict[str, Any] | None = None
 
     def __repr__(self) -> str:
         """Keep notebook display compact and avoid leaking config secrets."""
@@ -502,6 +514,22 @@ def _has_source_frames(ctx: PipelineContext) -> bool:
     return ctx.publications is not None and ctx.refs is not None
 
 
+def _apply_initial_state(ctx: PipelineContext, initial_state: PipelineInitialState | None) -> None:
+    if initial_state is None:
+        return
+    for field_name in (
+        "publications",
+        "refs",
+        "topic_info",
+        "topic_df",
+        "curated_df",
+        "author_entities",
+    ):
+        value = getattr(initial_state, field_name)
+        if value is not None:
+            setattr(ctx, field_name, value.copy())
+
+
 def _has_translated_frames(ctx: PipelineContext) -> bool:
     if not _has_source_frames(ctx):
         return False
@@ -517,17 +545,95 @@ def _try_load_snapshot(
     load_fn: Callable[..., tuple[pd.DataFrame, pd.DataFrame]],
     *,
     allow_with_source_frames: bool = False,
+    load_kwargs: dict[str, Any] | None = None,
 ) -> bool:
     """Try loading a snapshot for *stage*; return True on success."""
     if (allow_with_source_frames or not _has_source_frames(ctx)) and _snapshot_allowed(ctx, stage):
         try:
             ctx.publications, ctx.refs = load_fn(
                 cache_dir=ctx.paths["cache"],
+                **(load_kwargs or {}),
             )
             return True
         except FileNotFoundError:
             pass
     return False
+
+
+def _frame_fingerprint(frame: pd.DataFrame | None, columns: tuple[str, ...]) -> str | None:
+    if frame is None:
+        return None
+    selected = [column for column in columns if column in frame.columns]
+    payload = frame.loc[:, selected].to_json(
+        orient="split",
+        date_format="iso",
+        default_handler=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _translation_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
+    cfg = ctx.config.translate
+    source_columns = ("Bibcode", "Title", "Abstract", "References")
+    return {
+        "schema_version": 1,
+        "stage": "translate",
+        "config": {
+            "enabled": bool(cfg.enabled),
+            "provider": cfg.provider,
+            "model": cfg.model,
+            "model_repo": cfg.model_repo,
+            "model_file": cfg.model_file,
+            "model_path": cfg.model_path,
+            "max_tokens": cfg.max_tokens,
+            "fasttext_model": cfg.fasttext_model,
+            "openrouter_cost_mode": ctx.config.run.openrouter_cost_mode,
+        },
+        "source": {
+            "publications": _frame_fingerprint(ctx.publications, source_columns),
+            "references": _frame_fingerprint(ctx.refs, source_columns),
+        },
+    }
+
+
+def _tokenized_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
+    cfg = ctx.config.tokenize
+    source_columns = (
+        "Bibcode",
+        "Title_en",
+        "Abstract_en",
+        "Title_lang",
+        "Abstract_lang",
+        "References",
+    )
+    return {
+        "schema_version": 1,
+        "stage": "tokenize",
+        "config": {
+            "enabled": bool(cfg.enabled),
+            "spacy_model": cfg.spacy_model,
+            "batch_size": cfg.batch_size,
+            "n_process": cfg.n_process,
+            "disable": list(cfg.disable),
+            "fallback_model": cfg.fallback_model,
+        },
+        "source": {
+            "publications": _frame_fingerprint(ctx.publications, source_columns),
+            "references": _frame_fingerprint(ctx.refs, source_columns),
+        },
+    }
+
+
+def _variant_recomputes(ctx: PipelineContext, stage: StageName) -> bool:
+    variant = ctx.variant or {}
+    recomputed_from = variant.get("recomputed_from")
+    if recomputed_from is None:
+        return False
+    try:
+        recomputed_stage = validate_stage_name(str(recomputed_from))
+    except ValueError:
+        return False
+    return STAGE_ORDER.index(recomputed_stage) <= STAGE_ORDER.index(stage)
 
 
 def _stage_slice(start_stage: StageName, stop_stage: StageName | None) -> tuple[StageName, ...]:
@@ -819,6 +925,7 @@ def _finalize_run_summary(
         completed_stages=completed_stages or _infer_completed_stages(ctx),
         failed_stage=failed_stage,
         error=error,
+        variant=ctx.variant,
     )
     try:
         display_path = summary_path.relative_to(ctx.project_root)
@@ -991,13 +1098,17 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     cfg = ctx.config.translate
-    if _try_load_snapshot(
-        ctx,
-        "translate",
-        load_translated_snapshot,
-        allow_with_source_frames=cfg.enabled,
-    ):
-        return ctx
+    can_load_unvalidated_snapshot = not (_variant_recomputes(ctx, "translate") and not _has_source_frames(ctx))
+    if can_load_unvalidated_snapshot:
+        expected_metadata = _translation_snapshot_metadata(ctx) if _has_source_frames(ctx) else None
+        if _try_load_snapshot(
+            ctx,
+            "translate",
+            load_translated_snapshot,
+            allow_with_source_frames=cfg.enabled,
+            load_kwargs={"expected_metadata": expected_metadata},
+        ):
+            return ctx
 
     if not _has_source_frames(ctx):
         raise _require_stage(
@@ -1014,6 +1125,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.publications,
             ctx.refs,
             cache_dir=ctx.paths["cache"],
+            metadata=_translation_snapshot_metadata(ctx),
         )
         _advance_resume_block(ctx, "translate")
         return ctx
@@ -1135,6 +1247,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.publications,
         ctx.refs,
         cache_dir=ctx.paths["cache"],
+        metadata=_translation_snapshot_metadata(ctx),
     )
     _advance_resume_block(ctx, "translate")
     return ctx
@@ -1145,13 +1258,17 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     cfg = ctx.config.tokenize
-    if _try_load_snapshot(
-        ctx,
-        "tokenize",
-        load_tokenized_snapshot,
-        allow_with_source_frames=cfg.enabled,
-    ):
-        return ctx
+    can_load_unvalidated_snapshot = not (_variant_recomputes(ctx, "tokenize") and not _has_translated_frames(ctx))
+    if can_load_unvalidated_snapshot:
+        expected_metadata = _tokenized_snapshot_metadata(ctx) if _has_translated_frames(ctx) else None
+        if _try_load_snapshot(
+            ctx,
+            "tokenize",
+            load_tokenized_snapshot,
+            allow_with_source_frames=cfg.enabled,
+            load_kwargs={"expected_metadata": expected_metadata},
+        ):
+            return ctx
 
     if not _has_translated_frames(ctx):
         raise _require_stage(
@@ -1168,6 +1285,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
             ctx.publications,
             ctx.refs,
             cache_dir=ctx.paths["cache"],
+            metadata=_tokenized_snapshot_metadata(ctx),
         )
         _advance_resume_block(ctx, "tokenize")
         return ctx
@@ -1212,6 +1330,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
         ctx.publications,
         ctx.refs,
         cache_dir=ctx.paths["cache"],
+        metadata=_tokenized_snapshot_metadata(ctx),
     )
     _ensure_run_references_artifact(
         refs=ctx.refs,
@@ -1251,11 +1370,10 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
         return ctx
 
     cfg = ctx.config.author_disambiguation
-    if _try_load_snapshot(
+    if not cfg.enabled and _try_load_snapshot(
         ctx,
         "author_disambiguation",
         load_disambiguated_snapshot,
-        allow_with_source_frames=cfg.enabled,
     ):
         return ctx
 
@@ -1925,6 +2043,8 @@ def run_pipeline(
     start_time: float | None = None,
     load_environment: bool = True,
     output_mode: OutputMode = "cli",
+    initial_state: PipelineInitialState | None = None,
+    variant: dict[str, Any] | None = None,
 ) -> PipelineContext:
     prepared_config = prepare_pipeline_config(config)
     effective_start_time = start_time if start_time is not None else time.time()
@@ -1944,6 +2064,8 @@ def run_pipeline(
         load_environment=load_environment,
         output_mode=output_mode,
     )
+    ctx.variant = dict(variant) if variant is not None else None
+    _apply_initial_state(ctx, initial_state)
     ctx.run.save_config(prepared_config)
     reporter = getattr(ctx, "reporter", None)
     if reporter is not None:
@@ -2001,6 +2123,7 @@ __all__ = [
     "CurationConfig",
     "PipelineConfig",
     "PipelineContext",
+    "PipelineInitialState",
     "RunConfig",
     "SearchConfig",
     "StagePrerequisiteError",
