@@ -14,9 +14,9 @@ This runbook is for maintainers preparing a tagged `ads-bib` release.
 
 ```bash
 uv lock --check
-uv run python scripts/ops/check_release_version.py v0.1.0
+uv run python scripts/ops/check_release_version.py v0.2.0
 uv run python scripts/ops/check_release_docs.py
-uv run ruff check src tests
+uv run ruff check src tests scripts
 uv run pytest -q
 uv run zensical build --clean
 uv build
@@ -31,8 +31,8 @@ uvx twine check dist/*
 7. Tag the checked commit, for example:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 The tag workflow builds the distribution once, publishes it to PyPI, and

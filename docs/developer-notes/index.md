@@ -60,15 +60,15 @@ Explicit equivalents:
 === "macOS / Linux"
 
     ```bash
-    python -m ruff check src tests
-    PYTHONPATH=src python -m pytest -q
+    uv run ruff check src tests scripts
+    uv run pytest -q
     ```
 
 === "Windows (PowerShell)"
 
     ```powershell
-    python -m ruff check src tests
-    $env:PYTHONPATH = "src"; python -m pytest -q
+    uv run ruff check src tests scripts
+    uv run pytest -q
     ```
 
 Two pytest markers live in `pyproject.toml`:

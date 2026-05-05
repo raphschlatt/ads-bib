@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-05
+
 ### Added
 - CLI run variants via `ads-bib run --from-run <run-id-or-path> --set ...`, including automatic stage planning, `--dry-run`, downstream artifact hydration for visualization/citation-only variants, and optional `variant` provenance in `run_summary.yaml`.
 
