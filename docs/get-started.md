@@ -35,11 +35,12 @@ Don't have `uv` yet? Install it once with `pipx install uv` or
 
 ## Create `.env`
 
-Run `ads-bib` from the directory that should hold `data/` and `runs/`. That
-directory becomes the pipeline `project_root`.
+Run `ads-bib` from the directory that should hold the shared `data/cache/`
+folder and the `runs/` output folder. That directory becomes the pipeline
+`project_root`; do not create project folders inside `runs/`.
 
-Create `.env` in that working directory. `ADS_TOKEN` is always required; the
-other keys depend on the road you pick:
+Create `.env` in that project folder. `ADS_TOKEN` is always required; the other
+keys depend on the road you pick:
 
 | Road | Required keys |
 | --- | --- |
@@ -110,7 +111,7 @@ the default `lid.176.bin`. To also write a packaged preset to a YAML file, pass
 **both** `--preset` and `--config` (same requirement as a preset+path pair):
 
 ```bash
-# Only workspace + .env (no preset file)
+# Only project folders + .env (no preset file)
 ads-bib bootstrap --project-root .
 
 # Preset YAML + .env in one go
@@ -130,22 +131,32 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── run_summary.yaml
 ├── logs/runtime.log
 ├── data/
-│   ├── publications.parquet
-│   ├── references.parquet
-│   ├── topic_info.parquet
-│   ├── direct.gexf
-│   ├── co_citation.gexf
-│   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf
-│   └── download_wos_export.txt
+│   ├── search/
+│   ├── export/
+│   ├── translated/
+│   ├── tokenized/
+│   ├── and/
+│   ├── dataset/
+│   │   ├── publications.parquet
+│   │   ├── references.parquet
+│   │   ├── topic_info.parquet
+│   │   └── dataset_manifest.json
+│   └── citations/
+│       ├── direct.gexf
+│       ├── co_citation.gexf
+│       ├── bibliographic_coupling.gexf
+│       ├── author_co_citation.gexf
+│       └── download_wos_export.txt
 └── plots/topic_map.html
 ```
 
-Open `topic_map.html` in a browser, load the `.gexf` files in
-[Gephi](https://gephi.org/), or import `download_wos_export.txt` into
+Open `plots/topic_map.html` in a browser, load the `.gexf` files in
+`data/citations/` with [Gephi](https://gephi.org/), or import
+`data/citations/download_wos_export.txt` into
 [CiteSpace](https://citespace.podia.com/) or
-[VOSviewer](https://www.vosviewer.com/). `config_used.yaml` is reusable as a
-CLI config for future runs.
+[VOSviewer](https://www.vosviewer.com/). For iteration, prefer
+`ads-bib run --from-run <run_id> --set ...`; it reuses valid earlier artifacts
+and records the variant in the new run summary.
 
 ## Read next
 

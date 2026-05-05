@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 import hashlib
@@ -34,6 +34,7 @@ from ads_bib._utils.openrouter_costs import (
     normalize_openrouter_cost_mode,
     resolve_openrouter_costs,
 )
+from ads_bib._utils.openrouter_client import should_retry_openrouter_error
 from ads_bib.config import validate_provider
 from ads_bib.topic_model._runtime import EMBEDDING_PROVIDER_IMPORTS, EMBEDDING_PROVIDERS
 
@@ -42,6 +43,7 @@ logger = logging.getLogger("ads_bib.topic_model")
 _DOC_FINGERPRINT_SEPARATOR = "\x1f"
 _DOC_FINGERPRINT_ENCODING = "utf-8"
 _PAID_PROVIDER_FALLBACK_DIM = 3072
+_OPENROUTER_EMBEDDING_MAX_RETRIES = 8
 _PAID_PROVIDER_DIM_HINTS = {
     "google/gemini-embedding-001": 3072,
 }
@@ -95,6 +97,19 @@ def _documents_fingerprint(documents: list[str]) -> str:
         hasher.update(payload)
         hasher.update(_DOC_FINGERPRINT_SEPARATOR.encode(_DOC_FINGERPRINT_ENCODING))
     return hasher.hexdigest()
+
+
+def _embedding_cache_file(
+    cache_dir: Path,
+    *,
+    provider: str,
+    model: str,
+    doc_fingerprint: str,
+) -> Path:
+    """Return the cache path for one provider/model/input combination."""
+    model_safe = model.replace("/", "_")
+    fingerprint_short = doc_fingerprint[:16]
+    return cache_dir / f"embeddings_{provider}_{model_safe}_{fingerprint_short}.npz"
 
 
 def _available_memory_bytes() -> int | None:
@@ -196,7 +211,8 @@ def compute_embeddings(
         Provider-specific embedding model identifier.
     cache_dir : Path, optional
         Cache directory. When set, embeddings are loaded from/saved to
-        ``embeddings_{provider}_{model}.npz`` with fingerprint validation.
+        ``embeddings_{provider}_{model}_{input_hash}.npz`` with fingerprint
+        validation.
     batch_size : int
         Per-call batch size for embedding requests.
     max_workers : int
@@ -237,9 +253,18 @@ def compute_embeddings(
     target_dtype = np.dtype(dtype)
     internal_show_progress = bool(show_progress) and progress_callback is None
 
-    model_safe = model.replace("/", "_")
-    cache_file = (cache_dir / f"embeddings_{provider}_{model_safe}.npz") if cache_dir else None
     doc_fingerprint = _documents_fingerprint(documents)
+    cache_file = (
+        _embedding_cache_file(
+            cache_dir,
+            provider=provider,
+            model=model,
+            doc_fingerprint=doc_fingerprint,
+        )
+        if cache_dir
+        else None
+    )
+    partial_cache_file = cache_file.with_suffix(".partial.npz") if cache_file else None
 
     if cache_file and cache_file.exists():
         data = np.load(cache_file, allow_pickle=True)
@@ -315,6 +340,15 @@ def compute_embeddings(
             documents,
             show_progress_bar=internal_show_progress,
             progress_callback=progress_callback,
+            checkpoint_file=partial_cache_file,
+            checkpoint_metadata={
+                "provider": provider,
+                "model": model,
+                "n_docs": len(documents),
+                "doc_fingerprint": doc_fingerprint,
+                "batch_size": batch_size,
+                "dtype": str(target_dtype),
+            },
         )
         usage = embedder.usage
         if cost_tracker is not None and usage["total_tokens"] > 0:
@@ -348,6 +382,8 @@ def compute_embeddings(
             "dtype": str(target_dtype),
         }
         np.savez_compressed(cache_file, **payload)
+        if partial_cache_file is not None and partial_cache_file.exists():
+            partial_cache_file.unlink()
         logger.info("  Saved: %s", cache_file.name)
 
     logger.info("  Embeddings: %s", emb.shape)
@@ -566,7 +602,7 @@ class OpenRouterEmbedder:
         *,
         api_key: str | None,
         model: str,
-        batch_size: int = 64,
+        batch_size: int = 96,
         max_workers: int = 5,
         dtype: Any = np.float32,
         api_base: str | None = None,
@@ -603,6 +639,8 @@ class OpenRouterEmbedder:
         verbose: bool | None = None,
         show_progress_bar: bool | None = None,
         progress_callback: Callable[[int], None] | None = None,
+        checkpoint_file: Path | str | None = None,
+        checkpoint_metadata: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> np.ndarray:
         """Embed texts via OpenRouter using LiteLLM with retries and parallel workers."""
@@ -612,13 +650,17 @@ class OpenRouterEmbedder:
         texts = list(texts)
         if not texts:
             return np.array([], dtype=self.dtype)
+        request_texts = [
+            text if str(text).strip() else "(empty text)"
+            for text in texts
+        ]
 
         model_name = self.model
         if not model_name.startswith("openrouter/"):
             model_name = f"openrouter/{model_name}"
 
         batch_size = max(1, self.batch_size)
-        batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+        batches = [request_texts[i : i + batch_size] for i in range(0, len(request_texts), batch_size)]
         batch_offsets: list[tuple[int, int]] = []
         offset = 0
         for batch in batches:
@@ -638,6 +680,8 @@ class OpenRouterEmbedder:
             _resolve_show_progress(verbose=verbose, show_progress_bar=show_progress_bar)
             and progress_callback is None
         )
+        checkpoint_path = Path(checkpoint_file) if checkpoint_file is not None else None
+        checkpoint_payload = dict(checkpoint_metadata or {})
 
         def _embed_batch(batch_index: int, batch: list[str]) -> dict[str, Any]:
             """Embed one batch and return validated embeddings plus usage metadata."""
@@ -679,15 +723,17 @@ class OpenRouterEmbedder:
             try:
                 response, embeddings = retry_call(
                     _request_batch,
-                    max_retries=3,
+                    max_retries=_OPENROUTER_EMBEDDING_MAX_RETRIES,
                     delay=2.0,
                     backoff="exponential",
                     on_retry=_on_retry,
+                    retry_if=should_retry_openrouter_error,
                 )
             except Exception as exc:
                 logger.warning(
-                    "  OpenRouter embedding batch %s failed after 3 attempts: %s: %s",
+                    "  OpenRouter embedding batch %s failed after %s attempts: %s: %s",
                     batch_index,
+                    _OPENROUTER_EMBEDDING_MAX_RETRIES,
                     type(exc).__name__,
                     exc,
                 )
@@ -707,6 +753,55 @@ class OpenRouterEmbedder:
 
         out: np.ndarray | None = None
         usage_by_batch: dict[int, dict[str, Any]] = {}
+        completed_batches: set[int] = set()
+
+        def _metadata_matches(data: Any) -> bool:
+            for key, expected in checkpoint_payload.items():
+                if key not in data.files:
+                    return False
+                actual = data[key]
+                if isinstance(actual, np.ndarray) and actual.shape == ():
+                    actual = actual.item()
+                if str(actual) != str(expected):
+                    return False
+            return True
+
+        if checkpoint_path is not None and checkpoint_path.exists():
+            try:
+                data = np.load(checkpoint_path, allow_pickle=True)
+                if _metadata_matches(data):
+                    cached = data["embeddings"].astype(self.dtype, copy=False)
+                    if cached.ndim == 2 and cached.shape[0] == len(texts):
+                        out = np.array(cached, dtype=self.dtype, copy=True)
+                        completed_batches = {int(value) for value in data["completed_batches"].tolist()}
+                        completed_docs = sum(batch_offsets[index][1] - batch_offsets[index][0] for index in completed_batches)
+                        if progress_callback is not None and completed_docs > 0:
+                            progress_callback(completed_docs)
+                        logger.info(
+                            "  Resuming OpenRouter embeddings from partial cache: %s/%s batches",
+                            f"{len(completed_batches):,}",
+                            f"{len(batches):,}",
+                        )
+                else:
+                    logger.warning("  Ignoring partial embedding cache with mismatched metadata: %s", checkpoint_path.name)
+            except Exception as exc:
+                logger.warning("  Ignoring unreadable partial embedding cache %s: %s", checkpoint_path.name, exc)
+
+        def _save_checkpoint() -> None:
+            if checkpoint_path is None or out is None or not completed_batches:
+                return
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            payload: dict[str, Any] = {
+                "embeddings": out,
+                "completed_batches": np.asarray(sorted(completed_batches), dtype=np.int32),
+                **checkpoint_payload,
+            }
+            np.savez_compressed(checkpoint_path, **payload)
+            logger.info(
+                "  Saved partial OpenRouter embedding cache: %s/%s batches",
+                f"{len(completed_batches):,}",
+                f"{len(batches):,}",
+            )
 
         def _store_result(result: dict[str, Any]) -> None:
             nonlocal out
@@ -722,7 +817,10 @@ class OpenRouterEmbedder:
                     f"expected {expected_rows}, got {batch_embeddings.shape[0]}."
                 )
             if out is None:
-                out = np.empty((len(texts), batch_embeddings.shape[1]), dtype=self.dtype)
+                if checkpoint_path is None:
+                    out = np.empty((len(texts), batch_embeddings.shape[1]), dtype=self.dtype)
+                else:
+                    out = np.zeros((len(texts), batch_embeddings.shape[1]), dtype=self.dtype)
             elif batch_embeddings.shape[1] != out.shape[1]:
                 raise RuntimeError(
                     "OpenRouter embedding dimension mismatch across batches: "
@@ -736,33 +834,52 @@ class OpenRouterEmbedder:
                 "total_tokens": int(result["total_tokens"]),
                 "call_record": result["call_record"],
             }
+            completed_batches.add(batch_index)
 
         desc = "Embedding (OpenRouter)"
-        if worker_count == 1:
-            for batch_index, batch in tqdm(
-                enumerate(batches),
-                total=len(batches),
-                desc=desc,
-                disable=not show_progress,
-            ):
-                result = _embed_batch(batch_index, batch)
-                _store_result(result)
-        else:
-            with ThreadPoolExecutor(max_workers=worker_count) as pool:
-                futures = [pool.submit(_embed_batch, batch_index, batch) for batch_index, batch in enumerate(batches)]
-                for future in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
+        try:
+            if worker_count == 1:
+                iterator = tqdm(
+                    enumerate(batches),
+                    total=len(batches),
+                    initial=len(completed_batches),
                     desc=desc,
                     disable=not show_progress,
-                ):
-                    result = future.result()
+                )
+                for batch_index, batch in iterator:
+                    if batch_index in completed_batches:
+                        continue
+                    result = _embed_batch(batch_index, batch)
                     _store_result(result)
+            else:
+                with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                    futures = [
+                        pool.submit(_embed_batch, batch_index, batch)
+                        for batch_index, batch in enumerate(batches)
+                        if batch_index not in completed_batches
+                    ]
+                    for future in tqdm(
+                        as_completed(futures),
+                        total=len(futures) + len(completed_batches),
+                        initial=len(completed_batches),
+                        desc=desc,
+                        disable=not show_progress,
+                    ):
+                        result = future.result()
+                        _store_result(result)
+        except Exception:
+            _save_checkpoint()
+            raise
+
+        if len(completed_batches) != len(batches):
+            _save_checkpoint()
+            missing = sorted(set(range(len(batches))).difference(completed_batches))
+            raise RuntimeError(f"OpenRouter embeddings missing {len(missing)} completed batches.")
 
         prompt_tokens = 0
         total_tokens = 0
         call_records: list[dict[str, Any]] = []
-        for batch_index in range(len(batches)):
+        for batch_index in sorted(usage_by_batch):
             usage = usage_by_batch[batch_index]
             prompt_tokens += usage["prompt_tokens"]
             total_tokens += usage["total_tokens"]

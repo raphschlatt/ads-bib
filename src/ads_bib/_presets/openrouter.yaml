@@ -65,7 +65,7 @@ topic_model:
   embedding_provider: openrouter
   embedding_model: qwen/qwen3-embedding-8b
   embedding_api_key: null
-  embedding_batch_size: 32
+  embedding_batch_size: 96
   embedding_max_workers: 8
   reduction_method: pacmap
   params_5d:
@@ -103,7 +103,8 @@ topic_model:
     - MMR
     - POS
     - KeyBERT
-  toponymy_embedding_model: null
+  toponymy_embedding_model: qwen/qwen3-embedding-8b
+  toponymy_embedding_batch_size: 96
   toponymy_max_workers: 10
   min_df: 3
   outlier_threshold: 0.5

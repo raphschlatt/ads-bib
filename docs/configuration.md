@@ -71,11 +71,20 @@ uv pip install "ads-bib[hdbscan]"
 See [Install & First Run](get-started.md#install) for the full first-run
 walk-through.
 
-!!! tip "Reuse `config_used.yaml` from a previous run"
-    Every completed run saves the resolved configuration to
-    `runs/<run_id>/config_used.yaml`. You can hand that file straight back to
-    the CLI (`ads-bib run --config runs/<run_id>/config_used.yaml`) to
-    reproduce the run exactly or as a starting point for incremental tweaks.
+!!! tip "Start a variant from a previous run"
+    Every completed run saves the resolved configuration and reusable stage
+    artifacts. Use `--from-run` when you want to change one key and keep the
+    rest:
+
+    ```bash
+    ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
+      --set topic_model.embedding_model=google/gemini-embedding-001
+    ```
+
+    `ads-bib` loads `config_used.yaml`, applies the override, picks the first
+    affected stage, and writes a new run folder under `runs/`. Use `--dry-run`
+    to see the changed keys and reused/recomputed stages before creating the
+    variant.
 
 Unless stated otherwise, the tables below describe the raw code defaults. The
 `Preset Override` column shows the value used by the four packaged starter
@@ -105,7 +114,7 @@ to notebook dict keys and YAML config keys.
 | `stop_stage` | string \| null | `null` | Last stage to run; `null` runs to the end. CLI `--to` and `ads_bib.run(stop_stage=...)` override this. |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
 | `openrouter_cost_mode` | string | `"hybrid"` | OpenRouter cost resolution. `"hybrid"` combines live usage with a pricing lookup (default). `"strict"` fails fast when cost data is incomplete. `"fast"` skips the extra lookup and trusts the streaming usage payload. |
-| `project_root` | string \| null | `null` | Override project root; defaults to current working directory |
+| `project_root` | string \| null | `null` | Project folder for shared `data/cache/` and run outputs under `runs/`; defaults to current working directory |
 
 ## Search
 
@@ -208,7 +217,7 @@ CPU is useful for small checks; use local GPU or Modal for larger corpora.
 | `embedding_provider` | string | varies | `local`, `openrouter`, or `huggingface_api` |
 | `embedding_model` | string | varies | Model identifier (HF name or OpenRouter name) |
 | `embedding_api_key` | string \| null | `null` | API key override for embedding provider |
-| `embedding_batch_size` | int | `64` | Documents per embedding batch |
+| `embedding_batch_size` | int | `96` | Documents per embedding batch |
 | `embedding_max_workers` | int | `20` | Concurrent embedding requests |
 
 ### Dimensionality Reduction
@@ -270,10 +279,14 @@ cluster_params:
 | `toponymy_layer_index` | string \| int | `"auto"` | Working-layer selector; `auto` picks the coarsest layer |
 | `toponymy_local_label_max_tokens` | int | `128` | Max tokens for local Toponymy labels |
 | `toponymy_embedding_model` | string \| null | `null` | Toponymy-internal embedding model; falls back to main embedding model |
+| `toponymy_embedding_batch_size` | int | `96` | Batch size for API-based Toponymy-internal embedding calls |
 | `toponymy_max_workers` | int | `10` | Concurrent labeling/embedding requests |
 
 Toponymy is validated with `toponymy==0.4.0` and `fast-hdbscan>=0.2.2,<0.3`.
-The `toponymy_max_workers` setting controls concurrent labeling and embedding
+The OpenRouter preset pins `toponymy_embedding_model` to `qwen/qwen3-embedding-8b`
+so swapping the main document embedding model does not accidentally make
+Toponymy keyphrase/name embeddings slower or more expensive. The
+`toponymy_max_workers` setting controls concurrent labeling and embedding
 requests; it does not change the internal HDBSCAN/Boruvka thread count.
 
 ## Visualization

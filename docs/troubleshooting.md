@@ -16,7 +16,7 @@ Walk through this short checklist before investigating a symptom:
     ```
 
 2. Confirm you are in the Python 3.12 env you intend to use for this run.
-3. Confirm `.env` exists in your working directory and holds the keys your
+3. Confirm `.env` exists in your project folder and holds the keys your
    road requires (see [Install & First Run](get-started.md#create-env)).
 4. Check the versions of the package and its heavy dependencies:
 

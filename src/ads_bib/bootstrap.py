@@ -1,4 +1,4 @@
-"""Workspace bootstrap helpers for the packaged CLI flow."""
+"""Project-folder bootstrap helpers for the packaged CLI flow."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def bootstrap_workspace(
     download_fasttext: bool = False,
     force: bool = False,
 ) -> list[str]:
-    """Initialize a working directory for packaged CLI runs."""
+    """Initialize a project folder for packaged CLI runs."""
     root = Path(project_root) if project_root else Path.cwd()
     root = root.expanduser().resolve()
 
@@ -86,7 +86,7 @@ def bootstrap_workspace(
     runs_dir = root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    lines = [f"Workspace root: {root}"]
+    lines = [f"Project root: {root}"]
     lines.append(f"Ensured data directories under {paths['data']}")
     lines.append(f"Ensured runs directory at {runs_dir}")
 

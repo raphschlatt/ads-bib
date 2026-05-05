@@ -51,6 +51,39 @@ def test_load_translated_snapshot_reads_and_copies(tmp_path):
     assert (run_dir / "references_translated.json").exists()
 
 
+def test_load_translated_snapshot_requires_matching_metadata(tmp_path):
+    cache_dir = tmp_path / "cache"
+    pubs, refs = _frames()
+    save_translated_snapshot(
+        pubs,
+        refs,
+        cache_dir=cache_dir,
+        metadata={"schema_version": 1, "source": "a"},
+    )
+
+    load_translated_snapshot(
+        cache_dir=cache_dir,
+        expected_metadata={"schema_version": 1, "source": "a"},
+    )
+    with pytest.raises(FileNotFoundError, match="metadata mismatch"):
+        load_translated_snapshot(
+            cache_dir=cache_dir,
+            expected_metadata={"schema_version": 1, "source": "b"},
+        )
+
+
+def test_old_translated_snapshot_without_metadata_is_unsafe_when_metadata_expected(tmp_path):
+    cache_dir = tmp_path / "cache"
+    pubs, refs = _frames()
+    save_translated_snapshot(pubs, refs, cache_dir=cache_dir)
+
+    with pytest.raises(FileNotFoundError, match="Missing snapshot metadata"):
+        load_translated_snapshot(
+            cache_dir=cache_dir,
+            expected_metadata={"schema_version": 1, "source": "a"},
+        )
+
+
 def test_load_translated_snapshot_raises_when_missing(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_translated_snapshot(cache_dir=tmp_path / "cache")
@@ -90,6 +123,27 @@ def test_load_tokenized_snapshot_reads_and_copies(tmp_path):
     assert loaded_refs["Bibcode"].tolist() == ["r1"]
     assert (run_dir / "publications_tokenized.json").exists()
     assert (run_dir / "references_translated.json").exists()
+
+
+def test_load_tokenized_snapshot_requires_matching_metadata(tmp_path):
+    cache_dir = tmp_path / "cache"
+    pubs, refs = _frames()
+    save_tokenized_snapshot(
+        pubs,
+        refs,
+        cache_dir=cache_dir,
+        metadata={"schema_version": 1, "source": "a"},
+    )
+
+    load_tokenized_snapshot(
+        cache_dir=cache_dir,
+        expected_metadata={"schema_version": 1, "source": "a"},
+    )
+    with pytest.raises(FileNotFoundError, match="metadata mismatch"):
+        load_tokenized_snapshot(
+            cache_dir=cache_dir,
+            expected_metadata={"schema_version": 1, "source": "b"},
+        )
 
 
 def test_load_tokenized_snapshot_raises_when_missing(tmp_path):

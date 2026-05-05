@@ -13,20 +13,41 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── logs/
 │   └── runtime.log
 ├── data/
-│   ├── publications.parquet
-│   ├── references.parquet
-│   ├── topic_info.parquet
-│   ├── dataset_manifest.json
-│   ├── direct.gexf
-│   ├── co_citation.gexf
-│   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf
-│   └── download_wos_export.txt
+│   ├── search/
+│   │   └── search_results.json
+│   ├── export/
+│   │   ├── publications.parquet
+│   │   └── references.parquet
+│   ├── translated/
+│   │   ├── publications.parquet
+│   │   └── references.parquet
+│   ├── tokenized/
+│   │   ├── publications.parquet
+│   │   └── references.parquet
+│   ├── and/
+│   │   ├── publications.parquet
+│   │   ├── references.parquet
+│   │   └── author_entities.parquet
+│   ├── dataset/
+│   │   ├── publications.parquet
+│   │   ├── references.parquet
+│   │   ├── topic_info.parquet
+│   │   └── dataset_manifest.json
+│   └── citations/
+│       ├── direct.gexf
+│       ├── co_citation.gexf
+│       ├── bibliographic_coupling.gexf
+│       ├── author_co_citation.gexf
+│       └── download_wos_export.txt
 └── plots/
     └── topic_map.html
 ```
 
-Every file in that tree has a single canonical owner described below.
+`data/cache/` lives outside the run folder and is shared by later runs and
+variants. Files inside `runs/<run_id>/` are the artifacts for that exact run.
+The stage directories (`search`, `export`, `translated`, `tokenized`, `and`)
+are run-local restart points; `--from-run` uses them before consulting any
+project-wide cache.
 
 The public Parquet bundle is prepared for downstream analysis when it is
 written: duplicate `Bibcode` rows are reduced deterministically, publication
@@ -45,8 +66,10 @@ ads-bib run --config runs/<run_id>/config_used.yaml
 
 Secrets such as ADS tokens, OpenRouter keys, and Hugging Face tokens are written
 as `<redacted>`, so keep real credentials in `.env` or your shell environment.
-Use the file to audit what values the preset + CLI overrides resolved to, or
-diff two runs to see which knobs changed.
+Use the file to audit what values the preset + CLI overrides resolved to. For
+iteration, prefer `ads-bib run --from-run <run_id> --set ...`; it loads this
+file safely, restores redacted secrets from `.env`/environment values, and
+reuses any still-valid artifacts.
 
 ## `run_summary.yaml`
 
@@ -54,6 +77,7 @@ Compact run report written at the end of each run.
 
 ```yaml
 schema_version: 2
+artifact_layout_version: 2
 run:
   run_id: run_20260407_120000_ads_bib_openrouter
   run_name: ads_bib_openrouter
@@ -89,6 +113,13 @@ topic_hierarchy:             # Toponymy only
   topic_primary_layer_index: 2
   topic_clusters_per_layer: [15, 8, 4]
   topic_primary_layer_selection: auto
+variant:                     # only for --from-run variants
+  base_run_id: run_20260407_120000_ads_bib_openrouter
+  base_run_path: runs/run_20260407_120000_ads_bib_openrouter
+  changed_keys:
+    - topic_model.embedding_model
+  recomputed_from: embeddings
+  reused_until: author_disambiguation
 costs:
   total_tokens: 125000
   total_cost_usd: 0.0234
@@ -106,6 +137,8 @@ costs:
 Key fields:
 
 - **`schema_version`** — bumped on breaking changes to this file.
+- **`artifact_layout_version`** — identifies the canonical v0.2 run folder
+  layout used by `--from-run` variants.
 - **`stages.completed_stages`** — usable for resume-style runs with
   `--from <next_stage>`.
 - **`reproducibility.config_sha256`** — same value for two runs means they
@@ -115,6 +148,9 @@ Key fields:
 - **`costs`** — only populated for providers with cost tracking (OpenRouter
   respects `openrouter_cost_mode`; HF API calls are not billed through this
   tracker).
+- **`variant`** — present only for `--from-run` variants. It records the base
+  run, changed keys, first recomputed stage, and last reused stage. This is
+  additive under `schema_version: 2`.
 
 ## `publications.parquet`
 
@@ -157,7 +193,7 @@ Bibcode          Year  Title_en                                   topic_id  Name
 2005PhRvD..72..  2005  Information loss in black holes            2         Hawking radiation           0.16          -3.01           1.73
 ```
 
-Load it back with `pandas.read_parquet("runs/<run_id>/data/publications.parquet")`.
+Load it back with `pandas.read_parquet("runs/<run_id>/data/dataset/publications.parquet")`.
 For Toponymy runs, each row additionally carries `topic_layer_0_id`,
 `topic_layer_0_label`, … up to `topic_layer_<n>_*` and the two hierarchy
 metadata columns `topic_primary_layer_index` and `topic_layer_count`.

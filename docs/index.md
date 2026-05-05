@@ -68,14 +68,13 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── run_summary.yaml          # run metadata, counts, costs
 ├── logs/runtime.log
 ├── data/
-│   ├── publications.parquet
-│   ├── references.parquet
-│   ├── topic_info.parquet
-│   ├── direct.gexf
-│   ├── co_citation.gexf
-│   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf
-│   └── download_wos_export.txt
+│   ├── search/               # ADS search result for export variants
+│   ├── export/               # pre-translation frames
+│   ├── translated/           # translated frames
+│   ├── tokenized/            # tokenized frames
+│   ├── and/                  # disambiguated frames and diagnostics
+│   ├── dataset/              # final publications, references, topic_info, manifest
+│   └── citations/            # GEXF/CSV/JSON networks and WOS export
 └── plots/topic_map.html
 ```
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import warnings
 
@@ -111,6 +112,35 @@ def _write_disambiguated_outputs(
         path.write_text('{"ok": true}', encoding="utf-8")
         payload[key] = path
     return payload
+
+
+def test_source_frame_fingerprint_chunking_matches_legacy_payload(monkeypatch):
+    publications, _ = _input_frames()
+    larger = pd.concat([publications] * 3, ignore_index=True)
+    columns = [
+        column
+        for column in (
+            "Bibcode",
+            "Author",
+            "Year",
+            "Title_en",
+            "Title",
+            "Abstract_en",
+            "Abstract",
+            "Affiliation",
+        )
+        if column in larger.columns
+    ]
+    comparable = larger.loc[:, columns].copy()
+    for column in comparable.columns:
+        comparable[column] = comparable[column].map(and_mod._jsonable_value)
+    legacy_payload = comparable.to_json(orient="records", lines=True, force_ascii=False)
+
+    monkeypatch.setattr(and_mod, "_SOURCE_FINGERPRINT_CHUNK_SIZE", 2)
+
+    assert and_mod._source_frame_fingerprint(larger) == and_mod.hashlib.sha256(
+        legacy_payload.encode("utf-8")
+    ).hexdigest()
 
 
 def test_default_runner_uses_public_ads_and_api_without_model_bundle(monkeypatch, tmp_path):
@@ -313,16 +343,73 @@ def test_apply_author_disambiguation_loads_cached_outputs_without_runner(tmp_pat
     def _failing_runner(**_kwargs):
         raise AssertionError("Runner should not be called when cache is available")
 
+    metadata = json.loads((cache_dir / "author_disambiguation_cache.json").read_text(encoding="utf-8"))
     second = apply_author_disambiguation(
         publications,
         references,
         dataset_id="dataset-1",
         cache_dir=cache_dir,
+        run_data_dir=tmp_path / "variant_run" / "data",
+        source_fingerprints={
+            "publications": metadata["publications_fingerprint"],
+            "references": metadata["references_fingerprint"],
+        },
         and_runner=_failing_runner,
     )
 
     assert first[0]["author_uids"].tolist() == second[0]["author_uids"].tolist()
     assert first[1]["author_display_names"].tolist() == second[1]["author_display_names"].tolist()
+    for filename in [
+        "source_author_assignments.parquet",
+        "author_entities.parquet",
+        "mention_clusters.parquet",
+        "summary.json",
+        "05_stage_metrics_infer_sources.json",
+        "05_go_no_go_infer_sources.json",
+    ]:
+        assert (tmp_path / "variant_run" / "data" / "and" / filename).exists()
+
+
+def test_apply_author_disambiguation_uses_precomputed_source_fingerprints(tmp_path, monkeypatch):
+    publications, references = _input_frames()
+    cache_dir = tmp_path / "cache"
+
+    def _fake_runner(**kwargs):
+        staged_publications = load_parquet(kwargs["publications_path"])
+        staged_references = load_parquet(kwargs["references_path"])
+        return _write_disambiguated_outputs(
+            output_root=kwargs["output_dir"],
+            publications=staged_publications,
+            references=staged_references,
+        )
+
+    apply_author_disambiguation(
+        publications,
+        references,
+        dataset_id="dataset-1",
+        cache_dir=cache_dir,
+        and_runner=_fake_runner,
+    )
+    metadata = json.loads((cache_dir / "author_disambiguation_cache.json").read_text(encoding="utf-8"))
+
+    def _fail_fingerprint(_frame):
+        raise AssertionError("source fingerprints should be reused")
+
+    monkeypatch.setattr(and_mod, "_source_frame_fingerprint", _fail_fingerprint)
+    pubs_out, refs_out = apply_author_disambiguation(
+        publications,
+        references,
+        dataset_id="dataset-1",
+        cache_dir=cache_dir,
+        source_fingerprints={
+            "publications": metadata["publications_fingerprint"],
+            "references": metadata["references_fingerprint"],
+        },
+        and_runner=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("runner should not run")),
+    )
+
+    assert pubs_out["author_uids"].tolist() == [["uid:treder", "uid:borz"], ["uid:treder"]]
+    assert refs_out["author_display_names"].tolist() == [["Treder, Hans Juergen", "Miller, A."]]
 
 
 def test_apply_author_disambiguation_ignores_unmarked_passthrough_cache(tmp_path):

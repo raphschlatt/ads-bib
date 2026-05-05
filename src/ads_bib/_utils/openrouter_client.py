@@ -14,6 +14,31 @@ from ads_bib._utils.openrouter_costs import (
 
 logger = logging.getLogger(__name__)
 OpenRouterContentState: TypeAlias = Literal["ok", "missing", "empty"]
+_RETRIABLE_OPENROUTER_STATUS_CODES = {408, 429, 502, 503, 529}
+
+
+def openrouter_error_status_code(exc: Exception) -> int | None:
+    """Best-effort status extraction for OpenAI/LiteLLM/OpenRouter exceptions."""
+    for attr in ("status_code", "http_status", "code"):
+        value = getattr(exc, attr, None)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    response = getattr(exc, "response", None)
+    value = getattr(response, "status_code", None)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def should_retry_openrouter_error(exc: Exception) -> bool:
+    """Return True for transient OpenRouter/provider failures."""
+    status_code = openrouter_error_status_code(exc)
+    if status_code is None:
+        return True
+    return status_code in _RETRIABLE_OPENROUTER_STATUS_CODES
 
 
 def openrouter_chat_completion(
@@ -82,6 +107,7 @@ def openrouter_chat_completion(
             delay=delay,
             backoff=backoff,
             on_retry=_on_retry,
+            retry_if=should_retry_openrouter_error,
         )
     except Exception as exc:
         logger.warning(

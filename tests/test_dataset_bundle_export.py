@@ -289,10 +289,10 @@ def test_run_topic_dataframe_stage_writes_dataset_bundle(tmp_path, monkeypatch):
 
     pipeline.run_topic_dataframe_stage(ctx)
 
-    publications_path = ctx.run.paths["data"] / "publications.parquet"
-    references_path = ctx.run.paths["data"] / "references.parquet"
-    topic_info_path = ctx.run.paths["data"] / "topic_info.parquet"
-    manifest_path = ctx.run.paths["data"] / "dataset_manifest.json"
+    publications_path = ctx.run.paths["dataset"] / "publications.parquet"
+    references_path = ctx.run.paths["dataset"] / "references.parquet"
+    topic_info_path = ctx.run.paths["dataset"] / "topic_info.parquet"
+    manifest_path = ctx.run.paths["dataset"] / "dataset_manifest.json"
 
     assert publications_path.exists()
     assert references_path.exists()
@@ -392,14 +392,14 @@ def test_run_curate_stage_refreshes_dataset_bundle_and_manifest(tmp_path):
     ctx.refs = _references_df(with_author_ids=False)
 
     stale_publications = pd.DataFrame([{"Bibcode": "stale-publication"}])
-    stale_publications.to_parquet(ctx.run.paths["data"] / "publications.parquet")
-    (ctx.run.paths["data"] / "dataset_manifest.json").write_text("{}", encoding="utf-8")
+    stale_publications.to_parquet(ctx.run.paths["dataset"] / "publications.parquet")
+    (ctx.run.paths["dataset"] / "dataset_manifest.json").write_text("{}", encoding="utf-8")
 
     pipeline.run_curate_stage(ctx)
 
-    publications = pd.read_parquet(ctx.run.paths["data"] / "publications.parquet")
-    references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
-    manifest = json.loads((ctx.run.paths["data"] / "dataset_manifest.json").read_text(encoding="utf-8"))
+    publications = pd.read_parquet(ctx.run.paths["dataset"] / "publications.parquet")
+    references = pd.read_parquet(ctx.run.paths["dataset"] / "references.parquet")
+    manifest = json.loads((ctx.run.paths["dataset"] / "dataset_manifest.json").read_text(encoding="utf-8"))
 
     assert ctx.curated_df is not None
     assert _normalized_records(publications) == _normalized_records(ctx.curated_df)
@@ -408,8 +408,8 @@ def test_run_curate_stage_refreshes_dataset_bundle_and_manifest(tmp_path):
     assert manifest["and_enabled"] is False
     assert manifest["has_author_uids"] is False
     assert manifest["has_author_display_names"] is False
-    _assert_manifest_artifact(manifest, "publications", ctx.run.paths["data"] / "publications.parquet")
-    _assert_manifest_artifact(manifest, "references", ctx.run.paths["data"] / "references.parquet")
+    _assert_manifest_artifact(manifest, "publications", ctx.run.paths["dataset"] / "publications.parquet")
+    _assert_manifest_artifact(manifest, "references", ctx.run.paths["dataset"] / "references.parquet")
 
 
 def test_run_topic_dataframe_stage_refreshes_existing_references_artifact(tmp_path, monkeypatch):
@@ -421,7 +421,7 @@ def test_run_topic_dataframe_stage_refreshes_existing_references_artifact(tmp_pa
     ctx.reduced_2d = np.asarray([[0.1, 0.2], [1.1, 1.2]])
 
     existing_references = pd.DataFrame([{"Bibcode": "stale-reference"}])
-    existing_references.to_parquet(ctx.run.paths["data"] / "references.parquet")
+    existing_references.to_parquet(ctx.run.paths["dataset"] / "references.parquet")
     writes: list[str] = []
 
     monkeypatch.setattr(pipeline, "build_topic_dataframe", _fake_topic_dataframe)
@@ -434,7 +434,7 @@ def test_run_topic_dataframe_stage_refreshes_existing_references_artifact(tmp_pa
 
     pipeline.run_topic_dataframe_stage(ctx)
 
-    references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
+    references = pd.read_parquet(ctx.run.paths["dataset"] / "references.parquet")
 
     assert "publications.parquet" in writes
     assert "references.parquet" in writes
@@ -452,7 +452,7 @@ def test_run_curate_stage_refreshes_existing_references_artifact(tmp_path, monke
     ctx.refs = _references_df(with_author_ids=False)
 
     existing_references = pd.DataFrame([{"Bibcode": "stale-reference"}])
-    existing_references.to_parquet(ctx.run.paths["data"] / "references.parquet")
+    existing_references.to_parquet(ctx.run.paths["dataset"] / "references.parquet")
     writes: list[str] = []
 
     def _tracking_save_parquet(df: pd.DataFrame, path):
@@ -463,7 +463,7 @@ def test_run_curate_stage_refreshes_existing_references_artifact(tmp_path, monke
 
     pipeline.run_curate_stage(ctx)
 
-    references = pd.read_parquet(ctx.run.paths["data"] / "references.parquet")
+    references = pd.read_parquet(ctx.run.paths["dataset"] / "references.parquet")
 
     assert "publications.parquet" in writes
     assert "references.parquet" in writes
@@ -484,9 +484,9 @@ def test_exported_dataset_bundle_loads_in_trajectories(tmp_path, monkeypatch):
     pipeline.run_topic_dataframe_stage(ctx)
 
     bundle = trajectories.load_dataset_bundle(
-        ctx.run.paths["data"] / "publications.parquet",
-        ctx.run.paths["data"] / "references.parquet",
-        manifest_path=ctx.run.paths["data"] / "dataset_manifest.json",
+        ctx.run.paths["dataset"] / "publications.parquet",
+        ctx.run.paths["dataset"] / "references.parquet",
+        manifest_path=ctx.run.paths["dataset"] / "dataset_manifest.json",
     )
     vocab = trajectories.VocabularyKLD(
         bundle.publications,

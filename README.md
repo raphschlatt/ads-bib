@@ -41,6 +41,20 @@ configured.
 
 Full setup details: [Get Started](https://raphschlatt.github.io/ads-bib/get-started/) | [Runtime Roads](https://raphschlatt.github.io/ads-bib/runtime-roads/)
 
+## Iterate From a Previous Run
+
+Every run writes `config_used.yaml` and reusable stage artifacts. To try one
+change without repeating the whole pipeline, start a variant from that run:
+
+```bash
+ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
+  --set topic_model.embedding_model=google/gemini-embedding-001
+```
+
+`ads-bib` loads the previous config, applies the override, chooses the earliest
+stage that needs recomputation, and writes a new run folder with a `variant`
+block in `run_summary.yaml`. Preview the reuse plan first with `--dry-run`.
+
 ## Python API
 
 ```python
@@ -67,16 +81,35 @@ Full provider matrix and first-run behavior: [Runtime Roads](https://raphschlatt
 
 ## Output
 
-Each run produces a self-contained output directory:
+Each project folder keeps shared caches under `data/cache/` and writes every
+run under `runs/<run_id>/`:
 
-- **`publications.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
-- **`references.parquet`** — normalized cited-reference metadata, with disambiguated authors when AND is enabled
-- **`topic_info.parquet`** — one row per topic with labels, counts, and representation fields
-- **`topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
-- **`.gexf` citation networks** — direct citation, co-citation, bibliographic coupling, author co-citation
-- **`download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
-- **`run_summary.yaml`** — full run metadata and stage timings
-- **`dataset_manifest.json`** — artifact hashes plus bundle-cleaning provenance
+```text
+runs/<run_id>/
+├── config_used.yaml
+├── run_summary.yaml
+├── data/
+│   ├── search/        # run-local ADS search result used for export variants
+│   ├── export/        # pre-translation publications and references
+│   ├── translated/    # translated publications and references
+│   ├── tokenized/     # tokenized publications and references
+│   ├── and/           # disambiguated frames plus optional ads-and diagnostics
+│   ├── dataset/       # final publications, references, topic_info, manifest
+│   └── citations/     # GEXF/CSV/JSON networks and WOS export
+├── plots/topic_map.html
+└── logs/runtime.log
+```
+
+- **`data/search|export|translated|tokenized|and/`** — run-local stage
+  boundaries used by `--from-run` variants
+- **`data/dataset/publications.parquet`** — cleaned, translated, topic-labeled publications, with disambiguated authors when AND is enabled
+- **`data/dataset/references.parquet`** — normalized cited-reference metadata, with disambiguated authors when AND is enabled
+- **`data/dataset/topic_info.parquet`** — one row per topic with labels, counts, and representation fields
+- **`plots/topic_map.html`** — interactive topic visualization (open in any browser), using [datamapplot](https://github.com/TutteInstitute/datamapplot)
+- **`data/citations/*.gexf`** — direct citation, co-citation, bibliographic coupling, author co-citation
+- **`data/citations/download_wos_export.txt`** — Web of Science format for e.g. [CiteSpace](https://citespace.podia.com/) / [VOSviewer](https://www.vosviewer.com/)
+- **`run_summary.yaml`** — full run metadata, stage status, and optional variant provenance
+- **`data/dataset/dataset_manifest.json`** — artifact hashes plus bundle-cleaning provenance
 
 [![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
 *Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*

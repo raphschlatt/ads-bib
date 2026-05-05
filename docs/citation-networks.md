@@ -16,14 +16,17 @@ runs/run_20260407_120000_ads_bib_openrouter/
 ├── logs/
 │   └── runtime.log
 ├── data/
-│   ├── publications.parquet      # curated publication-level output with topics + reduced coords
-│   ├── references.parquet        # normalized cited-reference metadata
-│   ├── topic_info.parquet        # one row per topic
-│   ├── direct.gexf
-│   ├── co_citation.gexf
-│   ├── bibliographic_coupling.gexf
-│   ├── author_co_citation.gexf
-│   └── download_wos_export.txt
+│   ├── dataset/
+│   │   ├── publications.parquet      # curated publications with topics + reduced coords
+│   │   ├── references.parquet        # normalized cited-reference metadata
+│   │   └── topic_info.parquet        # one row per topic
+│   ├── and/
+│   └── citations/
+│       ├── direct.gexf
+│       ├── co_citation.gexf
+│       ├── bibliographic_coupling.gexf
+│       ├── author_co_citation.gexf
+│       └── download_wos_export.txt
 └── plots/
     └── topic_map.html
 ```
@@ -66,13 +69,13 @@ recurring collaboration-adjacent pairings.
 
 | Goal | Best artifact |
 | --- | --- |
-| Inspect document topics | `publications.parquet`, `topic_info.parquet`, `topic_map.html` |
+| Inspect document topics | `data/dataset/publications.parquet`, `data/dataset/topic_info.parquet`, `plots/topic_map.html` |
 | Reproduce a run | `config_used.yaml`, `run_summary.yaml` |
-| Explore direct citation flow | `direct.gexf` |
-| Explore shared reception | `co_citation.gexf` |
-| Explore shared reference bases | `bibliographic_coupling.gexf` |
-| Explore author-level structure | `author_co_citation.gexf` |
-| Import into CiteSpace / VOSviewer | `download_wos_export.txt` |
+| Explore direct citation flow | `data/citations/direct.gexf` |
+| Explore shared reception | `data/citations/co_citation.gexf` |
+| Explore shared reference bases | `data/citations/bibliographic_coupling.gexf` |
+| Explore author-level structure | `data/citations/author_co_citation.gexf` |
+| Import into CiteSpace / VOSviewer | `data/citations/download_wos_export.txt` |
 
 ## Common issues
 
@@ -83,8 +86,9 @@ recurring collaboration-adjacent pairings.
     - **Wrong tool for the question** — `direct` is directed; co-citation and
       bibliographic-coupling views answer different questions; see the four
       sections above.
-    - **WOS import problems** — confirm you are using `download_wos_export.txt`
-      and your tool’s WOS/Plain-text mode; see tool docs if columns misalign.
+    - **WOS import problems** — confirm you are using
+      `data/citations/download_wos_export.txt` and your tool’s WOS/Plain-text
+      mode; see tool docs if columns misalign.
 
 ## What an Exported Edge Looks Like
 
@@ -132,7 +136,7 @@ many times source cites target.
   See the [embed integration guide](https://docs.gephi.org/lite/integration/embed/)
   for self-hosted iframe embeds.
 - **[CiteSpace](https://citespace.podia.com/)** — imports
-  `download_wos_export.txt` (WOS format) and runs temporal bibliometric
+  `data/citations/download_wos_export.txt` (WOS format) and runs temporal bibliometric
   analyses.
 - **[VOSviewer](https://www.vosviewer.com/)** — imports the same WOS export
   and renders overlay-style clustering views.

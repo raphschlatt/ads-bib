@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from contextlib import contextmanager
 import io
@@ -528,6 +529,60 @@ def test_fit_toponymy_uses_toponymy_clusterer_and_tracks_step(monkeypatch):
     assert calls["namer"]["max_workers"] == 5
 
 
+def test_toponymy_openrouter_namer_recreates_semaphore_across_event_loops(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    class _FakeOpenAI:
+        def __init__(self, *, api_key, base_url):
+            self.api_key = api_key
+            self.base_url = base_url
+
+    fake_openai = types.ModuleType("openai")
+    fake_openai.OpenAI = _FakeOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    responses: list[dict[str, Any]] = []
+
+    def _fake_openrouter_chat_completion(**kwargs):
+        responses.append(kwargs)
+        return {
+            "id": f"gen_{len(responses)}",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            "choices": [{"message": {"content": "{\"label\": \"ok\"}"}}],
+        }
+
+    monkeypatch.setattr(tm_backends, "openrouter_chat_completion", _fake_openrouter_chat_completion)
+    monkeypatch.setattr(
+        tm_backends,
+        "openrouter_usage_from_response",
+        lambda response: {
+            "prompt_tokens": response["usage"]["prompt_tokens"],
+            "completion_tokens": response["usage"]["completion_tokens"],
+            "call_record": {"generation_id": response["id"], "direct_cost": None},
+        },
+    )
+    monkeypatch.setattr(
+        tm_backends,
+        "openrouter_response_content",
+        lambda response: (response["choices"][0]["message"]["content"], "ok"),
+    )
+
+    namer, usage = tm_backends._create_tracked_toponymy_namer(
+        model="google/gemini-3-flash-preview",
+        api_key="key",
+        base_url="https://openrouter.ai/api/v1",
+        max_workers=2,
+    )
+
+    first = asyncio.run(namer._call_llm_batch(["prompt one"], temperature=0.0, max_tokens=8))
+    second = asyncio.run(namer._call_llm_batch(["prompt two"], temperature=0.0, max_tokens=8))
+
+    assert first == ["{\"label\": \"ok\"}"]
+    assert second == ["{\"label\": \"ok\"}"]
+    assert usage["prompt_tokens"] == 6
+    assert [record["generation_id"] for record in usage["call_records"]] == ["gen_1", "gen_2"]
+
+
 def test_fit_toponymy_passes_documents_as_object_array(monkeypatch):
     _install_fake_toponymy_modules(monkeypatch)
 
@@ -555,6 +610,42 @@ def test_fit_toponymy_passes_documents_as_object_array(monkeypatch):
     assert isinstance(model.objects, np.ndarray)
     assert model.objects.dtype == object
     assert model.objects.tolist() == ["short", long_doc, "medium"]
+
+
+def test_fit_toponymy_rejects_blank_topic_names(monkeypatch):
+    _install_fake_toponymy_modules(monkeypatch)
+
+    class _BlankNameToponymyModel(_FakeToponymyModel):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.cluster_layers_[0] = _FakeLayer(
+                [-1, 0, 1],
+                topic_name_vector=["Outlier Topic", "", "Beta"],
+            )
+            self.topic_names_[0] = ["", "Beta"]
+
+    sys.modules["toponymy"].Toponymy = _BlankNameToponymyModel
+
+    def _fake_create_tracked_namer(*, model, api_key, base_url, max_workers, llm_specific_instructions=None):
+        del model, api_key, base_url, max_workers, llm_specific_instructions
+        return object(), {"prompt_tokens": 0, "completion_tokens": 0, "call_records": []}
+
+    monkeypatch.setattr(tm_backends, "_create_tracked_toponymy_namer", _fake_create_tracked_namer)
+    monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
+
+    with pytest.raises(ValueError, match="blank topic names"):
+        tm.fit_toponymy(
+            documents=["d1", "d2", "d3"],
+            embeddings=np.ones((3, 3), dtype=np.float32),
+            clusterable_vectors=np.ones((3, 2), dtype=np.float32),
+            backend="toponymy",
+            layer_index=0,
+            llm_provider="openrouter",
+            llm_model="google/gemini-3-flash-preview",
+            embedding_provider="openrouter",
+            embedding_model="qwen/qwen3-embedding-8b",
+            api_key="key",
+        )
 
 
 def test_fit_toponymy_auto_selects_coarsest_layer(monkeypatch):
@@ -732,7 +823,8 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
 
     class _FakeOpenRouterEmbedder:
         def __init__(self, *, api_key, model, batch_size=64, max_workers=5, dtype=np.float32, api_base=None):
-            del api_key, model, batch_size, dtype, api_base
+            del api_key, model, dtype, api_base
+            calls["embedder_batch_size"] = batch_size
             calls["embedder_workers"] = max_workers
             self.max_workers = max_workers
             self.usage = {"prompt_tokens": 0, "total_tokens": 0, "call_records": []}
@@ -760,11 +852,13 @@ def test_fit_toponymy_passes_max_workers_to_openrouter_models(monkeypatch):
         embedding_provider="openrouter",
         embedding_model="google/gemini-embedding-001",
         api_key="key",
+        embedding_batch_size=123,
         max_workers=9,
     )
 
     assert calls["namer_workers"] == 9
     assert calls["embedder_workers"] == 9
+    assert calls["embedder_batch_size"] == 123
 
 
 def test_fit_toponymy_does_not_record_toponymy_embedding_costs_for_local(monkeypatch):
@@ -1056,10 +1150,11 @@ def test_fit_toponymy_supports_huggingface_api(monkeypatch):
         return object(), {"prompt_tokens": 12, "completion_tokens": 4, "call_records": []}
 
     class _FakeHFEmbedder:
-        def __init__(self, *, api_key, model, max_workers):
+        def __init__(self, *, api_key, model, batch_size=96, max_workers):
             calls["embedder_init"] = {
                 "api_key": api_key,
                 "model": model,
+                "batch_size": batch_size,
                 "max_workers": max_workers,
             }
             self.usage = {"prompt_tokens": 3, "total_tokens": 3}
@@ -1470,12 +1565,14 @@ def test_openrouter_embedder_retries_when_data_is_none(monkeypatch):
             "data": [{"embedding": [1.0, 2.0]} for _ in input],
         }
 
-    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
+    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None, retry_if=None):
         del delay, backoff
         for attempt in range(max_retries + 1):
             try:
                 return func()
             except Exception as exc:
+                if retry_if is not None and not retry_if(exc):
+                    raise
                 if attempt >= max_retries:
                     raise
                 if on_retry is not None:
@@ -1502,6 +1599,38 @@ def test_openrouter_embedder_retries_when_data_is_none(monkeypatch):
     assert emb.shape == (2, 2)
     assert embedder.usage["total_tokens"] == 2
     assert [r["generation_id"] for r in embedder.usage["call_records"]] == ["gen_ok"]
+
+
+def test_openrouter_embedder_replaces_blank_inputs(monkeypatch):
+    fake_litellm = types.ModuleType("litellm")
+    seen_inputs: list[list[str]] = []
+
+    def _fake_embedding(model, input, api_key):
+        del model, api_key
+        seen_inputs.append(list(input))
+        return {
+            "id": "gen_ok",
+            "usage": {"prompt_tokens": len(input), "total_tokens": len(input)},
+            "data": [{"embedding": [float(index)]} for index, _ in enumerate(input)],
+        }
+
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    fake_litellm.embedding = _fake_embedding
+    monkeypatch.setattr(tm_embeddings, "extract_usage_stats", lambda resp: resp["usage"])
+    monkeypatch.setattr(tm_embeddings, "extract_generation_id", lambda resp: resp["id"])
+    monkeypatch.setattr(tm_embeddings, "extract_response_cost", lambda **kwargs: None)
+
+    embedder = tm_embeddings.OpenRouterEmbedder(
+        api_key="key",
+        model="google/gemini-embedding-001",
+        batch_size=3,
+        max_workers=1,
+        dtype=np.float32,
+    )
+    emb = embedder.encode(["", "  ", "named topic"], show_progress_bar=False)
+
+    assert emb.shape == (3, 1)
+    assert seen_inputs == [["(empty text)", "(empty text)", "named topic"]]
 
 
 def test_openrouter_embedder_prealloc_keeps_dtype(monkeypatch):
@@ -1533,6 +1662,90 @@ def test_openrouter_embedder_prealloc_keeps_dtype(monkeypatch):
     assert emb.shape == (5, 2)
     assert emb.dtype == np.float16
     assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+def test_openrouter_embedder_resumes_from_partial_checkpoint(monkeypatch, tmp_path):
+    fake_litellm = types.ModuleType("litellm")
+    state = {"fail_second_batch": True}
+
+    def _fake_embedding(model, input, api_key):
+        del model, api_key
+        if state["fail_second_batch"] and input[0] == "doc_2":
+            raise RuntimeError("temporary outage")
+        first_idx = int(input[0].split("_")[1])
+        return {
+            "id": f"gen_{first_idx}",
+            "usage": {"prompt_tokens": len(input), "total_tokens": len(input)},
+            "data": [{"embedding": [float(int(text.split('_')[1]))]} for text in input],
+        }
+
+    def _fake_retry_call(func, *, max_retries, delay, backoff, on_retry=None, retry_if=None):
+        del delay, backoff
+        for attempt in range(max_retries + 1):
+            try:
+                return func()
+            except Exception as exc:
+                if retry_if is not None and not retry_if(exc):
+                    raise
+                if attempt >= max_retries:
+                    raise
+                if on_retry is not None:
+                    on_retry(attempt + 1, max_retries, 0.0, exc)
+        raise RuntimeError("retry_call exhausted unexpectedly.")
+
+    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    fake_litellm.embedding = _fake_embedding
+    monkeypatch.setattr(tm_embeddings, "retry_call", _fake_retry_call)
+    monkeypatch.setattr(tm_embeddings, "extract_usage_stats", lambda resp: resp["usage"])
+    monkeypatch.setattr(tm_embeddings, "extract_generation_id", lambda resp: resp["id"])
+    monkeypatch.setattr(tm_embeddings, "extract_response_cost", lambda **kwargs: None)
+    checkpoint = tmp_path / "embeddings_openrouter_google_gemini-embedding-001.partial.npz"
+    metadata = {
+        "provider": "openrouter",
+        "model": "google/gemini-embedding-001",
+        "n_docs": 4,
+        "doc_fingerprint": "abc",
+        "batch_size": 2,
+        "dtype": "float32",
+    }
+
+    first = tm_embeddings.OpenRouterEmbedder(
+        api_key="key",
+        model="google/gemini-embedding-001",
+        batch_size=2,
+        max_workers=1,
+        dtype=np.float32,
+    )
+    with pytest.raises(RuntimeError, match="temporary outage"):
+        first.encode(
+            [f"doc_{i}" for i in range(4)],
+            show_progress_bar=False,
+            checkpoint_file=checkpoint,
+            checkpoint_metadata=metadata,
+        )
+    data = np.load(checkpoint)
+    assert data["completed_batches"].tolist() == [0]
+
+    state["fail_second_batch"] = False
+    progress: list[int] = []
+    second = tm_embeddings.OpenRouterEmbedder(
+        api_key="key",
+        model="google/gemini-embedding-001",
+        batch_size=2,
+        max_workers=1,
+        dtype=np.float32,
+    )
+    emb = second.encode(
+        [f"doc_{i}" for i in range(4)],
+        show_progress_bar=False,
+        progress_callback=progress.append,
+        checkpoint_file=checkpoint,
+        checkpoint_metadata=metadata,
+    )
+
+    assert progress[0] == 2
+    assert emb[:, 0].tolist() == [0.0, 1.0, 2.0, 3.0]
+    assert second.usage["total_tokens"] == 2
 
 
 def test_embed_huggingface_api_prealloc_keeps_order(monkeypatch):
@@ -1626,7 +1839,13 @@ def test_compute_embeddings_passes_progress_callback_to_local(monkeypatch):
 def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
     model = "local/test-model"
-    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    docs = ["doc-a", "doc-b"]
+    cache_file = tm_embeddings._embedding_cache_file(
+        tmp_path,
+        provider="local",
+        model=model,
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+    )
     np.savez_compressed(
         cache_file,
         embeddings=np.zeros((1, 3), dtype=np.float32),
@@ -1644,7 +1863,7 @@ def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp
 
     monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     out = tm.compute_embeddings(
-        ["doc-a", "doc-b"],
+        docs,
         provider="local",
         model=model,
         cache_dir=tmp_path,
@@ -1658,7 +1877,13 @@ def test_compute_embeddings_recomputes_on_cache_n_docs_mismatch(monkeypatch, tmp
 def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="ads_bib.topic_model")
     model = "local/test-model"
-    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    docs = ["doc-a", "doc-b"]
+    cache_file = tm_embeddings._embedding_cache_file(
+        tmp_path,
+        provider="local",
+        model=model,
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+    )
     np.savez_compressed(
         cache_file,
         embeddings=np.zeros((2, 2), dtype=np.float32),
@@ -1676,7 +1901,7 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
 
     monkeypatch.setattr(tm_embeddings, "_embed_local", _fake_embed_local)
     out = tm.compute_embeddings(
-        ["doc-a", "doc-b"],
+        docs,
         provider="local",
         model=model,
         cache_dir=tmp_path,
@@ -1691,7 +1916,12 @@ def test_compute_embeddings_recomputes_on_cache_fingerprint_mismatch(monkeypatch
 def test_compute_embeddings_casts_valid_cache_to_requested_dtype(monkeypatch, tmp_path):
     docs = ["doc-a", "doc-b"]
     model = "local/test-model"
-    cache_file = tmp_path / "embeddings_local_local_test-model.npz"
+    cache_file = tm_embeddings._embedding_cache_file(
+        tmp_path,
+        provider="local",
+        model=model,
+        doc_fingerprint=tm_embeddings._documents_fingerprint(docs),
+    )
     np.savez_compressed(
         cache_file,
         embeddings=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),

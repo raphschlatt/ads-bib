@@ -7,19 +7,21 @@ import ads_bib._utils.openrouter_client as oc
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _passthrough_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
+def _passthrough_retry_call(func, *, max_retries, delay, backoff, on_retry=None, retry_if=None):
     """Minimal retry_call that just calls func once (no retries)."""
-    del max_retries, delay, backoff, on_retry
+    del max_retries, delay, backoff, on_retry, retry_if
     return func()
 
 
-def _retrying_retry_call(func, *, max_retries, delay, backoff, on_retry=None):
+def _retrying_retry_call(func, *, max_retries, delay, backoff, on_retry=None, retry_if=None):
     """retry_call that retries on failure."""
     del delay, backoff
     for attempt in range(max_retries + 1):
         try:
             return func()
         except Exception as exc:
+            if retry_if is not None and not retry_if(exc):
+                raise
             if attempt >= max_retries:
                 raise
             if on_retry is not None:
@@ -78,6 +80,17 @@ def test_openrouter_chat_completion_retries_and_succeeds(monkeypatch):
 
     assert calls["attempts"] == 2
     assert response == {"ok": True}
+
+
+def test_should_retry_openrouter_error_respects_status_codes():
+    class _Error(Exception):
+        def __init__(self, status_code):
+            super().__init__(str(status_code))
+            self.status_code = status_code
+
+    assert oc.should_retry_openrouter_error(_Error(429)) is True
+    assert oc.should_retry_openrouter_error(_Error(529)) is True
+    assert oc.should_retry_openrouter_error(_Error(400)) is False
 
 
 def test_extra_body_always_injects_reasoning_off(monkeypatch):
