@@ -93,7 +93,7 @@ def main() -> int:
         "tag",
         nargs="?",
         default=os.environ.get("GITHUB_REF_NAME", ""),
-        help="Release tag such as v0.1.0; defaults to GITHUB_REF_NAME.",
+        help="Release tag such as v0.2.0; defaults to GITHUB_REF_NAME.",
     )
     parser.add_argument(
         "--notes-out",
