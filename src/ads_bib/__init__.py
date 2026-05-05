@@ -15,6 +15,7 @@ from ads_bib.notebook import NotebookSession, get_notebook_session
 from ads_bib.pipeline import (
     PipelineConfig,
     PipelineContext,
+    SourceInputConfig,
     StagePrerequisiteError,
     run_pipeline,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "apply_author_disambiguation",
     "PipelineConfig",
     "PipelineContext",
+    "SourceInputConfig",
     "NotebookSession",
     "RunManager",
     "RunBlockedError",

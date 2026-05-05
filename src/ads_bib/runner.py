@@ -21,6 +21,7 @@ from ads_bib.pipeline import (
     run_pipeline,
 )
 from ads_bib.presets import load_preset_config
+from ads_bib.source_input import load_source_input_frames
 
 Notify = Callable[[str], None]
 
@@ -134,6 +135,12 @@ def run_resolved_config(
     """Run an already resolved config through the shared high-level path."""
     if preflight:
         _prepare_run(config, start_stage=start_stage, stop_stage=stop_stage, notify=notify)
+    resolved_initial_state = _initial_state_with_source_input(
+        config,
+        initial_state=initial_state,
+        start_stage=start_stage,
+        project_root=project_root,
+    )
     resolved_output_mode = _resolve_output_mode(output_mode)
     pipeline_kwargs: dict[str, Any] = {
         "start_stage": start_stage,
@@ -142,11 +149,50 @@ def run_resolved_config(
         "run_name": run_name,
         "output_mode": resolved_output_mode,
     }
-    if initial_state is not None:
-        pipeline_kwargs["initial_state"] = initial_state
+    if resolved_initial_state is not None:
+        pipeline_kwargs["initial_state"] = resolved_initial_state
     if variant is not None:
         pipeline_kwargs["variant"] = variant
     return run_pipeline(config, **pipeline_kwargs)
+
+
+def _initial_state_with_source_input(
+    config: PipelineConfig,
+    *,
+    initial_state: PipelineInitialState | None,
+    start_stage: StageName | None,
+    project_root: Path | str | None,
+) -> PipelineInitialState | None:
+    source_input = config.source_input
+    if not source_input.enabled:
+        return initial_state
+
+    effective_start = start_stage or config.run.start_stage
+    if effective_start == "search":
+        return initial_state
+    if not source_input.publications_path or not source_input.references_path:
+        raise ValueError(
+            "source_input.publications_path and source_input.references_path are required together."
+        )
+    if initial_state is not None and initial_state.publications is not None and initial_state.refs is not None:
+        return initial_state
+
+    root = Path(project_root or config.run.project_root or Path.cwd())
+    publications, refs = load_source_input_frames(
+        publications_path=source_input.publications_path,
+        references_path=source_input.references_path,
+        project_root=root,
+    )
+    if initial_state is None:
+        return PipelineInitialState(publications=publications, refs=refs)
+    return PipelineInitialState(
+        publications=publications if initial_state.publications is None else initial_state.publications,
+        refs=refs if initial_state.refs is None else initial_state.refs,
+        topic_info=initial_state.topic_info,
+        topic_df=initial_state.topic_df,
+        curated_df=initial_state.curated_df,
+        author_entities=initial_state.author_entities,
+    )
 
 
 def _resolve_output_mode(output_mode: OutputMode | None) -> OutputMode:

@@ -150,6 +150,17 @@ class SearchConfig:
 
 
 @dataclass
+class SourceInputConfig:
+    publications_path: str | None = None
+    references_path: str | None = None
+    source_name: str | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.publications_path or self.references_path)
+
+
+@dataclass
 class TranslateConfig:
     enabled: bool = True
     provider: str = "openrouter"
@@ -289,6 +300,7 @@ class CitationsConfig:
 class PipelineConfig:
     run: RunConfig = field(default_factory=RunConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    source_input: SourceInputConfig = field(default_factory=SourceInputConfig)
     translate: TranslateConfig = field(default_factory=TranslateConfig)
     llama_server: LlamaServerConfig = field(default_factory=LlamaServerConfig)
     tokenize: TokenizeConfig = field(default_factory=TokenizeConfig)
@@ -390,9 +402,17 @@ class PipelineConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
+        run_data = dict(data.get("run", {}))
+        source_input_data = dict(data.get("source_input", {}))
+        if (
+            (source_input_data.get("publications_path") or source_input_data.get("references_path"))
+            and "start_stage" not in run_data
+        ):
+            run_data["start_stage"] = "translate"
         return cls(
-            run=RunConfig(**data.get("run", {})),
+            run=RunConfig(**run_data),
             search=SearchConfig(**data.get("search", {})),
+            source_input=SourceInputConfig(**source_input_data),
             translate=TranslateConfig(**data.get("translate", {})),
             llama_server=LlamaServerConfig(**data.get("llama_server", {})),
             tokenize=TokenizeConfig(
@@ -2243,6 +2263,7 @@ __all__ = [
     "PipelineInitialState",
     "RunConfig",
     "SearchConfig",
+    "SourceInputConfig",
     "StagePrerequisiteError",
     "STAGE_ORDER",
     "StageName",

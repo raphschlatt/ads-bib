@@ -6,6 +6,7 @@ import ads_bib
 import ads_bib.doctor as doctor
 import ads_bib.pipeline as pipeline
 import ads_bib.runner as runner
+import pandas as pd
 import pytest
 
 
@@ -168,3 +169,51 @@ def test_pipeline_context_repr_is_compact_and_hides_secrets(tmp_path):
 def test_load_run_config_missing_path_raises_plain_file_not_found():
     with pytest.raises(FileNotFoundError, match="missing.yaml"):
         runner.load_run_config(config=Path("missing.yaml"))
+
+
+def test_run_resolved_config_loads_source_input_as_initial_state(monkeypatch, tmp_path):
+    publications_path = tmp_path / "publications.parquet"
+    references_path = tmp_path / "references.parquet"
+    pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Year": 2020,
+                "Author": ["Author A"],
+                "Title": "Title",
+                "Abstract": "Abstract",
+                "References": ["r1", "missing"],
+                "tokens": ["stale"],
+                "embedding_2d_x": 1.0,
+            }
+        ]
+    ).to_parquet(publications_path, index=False)
+    pd.DataFrame(
+        [{"Bibcode": "r1", "Year": 2019, "Author": ["Author R"], "Title": "Ref"}]
+    ).to_parquet(references_path, index=False)
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "source_input": {
+                "publications_path": "publications.parquet",
+                "references_path": "references.parquet",
+            },
+        }
+    )
+    calls: dict[str, object] = {}
+
+    def _fake_run_pipeline(config, **kwargs):
+        calls["config"] = config
+        calls["kwargs"] = kwargs
+        return "ctx"
+
+    monkeypatch.setattr(runner, "run_pipeline", _fake_run_pipeline)
+
+    result = runner.run_resolved_config(config, preflight=False)
+
+    assert result == "ctx"
+    state = calls["kwargs"]["initial_state"]
+    assert state.publications.loc[0, "References"] == ["r1"]
+    assert state.refs.loc[0, "Abstract"] == ""
+    assert "tokens" not in state.publications.columns
+    assert "embedding_2d_x" not in state.publications.columns

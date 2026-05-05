@@ -33,6 +33,10 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
             "  start_stage: translate\n"
             "search:\n"
             "  query: author:test\n"
+            "source_input:\n"
+            "  publications_path: data/source/publications.parquet\n"
+            "  references_path: data/source/references.parquet\n"
+            "  source_name: semantic_scholar\n"
             "translate:\n"
             "  fasttext_model: data/models/lid.176.bin\n"
         ),
@@ -45,8 +49,34 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert data["run"]["run_name"] == "test"
     assert data["run"]["start_stage"] == "translate"
     assert data["search"]["query"] == "author:test"
+    assert data["source_input"]["publications_path"] == "data/source/publications.parquet"
+    assert data["source_input"]["references_path"] == "data/source/references.parquet"
+    assert data["source_input"]["source_name"] == "semantic_scholar"
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
     assert "keybert_model" not in data["topic_model"]
+
+
+def test_source_input_defaults_start_stage_to_translate():
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "source_input": {
+                "publications_path": "publications.parquet",
+                "references_path": "references.parquet",
+            }
+        }
+    )
+    explicit = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"start_stage": "search"},
+            "source_input": {
+                "publications_path": "publications.parquet",
+                "references_path": "references.parquet",
+            },
+        }
+    )
+
+    assert config.run.start_stage == "translate"
+    assert explicit.run.start_stage == "search"
 
 
 def test_tokenized_snapshot_metadata_includes_and_source_fingerprints(tmp_path):
@@ -79,6 +109,37 @@ def test_tokenized_snapshot_metadata_includes_and_source_fingerprints(tmp_path):
 
     assert metadata["and_source"]["publications"]
     assert metadata["and_source"]["references"]
+
+
+def test_author_disambiguation_skips_when_source_input_has_author_uids(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "author_disambiguation": {"enabled": True},
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame(
+        [
+            {
+                "Bibcode": "p1",
+                "Author": ["Author A"],
+                "author_uids": ["uid:a"],
+                "Year": 2020,
+            }
+        ]
+    )
+    ctx.refs = pd.DataFrame(
+        [
+            {
+                "Bibcode": "r1",
+                "Author": ["Author R"],
+                "author_uids": ["uid:r"],
+            }
+        ]
+    )
+
+    assert pipeline.run_author_disambiguation_stage(ctx) is ctx
 
 
 @pytest.mark.parametrize(
