@@ -1009,6 +1009,7 @@ def test_run_pipeline_visualization_variant_uses_initial_topic_dataframe(tmp_pat
     def _fake_create_topic_map(frame, **kwargs):
         captured["bibcodes"] = frame["Bibcode"].tolist()
         captured["title"] = kwargs["title"]
+        return "topic-map-object"
 
     monkeypatch.setattr(visualize, "create_topic_map", _fake_create_topic_map)
 
@@ -1023,6 +1024,7 @@ def test_run_pipeline_visualization_variant_uses_initial_topic_dataframe(tmp_pat
     )
 
     assert ctx.topic_df is not None
+    assert ctx.topic_map == "topic-map-object"
     assert captured == {"bibcodes": ["p1"], "title": "Variant Map"}
 
 

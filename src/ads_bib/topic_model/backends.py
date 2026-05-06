@@ -295,18 +295,18 @@ def _configure_deterministic_generation_pipeline(generator: Any) -> None:
         return
 
     generation_config.do_sample = False
-    generation_config.max_length = None
 
     # Some instruct checkpoints ship sampling-oriented defaults in generation_config.
-    # For deterministic labeling we reset them to greedy-compatible values.
+    # For deterministic labeling we unset sampling-only values so Transformers
+    # does not warn about ignored flags when do_sample=False.
     for name, value in {
-        "temperature": 1.0,
-        "top_p": 1.0,
-        "top_k": 50,
+        "temperature": None,
+        "top_p": None,
+        "top_k": None,
         "min_p": None,
-        "typical_p": 1.0,
-        "epsilon_cutoff": 0.0,
-        "eta_cutoff": 0.0,
+        "typical_p": None,
+        "epsilon_cutoff": None,
+        "eta_cutoff": None,
     }.items():
         if hasattr(generation_config, name):
             setattr(generation_config, name, value)
@@ -816,6 +816,9 @@ def _create_llm(
                 "do_sample": False,
                 "max_new_tokens": llm_max_new_tokens,
                 "num_return_sequences": 1,
+                "temperature": None,
+                "top_p": None,
+                "top_k": None,
             },
         )
 
@@ -1658,6 +1661,9 @@ def _build_toponymy_models(
                     return_full_text=False,
                     max_new_tokens=self._max_tokens(max_tokens),
                     do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    top_k=None,
                     pad_token_id=self.llm.tokenizer.eos_token_id,
                 )
                 return response[0]["generated_text"]
@@ -1678,6 +1684,9 @@ def _build_toponymy_models(
                     return_full_text=False,
                     max_new_tokens=self._max_tokens(max_tokens),
                     do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    top_k=None,
                     pad_token_id=self.llm.tokenizer.eos_token_id,
                 )
                 return response[0]["generated_text"]

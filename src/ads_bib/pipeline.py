@@ -499,6 +499,7 @@ class PipelineContext:
     topic_info: pd.DataFrame | None = None
     topic_hierarchy: dict[str, Any] | None = None
     topic_df: pd.DataFrame | None = None
+    topic_map: Any | None = None
     curated_df: pd.DataFrame | None = None
     citation_results: dict[str, pd.DataFrame] | None = None
     author_entities: pd.DataFrame | None = None
@@ -1970,7 +1971,7 @@ def run_visualize_stage(ctx: PipelineContext) -> PipelineContext:
             "topic_dataframe",
             "Visualize stage requires topic_df in memory. Run the topic_dataframe stage first.",
         )
-    create_topic_map(
+    ctx.topic_map = create_topic_map(
         ctx.topic_df,
         title=_topic_title(ctx),
         subtitle=_topic_subtitle(ctx),

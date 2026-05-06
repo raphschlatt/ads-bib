@@ -74,7 +74,10 @@ def _assert_common_colab_contract(nb: dict) -> None:
 
     assert "from ads_bib.runner import load_run_config, run_resolved_config" in code
     assert "run_resolved_config(" in code
-    assert 'output_mode="notebook"' in code
+    assert 'output_mode="cli"' in code
+    assert "HTML(filename" not in code
+    assert 'getattr(result, "topic_map", None)' in code
+    assert "from ads_bib.visualize import create_topic_map" in code
 
     assert "MIN_CLUSTER_SIZE =" not in code
     assert "BASE_MIN_CLUSTER_SIZE =" not in code

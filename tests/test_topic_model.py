@@ -302,17 +302,24 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
     assert calls["dtype"] == "auto"
     assert calls["torch_dtype"] is None
     assert calls["prompt"] == "topic: <label>"
-    assert calls["pipeline_kwargs"] == {"do_sample": False, "max_new_tokens": 64, "num_return_sequences": 1}
+    assert calls["pipeline_kwargs"] == {
+        "do_sample": False,
+        "max_new_tokens": 64,
+        "num_return_sequences": 1,
+        "temperature": None,
+        "top_p": None,
+        "top_k": None,
+    }
     generation_config = calls["generator"].model.generation_config
     assert generation_config.do_sample is False
-    assert generation_config.max_length is None
-    assert generation_config.temperature == 1.0
-    assert generation_config.top_p == 1.0
-    assert generation_config.top_k == 50
+    assert generation_config.max_length == 1024
+    assert generation_config.temperature is None
+    assert generation_config.top_p is None
+    assert generation_config.top_k is None
     assert generation_config.min_p is None
-    assert generation_config.typical_p == 1.0
-    assert generation_config.epsilon_cutoff == 0.0
-    assert generation_config.eta_cutoff == 0.0
+    assert generation_config.typical_p is None
+    assert generation_config.epsilon_cutoff is None
+    assert generation_config.eta_cutoff is None
 
 
 def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
