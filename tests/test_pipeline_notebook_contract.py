@@ -70,14 +70,21 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert 'CONFIG = preset_to_dict("local_gpu")' in code
     assert "SEARCH_QUERY = 'author:\"Hawking, S*\"'" in code
     assert 'CONFIG["search"]["query"] = SEARCH_QUERY' in code
-    assert 'CONFIG["translate"]["fasttext_model"]' not in code
+    assert 'CONFIG["translate"]["fasttext_model"] =' not in code
 
     assert "from ads_bib.runner import load_run_config, run_resolved_config" in code
     assert "run_resolved_config(" in code
-    assert 'output_mode="cli"' in code
+    assert 'output_mode="notebook"' in code
+    assert 'output_mode="cli"' not in code
     assert "HTML(filename" not in code
     assert 'getattr(result, "topic_map", None)' in code
     assert "from ads_bib.visualize import create_topic_map" in code
+
+    assert "## 5. Prepare models" in markdown
+    assert "ensure_default_fasttext_model(" in code
+    assert "from sentence_transformers import SentenceTransformer" in code
+    assert "AutoTokenizer.from_pretrained" in code
+    assert "AutoModelForCausalLM.from_pretrained" in code
 
     assert "MIN_CLUSTER_SIZE =" not in code
     assert "BASE_MIN_CLUSTER_SIZE =" not in code
@@ -115,7 +122,11 @@ def test_public_colab_notebook_contract():
     assert '"model": "JustFrederik/nllb-200-distilled-600M-ct2-int8"' in code
     assert '"embedding_model": "Qwen/Qwen3-Embedding-0.6B"' in code
     assert '"llm_model": "Qwen/Qwen3-4B-Instruct-2507"' in code
-    assert 'run_name="ads_bib_colab_hawking"' in code
+    assert '"Return only a concise 3-6 word topic label. No prefix. No explanation."' in code
+    assert '"bertopic_label_max_tokens": 24' in code
+    assert "_ensure_nllb_model(" in code
+    assert 'RUN_NAME = "ads_bib_colab_hawking"' in code
+    assert "run_name=RUN_NAME" in code
     assert "USE_STRICT_LOCAL_GPU_PRESET" not in code
     assert "google/translategemma-4b-it" not in code
     assert "google/embeddinggemma-300m" not in code
@@ -135,9 +146,12 @@ def test_gemma_colab_notebook_contract():
     assert "google/translategemma-4b-it" in markdown
     assert "google/embeddinggemma-300m" in markdown
     assert "google/gemma-3-1b-it" in markdown
-    assert 'run_name="ads_bib_colab_hawking_gemma"' in code
+    assert "_load_local_transformers_translation_model(" in code
+    assert 'RUN_NAME = "ads_bib_colab_hawking_gemma"' in code
+    assert "run_name=RUN_NAME" in code
     assert 'CONFIG["translate"].update' not in code
     assert 'CONFIG["topic_model"].update' not in code
+    assert "Return only a concise 3-6 word topic label" not in code
     assert "JustFrederik/nllb-200-distilled-600M-ct2-int8" not in code
     assert "Qwen/Qwen3-Embedding-0.6B" not in code
     assert "Qwen/Qwen3-4B-Instruct-2507" not in code
