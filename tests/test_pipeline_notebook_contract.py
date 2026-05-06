@@ -5,11 +5,12 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-NOTEBOOK_PATH = PROJECT_ROOT / "pipeline.ipynb"
+PUBLIC_NOTEBOOK_PATH = PROJECT_ROOT / "pipeline.ipynb"
+GEMMA_NOTEBOOK_PATH = PROJECT_ROOT / "pipeline_gemma.ipynb"
 
 
-def _load_notebook() -> dict:
-    with NOTEBOOK_PATH.open("r", encoding="utf-8") as fh:
+def _load_notebook(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -29,9 +30,9 @@ def _all_markdown_source(nb: dict) -> str:
     )
 
 
-def test_pipeline_notebook_code_contract():
-    nb = _load_notebook()
+def _assert_common_colab_contract(nb: dict) -> None:
     code = _all_code_source(nb)
+    markdown = _all_markdown_source(nb)
 
     assert "def " not in code
     assert "globals()" not in code
@@ -46,66 +47,39 @@ def test_pipeline_notebook_code_contract():
     assert "START_STAGE" not in code
     assert "STOP_STAGE" not in code
     assert "START_AT_PHASE" not in code
-    assert "os.getenv(" not in code
+    assert "docs(library/" not in code
+    assert "get_notebook_session" not in code
+    assert "session.run_stage(" not in code
 
-    assert 'from ads_bib.notebook import get_notebook_session' in code
-    assert "RESET_SESSION = False" in code
-    assert 'session = get_notebook_session(' in code
+    assert "%pip install -q uv" in code
+    assert "uv pip install --system" in code
+    assert "git+https" not in code
+    assert "ads-bib" in code
+    assert '"torch==2.6.0"' in code
+    assert '"torchvision==0.21.0"' in code
+    assert "uv pip uninstall --system -q torchcodec" in code
+    assert "bitsandbytes" in code
+    assert "torch.cuda.is_available()" in code
+    assert "Runtime > Change runtime type" in code
+    assert "getpass(" in code
+    assert "ADS_TOKEN" in code
+    assert 'PROJECT_ROOT = "/content/ads-bib-colab"' in code
+    assert "os.chdir(PROJECT_ROOT)" in code
 
-    assert 'session.set_section("run", RUN)' in code
-    assert 'session.set_section("search", SEARCH)' in code
-    assert 'session.set_section("translate", TRANSLATE)' in code
-    assert 'session.set_section("llama_server", LLAMA_SERVER)' in code
-    assert 'session.set_section("tokenize", TOKENIZE)' in code
-    assert 'session.set_section("author_disambiguation", AUTHOR_DISAMBIGUATION)' in code
-    assert '"backend": "local"' in code
-    assert '"runtime": "auto"' in code
-    assert '"modal_gpu": "l4"' in code
-    assert 'session.set_section("topic_model", TOPIC_MODEL)' in code
-    assert 'session.set_section("visualization", VISUALIZATION)' in code
-    assert 'session.set_section("curation", CURATION)' in code
-    assert 'session.set_section("citations", CITATIONS)' in code
+    assert "from ads_bib.presets import preset_to_dict" in code
+    assert 'CONFIG = preset_to_dict("local_gpu")' in code
+    assert "SEARCH_QUERY = 'author:\"Hawking, S*\"'" in code
+    assert 'CONFIG["search"]["query"] = SEARCH_QUERY' in code
+    assert 'CONFIG["translate"]["fasttext_model"]' not in code
 
-    assert 'session.run_stage("search")' in code
-    assert 'session.run_stage("export")' in code
-    assert 'session.run_stage("translate")' in code
-    assert 'session.run_stage("tokenize")' in code
-    assert 'session.run_stage("author_disambiguation")' in code
-    assert 'session.run_stage("embeddings")' in code
-    assert 'session.run_stage("reduction")' in code
-    assert 'session.run_stage("topic_fit")' in code
-    assert 'session.run_stage("topic_dataframe")' in code
-    assert 'session.run_stage("visualize")' in code
-    assert 'session.run_stage("curate")' in code
-    assert 'session.run_stage("citations")' in code
+    assert "from ads_bib.runner import load_run_config, run_resolved_config" in code
+    assert "run_resolved_config(" in code
+    assert 'output_mode="notebook"' in code
 
     assert "MIN_CLUSTER_SIZE =" not in code
     assert "BASE_MIN_CLUSTER_SIZE =" not in code
     assert "MIN_DF = max(" not in code
     assert "from ads_bib.prompts import" not in code
-
-    assert 'TRANSLATE = {' in code
-    assert '"api_key": None' in code
-    assert '"model_repo": None' in code
-    assert '"model_file": None' in code
-    assert '"model_path": None' in code
-    assert 'LLAMA_SERVER = {' in code
-    assert '"reasoning": "off"' in code
-    assert '"spacy_model": "en_core_web_md"' in code
-    assert '"fallback_model": "en_core_web_md"' in code
-    assert 'TOPIC_MODEL = {' in code
-    assert '"llm_model_repo": None' in code
-    assert '"llm_model_file": None' in code
-    assert '"llm_model_path": None' in code
-    assert '"llm_prompt_name": "physics"' in code
-    assert '"toponymy_local_label_max_tokens": 128' in code
-    assert '"font_family": "Cinzel"' in code
-    assert '"topic_tree": False' in code
-    assert '"cluster_targets": []' in code
-    assert 'CITATIONS = {' in code
-    assert '"authors_filter_uids": None' in code
-    assert '"cited_authors_exclude": None' in code
-    assert '"cited_author_uids_exclude": None' in code
     assert "run.save_config(globals())" not in code
     assert "load_phase3_checkpoint" not in code
     assert "save_phase3_checkpoint" not in code
@@ -113,30 +87,65 @@ def test_pipeline_notebook_code_contract():
     assert "save_phase4_checkpoint" not in code
     assert "Config changed; invalidated in-memory state from stage" not in code
 
-
-def test_pipeline_notebook_has_expected_config_sections():
-    nb = _load_notebook()
-    markdown = _all_markdown_source(nb)
-
-    assert "### 1.1 Search Configuration" in markdown
-    assert "### 2.1 Translation Configuration" in markdown
-    assert "### 2.2 Language Detection + Translation" in markdown
-    assert "### 2.3 Preview Translated Fields" in markdown
-    assert "# Phase 4: Author Name Disambiguation" in markdown
-    assert "### 5.1 Embedding Configuration" in markdown
-    assert "### 5.3 Dimensionality Reduction Configuration" in markdown
-    assert "### 5.4 Clustering Configuration" in markdown
-    assert "### 5.5a LLM Prompt for Topic Labels" in markdown
-    assert "### 6.1 Citation Configuration" in markdown
+    assert "Google Colab" in markdown
+    assert "ADS token settings" in markdown
+    assert "Runtime > Change runtime type" in markdown
+    assert "/content/ads-bib-colab" in markdown
+    assert "topic map" in markdown.lower()
+    assert "citation files" in markdown.lower()
+    assert ".venv" not in markdown
+    assert "ADS_env" not in markdown
     assert "Save Translation Checkpoint" not in markdown
     assert "placeholder" not in markdown.lower()
 
 
-def test_pipeline_notebook_is_output_clean():
-    nb = _load_notebook()
+def test_public_colab_notebook_contract():
+    nb = _load_notebook(PUBLIC_NOTEBOOK_PATH)
+    _assert_common_colab_contract(nb)
+    code = _all_code_source(nb)
+    markdown = _all_markdown_source(nb)
 
-    for cell in nb["cells"]:
-        if cell.get("cell_type") != "code":
-            continue
-        assert cell.get("execution_count") is None
-        assert cell.get("outputs", []) == []
+    assert "# ads-bib Colab quickstart" in markdown
+    assert "public Hugging Face models" in markdown
+    assert "HF_TOKEN optional" in code
+    assert '"provider": "nllb"' in code
+    assert '"model": "JustFrederik/nllb-200-distilled-600M-ct2-int8"' in code
+    assert '"embedding_model": "Qwen/Qwen3-Embedding-0.6B"' in code
+    assert '"llm_model": "Qwen/Qwen3-4B-Instruct-2507"' in code
+    assert 'run_name="ads_bib_colab_hawking"' in code
+    assert "USE_STRICT_LOCAL_GPU_PRESET" not in code
+    assert "google/translategemma-4b-it" not in code
+    assert "google/embeddinggemma-300m" not in code
+    assert "google/gemma-3-1b-it" not in code
+
+
+def test_gemma_colab_notebook_contract():
+    nb = _load_notebook(GEMMA_NOTEBOOK_PATH)
+    _assert_common_colab_contract(nb)
+    code = _all_code_source(nb)
+    markdown = _all_markdown_source(nb)
+
+    assert "# ads-bib Colab quickstart: Gemma preset" in markdown
+    assert "unchanged `local_gpu` preset" in markdown
+    assert "HF_TOKEN is required" in code
+    assert "https://huggingface.co/settings/tokens" in markdown
+    assert "google/translategemma-4b-it" in markdown
+    assert "google/embeddinggemma-300m" in markdown
+    assert "google/gemma-3-1b-it" in markdown
+    assert 'run_name="ads_bib_colab_hawking_gemma"' in code
+    assert 'CONFIG["translate"].update' not in code
+    assert 'CONFIG["topic_model"].update' not in code
+    assert "JustFrederik/nllb-200-distilled-600M-ct2-int8" not in code
+    assert "Qwen/Qwen3-Embedding-0.6B" not in code
+    assert "Qwen/Qwen3-4B-Instruct-2507" not in code
+
+
+def test_pipeline_notebook_is_output_clean():
+    for path in (PUBLIC_NOTEBOOK_PATH, GEMMA_NOTEBOOK_PATH):
+        nb = _load_notebook(path)
+
+        for cell in nb["cells"]:
+            if cell.get("cell_type") != "code":
+                continue
+            assert cell.get("execution_count") is None
+            assert cell.get("outputs", []) == []

@@ -44,17 +44,17 @@ Use a Python 3.12 env. One base install covers every preset:
 uv pip install ads-bib
 ```
 
-On NVIDIA / CUDA machines, add the validated CUDA Torch wheel into the same
-env so `local_gpu` runs on the GPU:
+On NVIDIA / CUDA machines, add the validated CUDA Torch and TorchVision wheels
+into the same env so `local_gpu` runs on the GPU:
 
 ```bash
-uv pip install ads-bib "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cu124
+uv pip install ads-bib "torch==2.6.0" "torchvision==0.21.0" --extra-index-url https://download.pytorch.org/whl/cu124
 ```
 
 If you need to restore the validated CPU wheel explicitly for a local CPU env:
 
 ```bash
-uv pip install "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install "torch==2.6.0" "torchvision==0.21.0" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 The validated local HF stack for this release is Torch 2.6.x with

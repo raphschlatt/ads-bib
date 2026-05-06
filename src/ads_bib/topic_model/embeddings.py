@@ -21,7 +21,10 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
 )
-from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils.hf_compat import (
+    import_sentence_transformer_class,
+    raise_with_local_hf_compat_hint,
+)
 from ads_bib._utils.logging import (
     capture_external_output,
     get_console_stream,
@@ -414,8 +417,7 @@ def _embed_local(
             show_progress=bool(show_progress) and progress_callback is None,
         ) as pbar:
             with capture_external_output(get_runtime_log_path()):
-                from sentence_transformers import SentenceTransformer
-
+                SentenceTransformer = import_sentence_transformer_class()
                 st = SentenceTransformer(model)
                 logger.info(
                     "  Local embedding device | model=%s | device=%s",

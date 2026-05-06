@@ -23,13 +23,13 @@ Walk through this short checklist before investigating a symptom:
     === "macOS / Linux"
 
         ```bash
-        uv pip list | grep -E "ads-bib|torch|transformers|sentence-transformers"
+        uv pip list | grep -E "ads-bib|torch|torchvision|torchcodec|transformers|sentence-transformers"
         ```
 
     === "Windows (PowerShell)"
 
         ```powershell
-        uv pip list | Select-String "ads-bib|torch|transformers|sentence-transformers"
+        uv pip list | Select-String "ads-bib|torch|torchvision|torchcodec|transformers|sentence-transformers"
         ```
 
 !!! info "A managed runtime download is not a failure"
@@ -119,10 +119,10 @@ still says the official GPU road is unsupported.
 Fix:
 
 - Confirm `torch.cuda.is_available()` is `True` in the active env.
-- If not, install the validated CUDA Torch wheel into the same env:
+- If not, install the validated CUDA Torch and TorchVision wheels into the same env:
 
 ```bash
-uv pip install ads-bib "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cu124
+uv pip install ads-bib "torch==2.6.0" "torchvision==0.21.0" --extra-index-url https://download.pytorch.org/whl/cu124
 ```
 
 - Re-run `ads-bib doctor --preset local_gpu ...`.
@@ -158,6 +158,40 @@ uv pip install -U "transformers>=4.56,<4.57" "sentence-transformers>=5.1"
 ```
 
 Then restart the kernel or session.
+
+## `operator torchvision::nms does not exist`
+
+Symptom: local embeddings or local Transformers loading fails inside
+`sentence_transformers`, `transformers`, or `torchvision` with
+`operator torchvision::nms does not exist`.
+
+Fix:
+
+- Reinstall Torch and TorchVision as a matching pair in the active env.
+- In Colab / CUDA 12.4:
+
+```bash
+uv pip install -U "torch==2.6.0" "torchvision==0.21.0" --extra-index-url https://download.pytorch.org/whl/cu124
+```
+
+- Restart the kernel after reinstalling.
+
+## `Could not load libtorchcodec`
+
+Symptom: local embeddings fail while importing `sentence_transformers`, and
+the traceback mentions `torchcodec` or `Could not load libtorchcodec`.
+
+Fix:
+
+- `torchcodec` is only needed for audio/video decoding. ads-bib's text
+  embeddings do not need it.
+- In Colab, remove it from the active runtime:
+
+```bash
+uv pip uninstall --system torchcodec
+```
+
+- Restart the kernel after uninstalling.
 
 ## Windows OpenMP runtime conflict
 

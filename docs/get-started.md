@@ -17,10 +17,10 @@ Don't have `uv` yet? Install it once with `pipx install uv` or
 
 !!! tip "Extra step for NVIDIA GPU users"
     If you want the `local_gpu` road on an NVIDIA machine, also install the
-    CUDA build of PyTorch into the same env:
+    matching CUDA builds of PyTorch and TorchVision into the same env:
 
     ```bash
-    uv pip install "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cu124
+    uv pip install "torch==2.6.0" "torchvision==0.21.0" --extra-index-url https://download.pytorch.org/whl/cu124
     ```
 
     Skip this step on CPU-only machines and when using the `openrouter`,
@@ -30,7 +30,7 @@ Don't have `uv` yet? Install it once with `pipx install uv` or
     If you need to restore the tested CPU wheel in a local CPU env, use:
 
     ```bash
-    uv pip install "torch==2.6.0" --extra-index-url https://download.pytorch.org/whl/cpu
+    uv pip install "torch==2.6.0" "torchvision==0.21.0" --extra-index-url https://download.pytorch.org/whl/cpu
     ```
 
 ## Create `.env`

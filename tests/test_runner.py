@@ -83,6 +83,26 @@ def test_run_with_yaml_config_applies_dotted_overrides(monkeypatch, tmp_path):
     assert calls["kwargs"]["output_mode"] == "cli"
 
 
+def test_run_accepts_explicit_output_mode(monkeypatch):
+    calls: dict[str, object] = {}
+
+    def _fake_run_pipeline(config, **kwargs):
+        calls["config"] = config
+        calls["kwargs"] = kwargs
+        return "ctx"
+
+    monkeypatch.setattr(runner, "run_pipeline", _fake_run_pipeline)
+
+    result = ads_bib.run(
+        config={"search": {"query": "author:test"}},
+        preflight=False,
+        output_mode="notebook",
+    )
+
+    assert result == "ctx"
+    assert calls["kwargs"]["output_mode"] == "notebook"
+
+
 def test_run_requires_exactly_one_config_source():
     with pytest.raises(ValueError, match="Exactly one"):
         ads_bib.run()
@@ -169,6 +189,18 @@ def test_pipeline_context_repr_is_compact_and_hides_secrets(tmp_path):
 def test_load_run_config_missing_path_raises_plain_file_not_found():
     with pytest.raises(FileNotFoundError, match="missing.yaml"):
         runner.load_run_config(config=Path("missing.yaml"))
+
+
+def test_resolve_runtime_path_uses_project_root(tmp_path):
+    relative = pipeline._resolve_runtime_path(
+        "data/models/lid.176.bin",
+        project_root=tmp_path,
+    )
+    assert relative == str((tmp_path / "data" / "models" / "lid.176.bin").resolve())
+
+    absolute_path = tmp_path / "custom" / "lid.176.bin"
+    absolute = pipeline._resolve_runtime_path(absolute_path, project_root=tmp_path / "ignored")
+    assert absolute == str(absolute_path.resolve())
 
 
 def test_run_resolved_config_loads_source_input_as_initial_state(monkeypatch, tmp_path):

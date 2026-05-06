@@ -19,7 +19,10 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
-from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
+from ads_bib._utils.hf_compat import (
+    import_sentence_transformer_class,
+    raise_with_local_hf_compat_hint,
+)
 from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     normalize_huggingface_model_for_litellm,
@@ -110,8 +113,7 @@ def _load_local_sentence_transformer(
                     "transformers.integrations.tensor_parallel",
                     level=logging.ERROR,
                 ):
-                    from sentence_transformers import SentenceTransformer
-
+                    SentenceTransformer = import_sentence_transformer_class()
                     return SentenceTransformer(model)
     except ImportError as exc:
         raise ImportError(missing_dependency_message) from exc

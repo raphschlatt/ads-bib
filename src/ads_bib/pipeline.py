@@ -131,6 +131,15 @@ _TOPONYMY_PROMPT_MAP: dict[str, str] = {
 _PROMPT_NAMES = frozenset(_PROMPT_MAP) | frozenset(_TOPONYMY_PROMPT_MAP)
 
 
+def _resolve_runtime_path(path: str | Path | None, *, project_root: Path | str | None) -> str | None:
+    if path is None:
+        return None
+    resolved = Path(path).expanduser()
+    if not resolved.is_absolute():
+        resolved = Path(project_root or Path.cwd()).expanduser() / resolved
+    return str(resolved.resolve())
+
+
 @dataclass
 class RunConfig:
     run_name: str = "ADS_Curation_Run"
@@ -1262,16 +1271,17 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
 
     if not cfg.fasttext_model:
         raise ValueError("translate.fasttext_model is required.")
+    fasttext_model = _resolve_runtime_path(cfg.fasttext_model, project_root=ctx.project_root)
 
     ctx.publications = detect_languages(
         ctx.publications,
         ["Title", "Abstract"],
-        model_path=cfg.fasttext_model,
+        model_path=fasttext_model,
     )
     ctx.refs = detect_languages(
         ctx.refs,
         ["Title", "Abstract"],
-        model_path=cfg.fasttext_model,
+        model_path=fasttext_model,
     )
 
     reporter = ctx.reporter

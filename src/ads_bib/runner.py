@@ -100,6 +100,7 @@ def run(
     run_name: str | None = None,
     project_root: Path | str | None = None,
     preflight: bool = True,
+    output_mode: OutputMode | None = None,
 ) -> PipelineContext:
     """Run the ADS pipeline from a packaged preset or config source."""
     resolved_config = load_run_config(
@@ -116,6 +117,7 @@ def run(
         run_name=run_name,
         project_root=project_root,
         preflight=preflight,
+        output_mode=output_mode,
     )
 
 

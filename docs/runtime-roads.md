@@ -38,8 +38,8 @@ uv pip install ads-bib
 ads-bib run --preset <road> --set search.query='author:"Hawking, S*"'
 ```
 
-For `local_gpu` on NVIDIA / CUDA, also install the validated CUDA Torch wheel
-as described in [Install & First Run](get-started.md#install).
+For `local_gpu` on NVIDIA / CUDA, also install the validated CUDA Torch and
+TorchVision wheels as described in [Install & First Run](get-started.md#install).
 
 ## Author Disambiguation Backend
 
@@ -131,6 +131,10 @@ Local GPU road for machines with a compatible Torch/CUDA stack.
     - backend: `bertopic`
 - **Optional switch**: set `topic_model.llm_provider=llama_server` to use GGUF
   labeling instead
+
+The packaged `local_gpu` defaults use Gemma-family Hugging Face models. If a
+first download is blocked, sign in to Hugging Face, accept the model terms, and
+set `HF_TOKEN`; see [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
 
 ### GPU runtime differs between Windows and Linux
 

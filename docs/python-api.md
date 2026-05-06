@@ -124,6 +124,7 @@ run(
     run_name: str | None = None,
     project_root: Path | str | None = None,
     preflight: bool = True,
+    output_mode: OutputMode | None = None,
 ) -> PipelineContext
 ```
 
@@ -144,8 +145,10 @@ With `preflight=True`, the function performs the same run preflight as the CLI
 and raises `RunBlockedError` if required keys, dependencies, or managed runtime
 preparation block the run.
 It auto-selects notebook-friendly progress output under Jupyter and CLI-style
-output in terminal Python runs. The return value is still a `PipelineContext`,
-even if the simple examples ignore it.
+output in terminal Python runs. Pass `output_mode="notebook"` when a hosted
+notebook frontend is detected as a terminal but should render notebook progress
+bars. The return value is still a `PipelineContext`, even if the simple examples
+ignore it.
 
 ## `PipelineConfig`
 
@@ -479,7 +482,6 @@ rows are written to CSV sidecars.
 
 The repository also includes
 [`pipeline.ipynb`](https://github.com/raphschlatt/ads-bib/blob/main/pipeline.ipynb)
-as an optional interactive frontend for the same `NotebookSession` API.
-It is not shipped in the `ads-bib` wheel — clone or download the repository
-if you want to use it. The notebook uses the same config keys documented
-throughout this site.
+as a Colab quickstart for the high-level `ads_bib.run(...)` path. The companion
+`pipeline_gemma.ipynb` keeps the packaged `local_gpu` Gemma preset unchanged.
+These notebooks are not shipped in the `ads-bib` wheel; open them from GitHub.

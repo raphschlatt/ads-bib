@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import contextlib
 from contextlib import contextmanager
 import io
 import logging
 import sys
+import textwrap
 import time
 import types
 from typing import Any
@@ -1406,6 +1408,99 @@ def test_embed_local_raises_actionable_error_for_torch_runtime_requirement(monke
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
 
     with pytest.raises(RuntimeError, match="requires torch>=2.6"):
+        tm_embeddings._embed_local(
+            ["doc-a"],
+            model="google/embeddinggemma-300m",
+            batch_size=8,
+            dtype=np.float32,
+        )
+
+
+def test_embed_local_treats_broken_optional_torchcodec_as_absent(tmp_path, monkeypatch):
+    sentence_transformers_dir = tmp_path / "sentence_transformers"
+    sentence_transformers_dir.mkdir()
+    sentence_transformers_dir.joinpath("__init__.py").write_text(
+        textwrap.dedent(
+            """
+            import numpy as np
+
+            try:
+                from torchcodec.decoders import AudioDecoder, VideoDecoder
+            except (ImportError, OSError):
+                AudioDecoder = None
+                VideoDecoder = None
+
+            class SentenceTransformer:
+                def __init__(self, model):
+                    self.model = model
+
+                def encode(self, documents, show_progress_bar=None, batch_size=64):
+                    del show_progress_bar, batch_size
+                    return np.asarray([[float(len(doc))] for doc in documents], dtype=np.float32)
+            """
+        ),
+        encoding="utf-8",
+    )
+    torchcodec_dir = tmp_path / "torchcodec"
+    torchcodec_dir.mkdir()
+    torchcodec_dir.joinpath("__init__.py").write_text(
+        "raise RuntimeError('Could not load libtorchcodec')\n",
+        encoding="utf-8",
+    )
+    torchcodec_dir.joinpath("decoders.py").write_text(
+        "raise RuntimeError('Could not load libtorchcodec')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for module_name in list(sys.modules):
+        if module_name == "sentence_transformers" or module_name.startswith("sentence_transformers."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+        if module_name == "torchcodec" or module_name.startswith("torchcodec."):
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+
+    emb = tm_embeddings._embed_local(
+        ["doc-a", "longer-doc"],
+        model="local-text-model",
+        batch_size=8,
+        dtype=np.float32,
+    )
+
+    assert emb.tolist() == [[5.0], [10.0]]
+
+
+def test_embed_local_raises_actionable_error_for_torchcodec_runtime_error(monkeypatch):
+    real_import = builtins.__import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "sentence_transformers":
+            raise RuntimeError("Could not load libtorchcodec")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    with pytest.raises(RuntimeError, match="uv pip uninstall torchcodec"):
+        tm_embeddings._embed_local(
+            ["doc-a"],
+            model="google/embeddinggemma-300m",
+            batch_size=8,
+            dtype=np.float32,
+        )
+
+
+def test_embed_local_raises_actionable_error_for_torchvision_runtime_mismatch(monkeypatch):
+    real_import = builtins.__import__
+
+    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "sentence_transformers":
+            cause = RuntimeError("operator torchvision::nms does not exist")
+            raise ModuleNotFoundError(
+                "Could not import module 'PreTrainedModel'. Are this object's requirements defined correctly?"
+            ) from cause
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    with pytest.raises(RuntimeError, match="torchvision==0.21.0"):
         tm_embeddings._embed_local(
             ["doc-a"],
             model="google/embeddinggemma-300m",
