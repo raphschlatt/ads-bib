@@ -100,6 +100,34 @@ def test_create_topic_map_uses_new_coordinate_and_topic_columns(monkeypatch):
     assert plot is not None
 
 
+def test_create_topic_map_retries_without_cluster_boundaries_for_low_polygon_alpha(monkeypatch):
+    viz, _ = _load_visualize_module(monkeypatch)
+    df = _build_df()
+    attempts: list[dict[str, object]] = []
+
+    def _raise_once_for_polygon_alpha(data_map, *label_layers, **kwargs):
+        del data_map, label_layers
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ValueError(
+                "The value of polygon_alpha was too low, and no boundary was formed. "
+                "Try increasing polygon_alpha."
+            )
+        return object()
+
+    monkeypatch.setattr(viz.datamapplot, "create_interactive_plot", _raise_once_for_polygon_alpha)
+
+    with pytest.warns(UserWarning, match="polygon_alpha too low"):
+        plot = viz.create_topic_map(df, label_column="Name", word_cloud=False, polygon_alpha=0.01)
+
+    assert plot is not None
+    assert len(attempts) == 2
+    assert attempts[0]["cluster_boundary_polygons"] is True
+    assert attempts[0]["polygon_alpha"] == 0.01
+    assert attempts[1]["cluster_boundary_polygons"] is False
+    assert "polygon_alpha" not in attempts[1]
+
+
 def test_create_topic_map_raises_if_new_coordinate_column_missing(monkeypatch):
     viz, _ = _load_visualize_module(monkeypatch)
     df = _build_df().drop(columns=["embedding_2d_y"])
