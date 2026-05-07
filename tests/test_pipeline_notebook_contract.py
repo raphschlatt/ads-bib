@@ -83,6 +83,7 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert "## 5. Prepare models" in markdown
     assert "ensure_default_fasttext_model(" in code
     assert "from sentence_transformers import SentenceTransformer" in code
+    assert 'SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")' in code
     assert "AutoTokenizer.from_pretrained" in code
     assert "AutoModelForCausalLM.from_pretrained" in code
 
@@ -122,8 +123,8 @@ def test_public_colab_notebook_contract():
     assert '"model": "JustFrederik/nllb-200-distilled-600M-ct2-int8"' in code
     assert '"embedding_model": "Qwen/Qwen3-Embedding-0.6B"' in code
     assert '"llm_model": "Qwen/Qwen3-4B-Instruct-2507"' in code
-    assert '"Return only a concise 3-6 word topic label. No prefix. No explanation."' in code
-    assert '"bertopic_label_max_tokens": 24' in code
+    assert '"llm_prompt"' not in code
+    assert '"bertopic_label_max_tokens": 24' not in code
     assert "_ensure_nllb_model(" in code
     assert 'RUN_NAME = "ads_bib_colab_hawking"' in code
     assert "run_name=RUN_NAME" in code

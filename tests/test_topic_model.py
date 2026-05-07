@@ -238,17 +238,14 @@ def test_reduce_outliers_tracks_post_outlier_llm_usage(monkeypatch):
     assert calls["usage"]["prompt_tokens"] == 12
 
 
-def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch):
+def test_create_llm_local_uses_transformers_chat_template(monkeypatch):
     calls: dict = {}
 
-    class _FakeTextGeneration:
-        def __init__(self, generator, *, prompt, pipeline_kwargs):
-            calls["generator"] = generator
-            calls["prompt"] = prompt
-            calls["pipeline_kwargs"] = pipeline_kwargs
+    class _FakeBaseRepresentation:
+        pass
 
     fake_representation = types.ModuleType("bertopic.representation")
-    fake_representation.TextGeneration = _FakeTextGeneration
+    fake_representation.BaseRepresentation = _FakeBaseRepresentation
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
     fake_transformers = types.ModuleType("transformers")
@@ -266,19 +263,64 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
             self.epsilon_cutoff = 0.01
             self.eta_cutoff = 0.02
 
-    class _FakeGenerator:
+    class _FakeBatch(dict):
+        def to(self, device):
+            calls["input_device"] = device
+            return self
+
+    class _FakeTokenizer:
+        eos_token_id = 2
+        pad_token_id = None
+
+        def apply_chat_template(
+            self,
+            messages,
+            *,
+            tokenize,
+            add_generation_prompt,
+            return_dict,
+            return_tensors,
+        ):
+            calls["messages"] = messages
+            calls["tokenize"] = tokenize
+            calls["add_generation_prompt"] = add_generation_prompt
+            calls["return_dict"] = return_dict
+            calls["return_tensors"] = return_tensors
+            return _FakeBatch({"input_ids": np.array([[1, 2, 3]])})
+
+        def decode(self, token_ids, *, skip_special_tokens):
+            calls["decoded_ids"] = list(token_ids)
+            calls["skip_special_tokens"] = skip_special_tokens
+            return "topic: Quantum Cosmology\nextra"
+
+    class _FakeAutoTokenizer:
+        @staticmethod
+        def from_pretrained(model):
+            calls["tokenizer_model"] = model
+            return _FakeTokenizer()
+
+    class _FakeModel:
         def __init__(self):
-            self.model = types.SimpleNamespace(generation_config=_FakeGenerationConfig())
+            self.generation_config = _FakeGenerationConfig()
+            self.device = "cuda:0"
 
-    def _fake_pipeline(task, *, model, device_map, dtype=None, torch_dtype=None):
-        calls["task"] = task
-        calls["model"] = model
-        calls["device_map"] = device_map
-        calls["dtype"] = dtype
-        calls["torch_dtype"] = torch_dtype
-        return _FakeGenerator()
+        def generate(self, **kwargs):
+            calls["generate_kwargs"] = kwargs
+            return np.array([[1, 2, 3, 4, 5, 6]])
 
-    fake_transformers.pipeline = _fake_pipeline
+    class _FakeAutoModelForCausalLM:
+        @staticmethod
+        def from_pretrained(model, *, device_map, dtype=None, torch_dtype=None):
+            calls["model"] = model
+            calls["device_map"] = device_map
+            calls["dtype"] = dtype
+            calls["torch_dtype"] = torch_dtype
+            model_obj = _FakeModel()
+            calls["model_obj"] = model_obj
+            return model_obj
+
+    fake_transformers.AutoTokenizer = _FakeAutoTokenizer
+    fake_transformers.AutoModelForCausalLM = _FakeAutoModelForCausalLM
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
     llm = tm_backends._create_llm(
@@ -295,22 +337,31 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
         runtime_log_path=None,
     )
 
-    assert isinstance(llm, _FakeTextGeneration)
-    assert calls["task"] == "text-generation"
+    topic_model = types.SimpleNamespace(verbose=False)
+    topic_model._extract_representative_docs = lambda *args: ({0: ["doc a"]}, None, None, None)
+    result = llm.extract_topics(
+        topic_model,
+        pd.DataFrame({"Document": ["doc a"], "Topic": [0]}),
+        None,
+        {0: [("quantum", 0.8), ("cosmology", 0.7)]},
+    )
+
+    assert isinstance(llm, _FakeBaseRepresentation)
     assert calls["model"] == "Qwen/Qwen3-0.6B"
     assert calls["device_map"] == "auto"
     assert calls["dtype"] == "auto"
     assert calls["torch_dtype"] is None
-    assert calls["prompt"] == "topic: <label>"
-    assert calls["pipeline_kwargs"] == {
-        "do_sample": False,
-        "max_new_tokens": 64,
-        "num_return_sequences": 1,
-        "temperature": None,
-        "top_p": None,
-        "top_k": None,
-    }
-    generation_config = calls["generator"].model.generation_config
+    assert calls["tokenizer_model"] == "Qwen/Qwen3-0.6B"
+    assert calls["messages"][0]["role"] == "system"
+    assert calls["messages"][1]["role"] == "user"
+    assert "topic: <label>" in calls["messages"][1]["content"]
+    assert calls["add_generation_prompt"] is True
+    assert calls["generate_kwargs"]["max_new_tokens"] == 64
+    assert calls["generate_kwargs"]["do_sample"] is False
+    assert calls["generate_kwargs"]["pad_token_id"] == 2
+    assert calls["input_device"] == "cuda:0"
+    assert result == {0: [("Quantum Cosmology", 1)]}
+    generation_config = calls["model_obj"].generation_config
     assert generation_config.do_sample is False
     assert generation_config.max_length == 1024
     assert generation_config.temperature is None
@@ -324,20 +375,23 @@ def test_create_llm_local_uses_transformers_text_generation_pipeline(monkeypatch
 
 def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
     fake_representation = types.ModuleType("bertopic.representation")
-    fake_representation.TextGeneration = object
+    fake_representation.BaseRepresentation = object
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
     fake_transformers = types.ModuleType("transformers")
     fake_transformers.__spec__ = types.SimpleNamespace(name="transformers", submodule_search_locations=[])
 
-    def _fake_pipeline(*args, **kwargs):
-        del args, kwargs
-        raise ValueError(
-            "The checkpoint you are trying to load has model type `qwen3` "
-            "but Transformers does not recognize this architecture."
-        )
+    class _FakeAutoTokenizer:
+        @staticmethod
+        def from_pretrained(model):
+            del model
+            raise ValueError(
+                "The checkpoint you are trying to load has model type `qwen3` "
+                "but Transformers does not recognize this architecture."
+            )
 
-    fake_transformers.pipeline = _fake_pipeline
+    fake_transformers.AutoTokenizer = _FakeAutoTokenizer
+    fake_transformers.AutoModelForCausalLM = object
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
     with pytest.raises(RuntimeError, match="Local topic labeling model 'Qwen/Qwen3-0.6B'"):
@@ -359,16 +413,32 @@ def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
 def test_create_llm_huggingface_api_normalizes_model_and_passes_api_key(monkeypatch):
     calls: dict = {}
 
-    class _FakeLiteLLM:
-        def __init__(self, **kwargs):
-            calls["kwargs"] = kwargs
+    class _FakeBaseRepresentation:
+        pass
 
     fake_representation = types.ModuleType("bertopic.representation")
-    fake_representation.LiteLLM = _FakeLiteLLM
+    fake_representation.BaseRepresentation = _FakeBaseRepresentation
     monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
 
-    fake_litellm = types.ModuleType("litellm")
-    monkeypatch.setitem(sys.modules, "litellm", fake_litellm)
+    class _FakeInferenceClient:
+        def __init__(self, *, provider, api_key):
+            calls["client"] = {"provider": provider, "api_key": api_key}
+
+        def chat_completion(self, **kwargs):
+            calls["chat"] = kwargs
+            return types.SimpleNamespace(
+                id="hf-1",
+                usage=types.SimpleNamespace(prompt_tokens=11, completion_tokens=4),
+                choices=[
+                    types.SimpleNamespace(
+                        message=types.SimpleNamespace(content="topic: Black Hole Physics\nextra")
+                    )
+                ],
+            )
+
+    fake_huggingface_hub = types.ModuleType("huggingface_hub")
+    fake_huggingface_hub.InferenceClient = _FakeInferenceClient
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_huggingface_hub)
 
     llm = tm_backends._create_llm(
         provider="huggingface_api",
@@ -384,10 +454,24 @@ def test_create_llm_huggingface_api_normalizes_model_and_passes_api_key(monkeypa
         runtime_log_path=None,
     )
 
-    assert isinstance(llm, _FakeLiteLLM)
-    assert calls["kwargs"]["model"] == "huggingface/featherless-ai/unsloth/Qwen2.5-72B-Instruct"
-    assert calls["kwargs"]["generator_kwargs"]["api_key"] == "hf-token"
-    assert calls["kwargs"]["generator_kwargs"]["max_tokens"] == 64
+    topic_model = types.SimpleNamespace(verbose=False)
+    topic_model._extract_representative_docs = lambda *args: ({0: ["doc a"]}, None, None, None)
+    result = llm.extract_topics(
+        topic_model,
+        pd.DataFrame({"Document": ["doc a"], "Topic": [0]}),
+        None,
+        {0: [("black", 0.8), ("hole", 0.7)]},
+    )
+    usage = llm.consume_usage()
+
+    assert isinstance(llm, _FakeBaseRepresentation)
+    assert calls["client"] == {"provider": "featherless-ai", "api_key": "hf-token"}
+    assert calls["chat"]["model"] == "unsloth/Qwen2.5-72B-Instruct"
+    assert calls["chat"]["messages"][0]["role"] == "system"
+    assert calls["chat"]["max_tokens"] == 64
+    assert result == {0: [("Black Hole Physics", 1)]}
+    assert usage["prompt_tokens"] == 11
+    assert usage["completion_tokens"] == 4
 
 
 class _FakeLayer:
@@ -413,13 +497,11 @@ class _FakeOpenAIEmbedder:
         return np.ones((len(texts), 3), dtype=np.float32)
 
 
-class _FakeHuggingFaceNamer:
-    def __init__(self, model, **kwargs):
-        self.model = model
-        self.kwargs = kwargs
-
-
 class _FakeAsyncLLMWrapper:
+    pass
+
+
+class _FakeLLMWrapper:
     pass
 
 
@@ -483,7 +565,7 @@ def _install_fake_toponymy_modules(monkeypatch, *, include_hf_namer: bool = True
     fake_llm_wrappers = types.ModuleType("toponymy.llm_wrappers")
     fake_llm_wrappers.AsyncLLMWrapper = _FakeAsyncLLMWrapper
     if include_hf_namer:
-        fake_llm_wrappers.HuggingFaceNamer = _FakeHuggingFaceNamer
+        fake_llm_wrappers.LLMWrapper = _FakeLLMWrapper
 
     monkeypatch.setitem(sys.modules, "toponymy", fake_toponymy)
     monkeypatch.setitem(sys.modules, "toponymy.embedding_wrappers", fake_embedding_wrappers)
@@ -795,10 +877,19 @@ def test_fit_toponymy_records_toponymy_embedding_costs_for_openrouter(monkeypatc
         calls["max_workers"] = max_workers
         return 0.0042, {"total_cost_usd": 0.0042}
 
+    class _FakeLocalChatClient:
+        def __init__(self, *, model, use_case, runtime_log_path):
+            del model, use_case, runtime_log_path
+
+        def complete(self, *, messages, max_tokens, temperature, stop=None):
+            del messages, max_tokens, temperature, stop
+            return "{\"label\":\"ok\"}"
+
     monkeypatch.setattr(tm_backends, "OpenRouterEmbedder", _FakeOpenRouterEmbedder)
     monkeypatch.setattr(tm_backends, "_fit_and_extract_toponymy_outputs", _fake_fit_outputs)
     monkeypatch.setattr(tm_backends, "_record_llm_usage", lambda usage, **kwargs: None)
     monkeypatch.setattr(tm_backends, "resolve_openrouter_costs", _fake_resolve_openrouter_costs)
+    monkeypatch.setattr(tm_backends, "_LocalTransformersTopicChatClient", _FakeLocalChatClient)
 
     tracker = _Tracker()
     tm.fit_toponymy(
@@ -981,7 +1072,21 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
         calls["usage"] = usage
         calls["kwargs"] = kwargs
 
+    class _FakeLocalChatClient:
+        def __init__(self, *, model, use_case, runtime_log_path):
+            self.model = model
+            calls["local_client"] = {
+                "model": model,
+                "use_case": use_case,
+                "runtime_log_path": runtime_log_path,
+            }
+
+        def complete(self, *, messages, max_tokens, temperature, stop=None):
+            del messages, max_tokens, temperature, stop
+            return "{\"label\":\"ok\"}"
+
     monkeypatch.setattr(tm_backends, "_record_llm_usage", _fake_record_llm_usage)
+    monkeypatch.setattr(tm_backends, "_LocalTransformersTopicChatClient", _FakeLocalChatClient)
 
     model, topics, _ = tm.fit_toponymy(
         documents=["d1", "d2", "d3"],
@@ -996,10 +1101,12 @@ def test_fit_toponymy_supports_local_llm_provider(monkeypatch):
         local_llm_max_new_tokens=77,
     )
 
-    assert isinstance(model.llm_wrapper, _FakeHuggingFaceNamer)
+    assert isinstance(model.llm_wrapper, _FakeLLMWrapper)
     assert model.llm_wrapper.model == "local-llm"
     assert model.llm_wrapper._local_max_new_tokens == 77
     assert model.llm_wrapper._max_tokens(128) == 77
+    assert model.llm_wrapper.client.model == "local-llm"
+    assert calls["local_client"]["use_case"] == "toponymy labeling"
     assert isinstance(model.text_embedding_model, _FakeSentenceTransformer)
     assert model.text_embedding_model.model_name == "local-embedder"
     assert topics.tolist() == [-1, 0, 1]
@@ -2300,11 +2407,29 @@ def test_reduce_dimensions_uses_cache_then_recomputes_on_param_change(monkeypatc
 
 
 def test_create_llm_llama_server_uses_repo_owned_representation(tmp_path, monkeypatch):
+    fake_representation = types.ModuleType("bertopic.representation")
+    fake_representation.BaseRepresentation = object
+    monkeypatch.setitem(sys.modules, "bertopic.representation", fake_representation)
+
     model_path = tmp_path / "qwen.gguf"
     model_path.write_text("fake", encoding="utf-8")
     handle = types.SimpleNamespace(base_url="http://127.0.0.1:8080/v1")
+    calls: dict = {}
+
+    class _FakeChatCompletions:
+        def create(self, **kwargs):
+            calls["chat"] = kwargs
+            return types.SimpleNamespace(
+                choices=[
+                    types.SimpleNamespace(
+                        message=types.SimpleNamespace(content="topic: Llama Server Label\nextra")
+                    )
+                ]
+            )
+
+    fake_client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=_FakeChatCompletions()))
     monkeypatch.setattr(tm_backends, "ensure_llama_server", lambda **kwargs: handle)
-    monkeypatch.setattr(tm_backends, "build_openai_client", lambda **kwargs: "fake-client")
+    monkeypatch.setattr(tm_backends, "build_openai_client", lambda **kwargs: fake_client)
 
     llm = tm_backends._create_llm(
         provider="llama_server",
@@ -2320,11 +2445,25 @@ def test_create_llm_llama_server_uses_repo_owned_representation(tmp_path, monkey
         runtime_log_path=tmp_path / "runtime.log",
     )
 
-    assert llm._client == "fake-client"
+    topic_model = types.SimpleNamespace(verbose=False)
+    topic_model._extract_representative_docs = lambda *args: ({0: ["doc a"]}, None, None, None)
+    result = llm.extract_topics(
+        topic_model,
+        pd.DataFrame({"Document": ["doc a"], "Topic": [0]}),
+        None,
+        {0: [("server", 0.8), ("label", 0.7)]},
+    )
+
+    assert llm.client.client is fake_client
+    assert llm.client.model == "qwen.gguf"
     assert llm.prompt == "topic: <label>"
     assert llm.max_tokens == 64
     assert llm.nr_docs == 8
     assert llm.diversity == 0.2
+    assert calls["chat"]["messages"][0]["role"] == "system"
+    assert "topic: <label>" in calls["chat"]["messages"][1]["content"]
+    assert calls["chat"]["max_tokens"] == 64
+    assert result == {0: [("Llama Server Label", 1)]}
 
 
 def test_fit_toponymy_supports_llama_server_llm_provider(tmp_path, monkeypatch):

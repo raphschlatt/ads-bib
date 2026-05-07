@@ -25,7 +25,6 @@ from ads_bib._utils.hf_compat import (
 )
 from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
-    normalize_huggingface_model_for_litellm,
     resolve_huggingface_api_key,
 )
 from ads_bib._utils.llama_server import (
@@ -287,9 +286,8 @@ def _suppress_manual_topics_warning():
         logger_name.removeFilter(warning_filter)
 
 
-def _configure_deterministic_generation_pipeline(generator: Any) -> None:
+def _configure_deterministic_generation_model(model: Any) -> None:
     """Normalize local HF generation defaults for deterministic topic labeling."""
-    model = getattr(generator, "model", None)
     generation_config = getattr(model, "generation_config", None)
     if generation_config is None:
         return
@@ -310,6 +308,11 @@ def _configure_deterministic_generation_pipeline(generator: Any) -> None:
     }.items():
         if hasattr(generation_config, name):
             setattr(generation_config, name, value)
+
+
+def _configure_deterministic_generation_pipeline(generator: Any) -> None:
+    """Normalize local HF pipeline generation defaults for deterministic topic labeling."""
+    _configure_deterministic_generation_model(getattr(generator, "model", None))
 
 
 @contextmanager
@@ -491,44 +494,337 @@ def _consume_openrouter_representation_usage(representation_model: Any) -> dict[
     return usage
 
 
-def _create_openrouter_bertopic_representation(
+def _topic_label_prompt(
     *,
-    model: str,
+    prompt: str,
+    docs: list[str],
+    topic: int,
+    topics: dict[int, list[tuple[str, float]]],
+) -> str:
+    """Fill BERTopic label prompt placeholders for one topic."""
+    prompt_text = prompt
+    keywords = [word for word, _score in topics.get(topic, [])]
+    if "[KEYWORDS]" in prompt_text:
+        prompt_text = prompt_text.replace("[KEYWORDS]", " ".join(keywords))
+    if "[DOCUMENTS]" in prompt_text:
+        prompt_text = prompt_text.replace(
+            "[DOCUMENTS]",
+            "".join(f"- {doc[:255]}\n" for doc in docs),
+        )
+    return prompt_text
+
+
+def _topic_label_messages(prompt_text: str) -> list[dict[str, str]]:
+    """Create the shared chat request shape for BERTopic labels."""
+    return [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt_text},
+    ]
+
+
+def _normalize_topic_label(content: str | None) -> str:
+    """Keep generated topic labels compact without guessing every provider quirk."""
+    if content is None:
+        return ""
+    label = _strip_think_tags(str(content)).strip()
+    if not label:
+        return ""
+    label = label.splitlines()[0].strip()
+    if label.lower().startswith("topic:"):
+        label = label.split(":", 1)[1].strip()
+    return label
+
+
+def _message_content_from_response(response: Any) -> str:
+    """Extract chat message content from object- or dict-shaped SDK responses."""
+    choices = response.get("choices") if isinstance(response, dict) else getattr(response, "choices", None)
+    if not choices:
+        return ""
+    choice = choices[0]
+    message = choice.get("message") if isinstance(choice, dict) else getattr(choice, "message", None)
+    if message is None:
+        return ""
+    content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+    return str(content or "")
+
+
+def _response_usage_tokens(response: Any) -> tuple[int, int]:
+    """Extract prompt/completion tokens from object- or dict-shaped SDK responses."""
+    usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+    if usage is None:
+        return 0, 0
+    if isinstance(usage, dict):
+        return int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0)
+    return (
+        int(getattr(usage, "prompt_tokens", 0) or 0),
+        int(getattr(usage, "completion_tokens", 0) or 0),
+    )
+
+
+def _resolve_local_model_input_device(model: Any) -> Any | None:
+    device = getattr(model, "device", None)
+    if device is not None:
+        return device
+    parameters = getattr(model, "parameters", None)
+    if callable(parameters):
+        try:
+            return next(parameters()).device
+        except Exception:
+            return None
+    return None
+
+
+class _OpenRouterTopicChatClient:
+    def __init__(self, *, model: str, api_key: str | None) -> None:
+        self.model = model.removeprefix("openrouter/")
+        self.api_key = api_key
+        self.api_base = DEFAULT_OPENROUTER_API_BASE
+        self._client = None
+        self._usage = _new_usage_summary()
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=self.api_key, base_url=self.api_base)
+        return self._client
+
+    def complete(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        stop: list[str] | None = None,
+    ) -> str:
+        response = openrouter_chat_completion(
+            client=self._get_client(),
+            model=self.model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+            retry_label="BERTopic OpenRouter labeling call",
+        )
+        stats = openrouter_usage_from_response(response)
+        self._usage["prompt_tokens"] += int(stats["prompt_tokens"])
+        self._usage["completion_tokens"] += int(stats["completion_tokens"])
+        self._usage["call_records"].append(stats["call_record"])
+        content, content_state = openrouter_response_content(response)
+        if content_state != "ok" or content is None:
+            raise ValueError(f"OpenRouter returned content_state={content_state}")
+        return content
+
+    def consume_usage(self) -> dict[str, Any]:
+        usage = _new_usage_summary()
+        _merge_usage_summary(usage, self._usage)
+        self._usage = _new_usage_summary()
+        return usage
+
+
+class _OpenAICompatTopicChatClient:
+    def __init__(self, *, client: Any, model: str) -> None:
+        self.client = client
+        self.model = model
+
+    def complete(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        stop: list[str] | None = None,
+    ) -> str:
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if stop:
+            kwargs["stop"] = stop
+        response = self.client.chat.completions.create(**kwargs)
+        return _message_content_from_response(response)
+
+
+class _HuggingFaceAPITopicChatClient:
+    def __init__(self, *, model: str, api_key: str | None) -> None:
+        normalized_model = normalize_huggingface_model(model)
+        self.model, self.provider = (
+            normalized_model.rsplit(":", 1)
+            if ":" in normalized_model
+            else (normalized_model, None)
+        )
+        self.api_key = resolve_huggingface_api_key(api_key)
+        self._client = None
+        self._usage = _new_usage_summary()
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            from huggingface_hub import InferenceClient
+
+            self._client = InferenceClient(provider=self.provider, api_key=self.api_key)
+        return self._client
+
+    def complete(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        stop: list[str] | None = None,
+    ) -> str:
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if stop:
+            kwargs["stop"] = stop
+        response = self._get_client().chat_completion(**kwargs)
+        prompt_tokens, completion_tokens = _response_usage_tokens(response)
+        self._usage["prompt_tokens"] += prompt_tokens
+        self._usage["completion_tokens"] += completion_tokens
+        generation_id = response.get("id") if isinstance(response, dict) else getattr(response, "id", None)
+        self._usage["call_records"].append({"generation_id": generation_id, "direct_cost": None})
+        return _message_content_from_response(response)
+
+    def consume_usage(self) -> dict[str, Any]:
+        usage = _new_usage_summary()
+        _merge_usage_summary(usage, self._usage)
+        self._usage = _new_usage_summary()
+        return usage
+
+
+class _LocalTransformersTopicChatClient:
+    def __init__(self, *, model: str, use_case: str, runtime_log_path: Path | None) -> None:
+        self.model = model
+        logger.info("  Loading local LLM: %s", model)
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            with capture_external_output(runtime_log_path or get_runtime_log_path()):
+                self.tokenizer = AutoTokenizer.from_pretrained(model)
+                try:
+                    self.generator = AutoModelForCausalLM.from_pretrained(
+                        model,
+                        device_map="auto",
+                        dtype="auto",
+                    )
+                except TypeError:
+                    self.generator = AutoModelForCausalLM.from_pretrained(
+                        model,
+                        device_map="auto",
+                        torch_dtype="auto",
+                    )
+        except Exception as exc:
+            raise_with_local_hf_compat_hint(model=model, use_case=use_case, exc=exc)
+        _configure_deterministic_generation_model(self.generator)
+
+    def complete(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+        stop: list[str] | None = None,
+    ) -> str:
+        del temperature
+        inputs = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
+        device = _resolve_local_model_input_device(self.generator)
+        if device is not None and hasattr(inputs, "to"):
+            inputs = inputs.to(device)
+        model_inputs = dict(inputs)
+        input_ids = model_inputs["input_ids"]
+        shape = getattr(input_ids, "shape", None)
+        prompt_length = int(shape[-1]) if shape is not None else len(input_ids[0])
+        pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
+        if pad_token_id is None:
+            pad_token_id = getattr(self.tokenizer, "eos_token_id", None)
+
+        generate_kwargs: dict[str, Any] = {
+            **model_inputs,
+            "max_new_tokens": max(1, int(max_tokens)),
+            "do_sample": False,
+        }
+        if pad_token_id is not None:
+            generate_kwargs["pad_token_id"] = pad_token_id
+
+        try:
+            import torch
+
+            with torch.inference_mode():
+                output = self.generator.generate(**generate_kwargs)
+        except ImportError:
+            output = self.generator.generate(**generate_kwargs)
+
+        generated_ids = output[0][prompt_length:]
+        text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+        for marker in stop or []:
+            index = text.find(marker)
+            if index >= 0:
+                text = text[:index]
+        return str(text)
+
+
+def _create_bertopic_chat_representation(
+    *,
+    client: Any,
+    provider_label: str,
+    model_label: str,
     prompt: str,
     nr_docs: int,
     diversity: float,
     delay: float,
     max_tokens: int,
-    api_key: str | None,
+    max_workers: int = 1,
 ) -> Any:
-    """Create a BERTopic representation model that calls OpenRouter directly."""
+    """Create a BERTopic representation model backed by a chat-completion client."""
     from bertopic.representation import BaseRepresentation
 
-    class _OpenRouterBERTopicRepresentation(BaseRepresentation):
+    class _ChatBERTopicRepresentation(BaseRepresentation):
         def __init__(self) -> None:
-            self.model = model.removeprefix("openrouter/")
+            self.client = client
+            self.model = model_label
             self.prompt = prompt
             self.nr_docs = nr_docs
             self.diversity = diversity
             self.delay_in_seconds = delay
             self.max_tokens = max(1, int(max_tokens))
-            self.api_key = api_key
-            self.api_base = DEFAULT_OPENROUTER_API_BASE
-            self._client = None
-            self._usage = _new_usage_summary()
+            self._max_workers = max(1, int(max_workers))
 
-        def _get_client(self) -> Any:
-            if self._client is None:
-                from openai import OpenAI
+        def consume_usage(self) -> dict[str, Any] | None:
+            consume = getattr(self.client, "consume_usage", None)
+            return consume() if callable(consume) else None
 
-                self._client = OpenAI(api_key=self.api_key, base_url=self.api_base)
-            return self._client
-
-        def consume_usage(self) -> dict[str, Any]:
-            usage = _new_usage_summary()
-            _merge_usage_summary(usage, self._usage)
-            self._usage = _new_usage_summary()
-            return usage
+        def _label_topic(
+            self,
+            topic: int,
+            docs: list[str],
+            topics: dict[int, list[tuple[str, float]]],
+        ) -> tuple[int, str]:
+            if self.delay_in_seconds:
+                time.sleep(self.delay_in_seconds)
+            prompt_text = _topic_label_prompt(
+                prompt=self.prompt,
+                docs=docs,
+                topic=topic,
+                topics=topics,
+            )
+            content = self.client.complete(
+                messages=_topic_label_messages(prompt_text),
+                max_tokens=self.max_tokens,
+                temperature=0.0,
+                stop=["\n"],
+            )
+            return topic, _normalize_topic_label(content)
 
         def extract_topics(
             self,
@@ -545,88 +841,86 @@ def _create_openrouter_bertopic_representation(
                 self.nr_docs,
                 self.diversity,
             )
-
             updated_topics: dict[int, list[tuple[str, float]]] = {}
-            for topic, docs in tqdm(repr_docs_mappings.items(), disable=not topic_model.verbose):
-                if self.delay_in_seconds:
-                    time.sleep(self.delay_in_seconds)
+            if not repr_docs_mappings:
+                return updated_topics
 
-                fallback = list(topics.get(topic, [(f"Topic {topic}", 1.0)]))
-                try:
-                    response = openrouter_chat_completion(
-                        client=self._get_client(),
-                        model=self.model,
-                        messages=[
-                            {"role": "system", "content": "You are a helpful assistant."},
-                            {"role": "user", "content": self._create_prompt(docs, topic, topics)},
-                        ],
-                        max_tokens=self.max_tokens,
-                        temperature=0.0,
-                        stop=["\n"],
-                        retry_label="BERTopic OpenRouter labeling call",
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "  BERTopic OpenRouter labeling fallback for topic %s (model=%s): %s: %s",
-                        topic,
-                        self.model,
-                        type(exc).__name__,
-                        exc,
-                    )
-                    updated_topics[topic] = fallback
-                    continue
+            if self._max_workers == 1:
+                items = tqdm(repr_docs_mappings.items(), disable=not topic_model.verbose)
+                for topic, docs in items:
+                    self._store_topic_label(updated_topics, topic, docs, topics)
+                return updated_topics
 
-                stats = openrouter_usage_from_response(response)
-                self._usage["prompt_tokens"] += int(stats["prompt_tokens"])
-                self._usage["completion_tokens"] += int(stats["completion_tokens"])
-                self._usage["call_records"].append(stats["call_record"])
-
-                content, content_state = openrouter_response_content(response)
-                label = self._normalize_label(content) if content_state == "ok" and content is not None else ""
-                if not label:
-                    logger.warning(
-                        "  BERTopic OpenRouter labeling fallback for topic %s (model=%s): content_state=%s",
-                        topic,
-                        self.model,
-                        content_state,
-                    )
-                    updated_topics[topic] = fallback
-                    continue
-
-                updated_topics[topic] = [(label, 1)]
-
+            with ThreadPoolExecutor(max_workers=min(self._max_workers, len(repr_docs_mappings))) as pool:
+                futures = {
+                    pool.submit(self._label_topic, topic, docs, topics): (topic, docs)
+                    for topic, docs in repr_docs_mappings.items()
+                }
+                for future in tqdm(as_completed(futures), total=len(futures), disable=not topic_model.verbose):
+                    topic, docs = futures[future]
+                    self._store_topic_label(updated_topics, topic, docs, topics, future=future)
             return updated_topics
 
-        def _create_prompt(
+        def _store_topic_label(
             self,
-            docs: list[str],
+            updated_topics: dict[int, list[tuple[str, float]]],
             topic: int,
+            docs: list[str],
             topics: dict[int, list[tuple[str, float]]],
-        ) -> str:
-            prompt_text = self.prompt
-            keywords = [word for word, _score in topics.get(topic, [])]
-            if "[KEYWORDS]" in prompt_text:
-                prompt_text = prompt_text.replace("[KEYWORDS]", " ".join(keywords))
-            if "[DOCUMENTS]" in prompt_text:
-                prompt_text = prompt_text.replace(
-                    "[DOCUMENTS]",
-                    "".join(f"- {doc[:255]}\n" for doc in docs),
+            *,
+            future: Any | None = None,
+        ) -> None:
+            fallback = list(topics.get(topic, [(f"Topic {topic}", 1.0)]))
+            try:
+                _topic, label = future.result() if future is not None else self._label_topic(topic, docs, topics)
+            except Exception as exc:
+                logger.warning(
+                    "  BERTopic %s labeling fallback for topic %s (model=%s): %s: %s",
+                    provider_label,
+                    topic,
+                    self.model,
+                    type(exc).__name__,
+                    exc,
                 )
-            return prompt_text
+                updated_topics[topic] = fallback
+                return
 
-        @staticmethod
-        def _normalize_label(content: str | None) -> str:
-            if content is None:
-                return ""
-            label = _strip_think_tags(str(content)).strip()
             if not label:
-                return ""
-            label = label.splitlines()[0].strip()
-            if label.lower().startswith("topic:"):
-                label = label.split(":", 1)[1].strip()
-            return label
+                logger.warning(
+                    "  BERTopic %s labeling fallback for topic %s (model=%s): empty label",
+                    provider_label,
+                    topic,
+                    self.model,
+                )
+                updated_topics[topic] = fallback
+                return
+            updated_topics[topic] = [(label, 1)]
 
-    return _OpenRouterBERTopicRepresentation()
+    return _ChatBERTopicRepresentation()
+
+
+def _create_openrouter_bertopic_representation(
+    *,
+    model: str,
+    prompt: str,
+    nr_docs: int,
+    diversity: float,
+    delay: float,
+    max_tokens: int,
+    api_key: str | None,
+) -> Any:
+    """Create a BERTopic representation model that calls OpenRouter directly."""
+    client = _OpenRouterTopicChatClient(model=model, api_key=api_key)
+    return _create_bertopic_chat_representation(
+        client=client,
+        provider_label="OpenRouter",
+        model_label=client.model,
+        prompt=prompt,
+        nr_docs=nr_docs,
+        diversity=diversity,
+        delay=delay,
+        max_tokens=max_tokens,
+    )
 
 
 def _create_llama_server_bertopic_representation(
@@ -641,128 +935,27 @@ def _create_llama_server_bertopic_representation(
     runtime_log_path: Path | None,
 ) -> Any:
     """Create a BERTopic representation model that calls local llama-server directly."""
-    from bertopic.representation import BaseRepresentation
-
     handle = ensure_llama_server(
         model_spec=model_spec,
         config=llama_server_config or LlamaServerConfig(),
         runtime_log_path=runtime_log_path,
     )
     api_model = Path(model_spec.resolve()).name
-
-    class _LlamaServerBERTopicRepresentation(BaseRepresentation):
-        def __init__(self) -> None:
-            self.prompt = prompt
-            self.nr_docs = nr_docs
-            self.diversity = diversity
-            self.delay_in_seconds = delay
-            self.max_tokens = max(1, int(max_tokens))
-            self._client = build_openai_client(handle=handle)
-            self._max_workers = DEFAULT_LLAMA_SERVER_PARALLEL
-            self._usage = None
-
-        def consume_usage(self) -> None:
-            return None
-
-        def _create_prompt(
-            self,
-            docs: list[str],
-            topic: int,
-            topics: dict[int, list[tuple[str, float]]],
-        ) -> str:
-            prompt_text = self.prompt
-            keywords = [word for word, _score in topics.get(topic, [])]
-            if "[KEYWORDS]" in prompt_text:
-                prompt_text = prompt_text.replace("[KEYWORDS]", " ".join(keywords))
-            if "[DOCUMENTS]" in prompt_text:
-                prompt_text = prompt_text.replace(
-                    "[DOCUMENTS]",
-                    "".join(f"- {doc[:255]}\n" for doc in docs),
-                )
-            return prompt_text
-
-        @staticmethod
-        def _normalize_label(content: str | None) -> str:
-            if content is None:
-                return ""
-            label = _strip_think_tags(str(content)).strip()
-            if not label:
-                return ""
-            label = label.splitlines()[0].strip()
-            if label.lower().startswith("topic:"):
-                label = label.split(":", 1)[1].strip()
-            return label
-
-        def _label_topic(
-            self,
-            topic: int,
-            docs: list[str],
-            topics: dict[int, list[tuple[str, float]]],
-        ) -> tuple[int, str | None]:
-            if self.delay_in_seconds:
-                time.sleep(self.delay_in_seconds)
-            response = self._client.chat.completions.create(
-                model=api_model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": self._create_prompt(docs, topic, topics)},
-                ],
-                max_tokens=self.max_tokens,
-                temperature=0.0,
-            )
-            return topic, self._normalize_label(str(response.choices[0].message.content or ""))
-
-        def extract_topics(
-            self,
-            topic_model: Any,
-            documents: pd.DataFrame,
-            c_tf_idf: Any,
-            topics: dict[int, list[tuple[str, float]]],
-        ) -> dict[int, list[tuple[str, float]]]:
-            repr_docs_mappings, _, _, _ = topic_model._extract_representative_docs(
-                c_tf_idf,
-                documents,
-                topics,
-                500,
-                self.nr_docs,
-                self.diversity,
-            )
-
-            updated_topics: dict[int, list[tuple[str, float]]] = {}
-            with ThreadPoolExecutor(max_workers=max(1, min(self._max_workers, len(repr_docs_mappings)))) as pool:
-                futures = {
-                    pool.submit(self._label_topic, topic, docs, topics): (topic, docs)
-                    for topic, docs in repr_docs_mappings.items()
-                }
-                for future in tqdm(as_completed(futures), total=len(futures), disable=not topic_model.verbose):
-                    topic, docs = futures[future]
-                    fallback = list(topics.get(topic, [(f"Topic {topic}", 1.0)]))
-                    try:
-                        _topic, label = future.result()
-                    except Exception as exc:
-                        logger.warning(
-                            "  BERTopic llama_server labeling fallback for topic %s (model=%s): %s: %s",
-                            topic,
-                            api_model,
-                            type(exc).__name__,
-                            exc,
-                        )
-                        updated_topics[topic] = fallback
-                        continue
-
-                    if not label:
-                        logger.warning(
-                            "  BERTopic llama_server labeling fallback for topic %s (model=%s): empty label",
-                            topic,
-                            api_model,
-                        )
-                        updated_topics[topic] = fallback
-                        continue
-                    updated_topics[topic] = [(label, 1)]
-
-            return updated_topics
-
-    return _LlamaServerBERTopicRepresentation()
+    client = _OpenAICompatTopicChatClient(
+        client=build_openai_client(handle=handle),
+        model=api_model,
+    )
+    return _create_bertopic_chat_representation(
+        client=client,
+        provider_label="llama_server",
+        model_label=api_model,
+        prompt=prompt,
+        nr_docs=nr_docs,
+        diversity=diversity,
+        delay=delay,
+        max_tokens=max_tokens,
+        max_workers=DEFAULT_LLAMA_SERVER_PARALLEL,
+    )
 
 
 def _create_llm(
@@ -787,39 +980,20 @@ def _create_llm(
     llm_max_new_tokens = max(1, int(llm_max_new_tokens))
 
     if provider == "local":
-        from bertopic.representation import TextGeneration
-        from transformers import pipeline as hf_pipeline
-
-        logger.info("  Loading local LLM: %s", model)
-        try:
-            try:
-                gen = hf_pipeline(
-                    "text-generation",
-                    model=model,
-                    device_map="auto",
-                    dtype="auto",
-                )
-            except TypeError:
-                gen = hf_pipeline(
-                    "text-generation",
-                    model=model,
-                    device_map="auto",
-                    torch_dtype="auto",
-                )
-        except Exception as exc:
-            raise_with_local_hf_compat_hint(model=model, use_case="topic labeling", exc=exc)
-        _configure_deterministic_generation_pipeline(gen)
-        return TextGeneration(
-            gen,
+        client = _LocalTransformersTopicChatClient(
+            model=model,
+            use_case="topic labeling",
+            runtime_log_path=runtime_log_path,
+        )
+        return _create_bertopic_chat_representation(
+            client=client,
+            provider_label="local Transformers",
+            model_label=model,
             prompt=prompt,
-            pipeline_kwargs={
-                "do_sample": False,
-                "max_new_tokens": llm_max_new_tokens,
-                "num_return_sequences": 1,
-                "temperature": None,
-                "top_p": None,
-                "top_k": None,
-            },
+            nr_docs=nr_docs,
+            diversity=diversity,
+            delay=delay,
+            max_tokens=llm_max_new_tokens,
         )
 
     if provider == "llama_server":
@@ -848,29 +1022,17 @@ def _create_llm(
         )
 
     if provider == "huggingface_api":
-        from bertopic.representation import LiteLLM
-
-        resolved_model = model
-        resolved_api_key = api_key
-        resolved_model = normalize_huggingface_model(model)
-        resolved_api_key = resolve_huggingface_api_key(api_key)
-
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "prompt": prompt,
-            "nr_docs": nr_docs,
-            "diversity": diversity,
-            "delay_in_seconds": delay,
-            "generator_kwargs": {
-                "max_tokens": llm_max_new_tokens,
-                "temperature": 0.0,
-                "stop": ["\n"],
-            },
-        }
-        kwargs["model"] = normalize_huggingface_model_for_litellm(resolved_model)
-        if resolved_api_key:
-            kwargs["generator_kwargs"]["api_key"] = resolved_api_key
-        return LiteLLM(**kwargs)
+        client = _HuggingFaceAPITopicChatClient(model=model, api_key=api_key)
+        return _create_bertopic_chat_representation(
+            client=client,
+            provider_label="HF API",
+            model_label=client.model,
+            prompt=prompt,
+            nr_docs=nr_docs,
+            diversity=diversity,
+            delay=delay,
+            max_tokens=llm_max_new_tokens,
+        )
 
     raise ValueError(f"Unknown LLM provider: {provider}")
 
@@ -1635,38 +1797,46 @@ def _build_toponymy_models(
             )
     else:
         try:
-            from toponymy.llm_wrappers import HuggingFaceNamer
+            from toponymy.llm_wrappers import LLMWrapper
         except Exception as exc:
             raise ImportError(
                 "llm_provider='local' requires optional dependencies "
-                "'transformers' and Toponymy's HuggingFaceNamer wrapper."
+                "'transformers' and Toponymy's LLMWrapper."
             ) from exc
 
         local_llm_max_new_tokens = max(1, int(local_llm_max_new_tokens))
 
-        class _CappedDeterministicHuggingFaceNamer(HuggingFaceNamer):
-            """Toponymy local namer with deterministic decoding and bounded output length."""
+        class _LocalTransformersToponymyNamer(LLMWrapper):
+            """Toponymy local namer using the same chat-template client as BERTopic."""
 
-            def __init__(self, model: str, *, max_new_tokens: int, **kwargs):
+            def __init__(
+                self,
+                model: str,
+                *,
+                max_new_tokens: int,
+                llm_specific_instructions: str | None,
+                runtime_log_path: Path | None,
+            ) -> None:
+                self.model = model
                 self._local_max_new_tokens = max(1, int(max_new_tokens))
-                super().__init__(model=model, **kwargs)
+                self.extra_prompting = (
+                    f"\n\n{llm_specific_instructions}" if llm_specific_instructions else ""
+                )
+                self.client = _LocalTransformersTopicChatClient(
+                    model=model,
+                    use_case="toponymy labeling",
+                    runtime_log_path=runtime_log_path,
+                )
 
             def _max_tokens(self, requested: int) -> int:
                 return min(max(1, int(requested)), self._local_max_new_tokens)
 
             def _call_llm(self, prompt: str, temperature: float, max_tokens: int) -> str:
-                del temperature
-                response = self.llm(
-                    [{"role": "user", "content": prompt + self.extra_prompting}],
-                    return_full_text=False,
-                    max_new_tokens=self._max_tokens(max_tokens),
-                    do_sample=False,
-                    temperature=None,
-                    top_p=None,
-                    top_k=None,
-                    pad_token_id=self.llm.tokenizer.eos_token_id,
+                return self.client.complete(
+                    messages=[{"role": "user", "content": prompt + self.extra_prompting}],
+                    max_tokens=self._max_tokens(max_tokens),
+                    temperature=temperature,
                 )
-                return response[0]["generated_text"]
 
             def _call_llm_with_system_prompt(
                 self,
@@ -1675,44 +1845,24 @@ def _build_toponymy_models(
                 temperature: float,
                 max_tokens: int,
             ) -> str:
-                del temperature
-                response = self.llm(
-                    [
+                return self.client.complete(
+                    messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt + self.extra_prompting},
                     ],
-                    return_full_text=False,
-                    max_new_tokens=self._max_tokens(max_tokens),
-                    do_sample=False,
-                    temperature=None,
-                    top_p=None,
-                    top_k=None,
-                    pad_token_id=self.llm.tokenizer.eos_token_id,
+                    max_tokens=self._max_tokens(max_tokens),
+                    temperature=temperature,
                 )
-                return response[0]["generated_text"]
 
         try:
-            try:
-                llm_wrapper = _CappedDeterministicHuggingFaceNamer(
-                    model=llm_model,
-                    max_new_tokens=local_llm_max_new_tokens,
-                    llm_specific_instructions=llm_specific_instructions,
-                    device_map="auto",
-                    dtype="auto",
-                )
-            except TypeError:
-                llm_wrapper = _CappedDeterministicHuggingFaceNamer(
-                    model=llm_model,
-                    max_new_tokens=local_llm_max_new_tokens,
-                    llm_specific_instructions=llm_specific_instructions,
-                    device_map="auto",
-                    torch_dtype="auto",
-                )
+            llm_wrapper = _LocalTransformersToponymyNamer(
+                model=llm_model,
+                max_new_tokens=local_llm_max_new_tokens,
+                llm_specific_instructions=llm_specific_instructions,
+                runtime_log_path=runtime_log_path,
+            )
         except Exception as exc:
             raise_with_local_hf_compat_hint(model=llm_model, use_case="toponymy labeling", exc=exc)
-        local_generator = getattr(llm_wrapper, "llm", None)
-        if local_generator is not None:
-            _configure_deterministic_generation_pipeline(local_generator)
 
         llm_usage = None
         if cost_tracker is not None:
@@ -2037,7 +2187,7 @@ def fit_bertopic(
 
     logger.info("Fitting BERTopic (LLM: %s/%s) ...", llm_provider, llm_model)
 
-    track_litellm_usage = cost_tracker is not None and llm_provider == "huggingface_api"
+    track_litellm_usage = False
     min_df_attempts = [safe_min_df] if safe_min_df == 1 else [safe_min_df, 1]
     topic_model = None
     with _track_litellm_usage(enabled=track_litellm_usage) as llm_usage:
@@ -2063,7 +2213,7 @@ def fit_bertopic(
     if topic_model is None:
         raise RuntimeError("BERTopic did not produce a fitted model.")
 
-    if llm_provider == "openrouter":
+    if llm_provider in {"openrouter", "huggingface_api"}:
         llm_usage = _consume_openrouter_representation_usage(
             getattr(topic_model, "representation_model", rep_model)
         )
@@ -2442,7 +2592,7 @@ def reduce_outliers(
     logger.info("  Refreshing topic representations after outlier reassignment (not a full BERTopic refit).")
     logger.info("  Topic reduction must happen before this step when using manual topic assignments.")
 
-    track_litellm_usage = cost_tracker is not None and llm_provider == "huggingface_api"
+    track_litellm_usage = False
     with _track_litellm_usage(enabled=track_litellm_usage) as llm_usage:
         with tqdm(total=1, desc="BERTopic refresh", disable=not show_progress) as pbar:
             with _suppress_manual_topics_warning():
@@ -2455,7 +2605,7 @@ def reduce_outliers(
                 )
             pbar.update(1)
 
-    if llm_provider == "openrouter":
+    if llm_provider in {"openrouter", "huggingface_api"}:
         llm_usage = _consume_openrouter_representation_usage(
             getattr(topic_model, "representation_model", None)
         )

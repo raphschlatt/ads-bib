@@ -16,8 +16,8 @@ EMBEDDING_PROVIDER_IMPORTS = {
 BERTOPIC_LLM_PROVIDER_IMPORTS = {
     "local": "transformers",
     "llama_server": "openai",
-    "openrouter": "litellm",
-    "huggingface_api": "litellm",
+    "openrouter": "openai",
+    "huggingface_api": "huggingface_hub",
 }
 
 TOPONYMY_LLM_PROVIDER_IMPORTS = {
