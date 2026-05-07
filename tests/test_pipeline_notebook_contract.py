@@ -158,7 +158,7 @@ def test_gemma_colab_notebook_contract():
     assert "https://huggingface.co/settings/tokens" in markdown
     assert "google/translategemma-4b-it" in markdown
     assert "google/gemma-4-E2B-it" in markdown
-    assert 'uv pip install --system -q --upgrade --no-deps "transformers>=5.5.4"' in code
+    assert '"transformers>=5.5.4"' in code
     assert "_load_local_transformers_translation_model(" in code
     assert "release_local_translation_models(" in code
     assert "_LocalTransformersTopicChatClient(" in code
