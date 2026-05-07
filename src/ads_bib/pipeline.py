@@ -1161,12 +1161,19 @@ def run_search_stage(ctx: PipelineContext) -> PipelineContext:
     else:
         with reporter.progress(total=None, desc="fetch") as pbar:
             progress_callback = None if pbar is None else pbar.update
+            def progress_total_callback(total: int) -> None:
+                if pbar is None:
+                    return
+                pbar.reset(total=total)
+                pbar.refresh()
+
             ctx.bibcodes, ctx.references, ctx.esources, ctx.fulltext_urls = search_ads(
                 cfg.query,
                 cfg.ads_token,
                 raw_dir=ctx.paths["raw"],
                 force_refresh=cfg.refresh_search,
                 progress_callback=progress_callback,
+                progress_total_callback=progress_total_callback,
             )
     save_search_artifact(
         ctx.run.paths["search"],

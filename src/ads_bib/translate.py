@@ -72,15 +72,23 @@ _FASTTEXT_NUMPY2_COPY_ERROR = "Unable to avoid copy while creating an array as r
 _local_translation_models: dict[str, tuple[Any, Any, str, Any]] = {}
 
 
+def _load_fasttext_model(model_path: str | Path):
+    """Load fasttext without the legacy wrapper warning emitted by some wheels."""
+    import fasttext
+
+    fasttext_class = getattr(getattr(fasttext, "FastText", None), "_FastText", None)
+    if fasttext_class is not None:
+        return fasttext_class(model_path=str(model_path))
+    return fasttext.load_model(str(model_path))
+
+
 def _get_ft_model(model_path: str | Path | None = None):
     """Lazy-load the fasttext language-identification model."""
     global _ft_model
     if _ft_model is None:
-        import fasttext
-
         if model_path is None:
             model_path = "lid.176.bin"
-        _ft_model = fasttext.load_model(str(model_path))
+        _ft_model = _load_fasttext_model(model_path)
     return _ft_model
 
 

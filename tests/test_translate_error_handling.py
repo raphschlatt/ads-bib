@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import types
 
 import pandas as pd
 import pytest
@@ -141,6 +142,30 @@ def test_predict_language_falls_back_for_fasttext_numpy2_copy_error(monkeypatch,
     assert tr._predict_language("Welt") == "de"
     assert fake_model.predict_calls == 1
     assert "NumPy 2 copy incompatibility" in caplog.text
+
+
+def test_load_fasttext_model_uses_warning_free_class_when_available(monkeypatch, tmp_path):
+    calls: dict[str, str] = {}
+
+    class _FakeFastText:
+        def __init__(self, *, model_path):
+            calls["model_path"] = model_path
+
+    fake_fasttext = types.ModuleType("fasttext")
+    fake_fasttext.FastText = types.SimpleNamespace(_FastText=_FakeFastText)
+
+    def _warn_load_model(path):
+        del path
+        raise AssertionError("legacy load_model should not be used")
+
+    fake_fasttext.load_model = _warn_load_model
+    monkeypatch.setitem(sys.modules, "fasttext", fake_fasttext)
+
+    model_path = tmp_path / "lid.176.bin"
+    model = tr._load_fasttext_model(model_path)
+
+    assert isinstance(model, _FakeFastText)
+    assert calls["model_path"] == str(model_path)
 
 
 def test_translate_dataframe_raises_clear_error_when_source_column_missing(monkeypatch):

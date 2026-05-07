@@ -12,7 +12,11 @@ from typing import Any
 import numpy as np
 from tqdm.auto import tqdm
 
-from ads_bib._utils.logging import capture_external_output, get_runtime_log_path
+from ads_bib._utils.logging import (
+    capture_external_output,
+    get_runtime_log_path,
+    temporarily_raise_logger_level,
+)
 
 logger = logging.getLogger("ads_bib.topic_model")
 
@@ -143,7 +147,8 @@ def _reduce_with_cache(
         raise ValueError(f"Unknown dim reduction method: {method}")
 
     with capture_external_output(get_runtime_log_path()):
-        reduced = model.fit_transform(embeddings)
+        with temporarily_raise_logger_level("pacmap.pacmap", level=logging.ERROR):
+            reduced = model.fit_transform(embeddings)
 
     if cache_dir:
         path = cache_dir / f"reduced_{name}.npz"

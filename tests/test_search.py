@@ -79,10 +79,12 @@ def test_search_ads_paginates_and_builds_fulltext_links(monkeypatch):
 def test_search_ads_reports_fetch_progress(monkeypatch):
     session = _FakeSession()
     progress_updates: list[int] = []
+    totals: list[int] = []
     payloads = iter(
         [
             {
                 "response": {
+                    "numFound": 3,
                     "docs": [
                         {"bibcode": "b1", "reference": [], "esources": []},
                         {"bibcode": "b2", "reference": [], "esources": []},
@@ -100,10 +102,16 @@ def test_search_ads_reports_fetch_progress(monkeypatch):
     monkeypatch.setattr(search, "create_session", lambda _: session)
     monkeypatch.setattr(search, "retry_request", lambda *args, **kwargs: _FakeResponse(next(payloads)))
 
-    bibcodes, *_ = search.search_ads("q", "tok", progress_callback=progress_updates.append)
+    bibcodes, *_ = search.search_ads(
+        "q",
+        "tok",
+        progress_callback=progress_updates.append,
+        progress_total_callback=totals.append,
+    )
 
     assert bibcodes == ["b1", "b2", "b3"]
     assert progress_updates == [2, 1]
+    assert totals == [3]
 
 
 def test_save_search_results_writes_timestamped_and_latest_files(tmp_path):

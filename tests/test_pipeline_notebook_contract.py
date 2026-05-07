@@ -63,6 +63,7 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert "Runtime > Change runtime type" in code
     assert "getpass(" in code
     assert "ADS_TOKEN" in code
+    assert 'userdata.get("ADS_TOKEN")' in code
     assert 'PROJECT_ROOT = "/content/ads-bib-colab"' in code
     assert "os.chdir(PROJECT_ROOT)" in code
 
@@ -70,6 +71,7 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert 'CONFIG = preset_to_dict("local_gpu")' in code
     assert "SEARCH_QUERY = 'author:\"Hawking, S*\"'" in code
     assert 'CONFIG["search"]["query"] = SEARCH_QUERY' in code
+    assert 'CONFIG["author_disambiguation"]["enabled"] = True' in code
     assert 'CONFIG["translate"]["fasttext_model"] =' not in code
 
     assert "from ads_bib.runner import load_run_config, run_resolved_config" in code
@@ -86,6 +88,7 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert 'SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")' in code
     assert "AutoTokenizer.from_pretrained" in code
     assert "AutoModelForCausalLM.from_pretrained" in code
+    assert "login(token=" not in code
 
     assert "MIN_CLUSTER_SIZE =" not in code
     assert "BASE_MIN_CLUSTER_SIZE =" not in code
@@ -104,6 +107,7 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert "/content/ads-bib-colab" in markdown
     assert "topic map" in markdown.lower()
     assert "citation files" in markdown.lower()
+    assert "author disambiguation" in markdown.lower()
     assert ".venv" not in markdown
     assert "ADS_env" not in markdown
     assert "Save Translation Checkpoint" not in markdown

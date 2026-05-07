@@ -36,6 +36,7 @@ def search_ads(
     raw_dir: Path | None = None,
     force_refresh: bool = False,
     progress_callback: Callable[[int], None] | None = None,
+    progress_total_callback: Callable[[int], None] | None = None,
 ) -> tuple[list[str], list[list[str]], list[list[str]], list[str | None]]:
     """Run an ADS search and return bibcodes with their references.
 
@@ -81,6 +82,7 @@ def search_ads(
     references: list[list[str]] = []
     esources: list[list[str]] = []
     fulltext_urls: list[str | None] = []
+    reported_total = False
 
     logger.info("Starting ADS search ...")
 
@@ -88,7 +90,13 @@ def search_ads(
         params["cursorMark"] = cursor
         resp = retry_request(session, "get", url, params=params)
         data = resp.json()
-        docs = data.get("response", {}).get("docs", [])
+        response = data.get("response", {})
+        docs = response.get("docs", [])
+        if not reported_total and progress_total_callback is not None:
+            total = int(response.get("numFound") or 0)
+            if total > 0:
+                progress_total_callback(total)
+                reported_total = True
 
         if not docs:
             break
