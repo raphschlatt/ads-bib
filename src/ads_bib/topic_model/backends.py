@@ -695,17 +695,8 @@ class _LocalTransformersTopicChatClient:
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            try:
-                from transformers import AutoProcessor
-            except ImportError:
-                AutoProcessor = None
-
             with capture_external_output(runtime_log_path or get_runtime_log_path()):
-                self.processor = self._load_processor(
-                    model=model,
-                    auto_processor_cls=AutoProcessor,
-                    auto_tokenizer_cls=AutoTokenizer,
-                )
+                self.tokenizer = AutoTokenizer.from_pretrained(model)
                 try:
                     self.generator = AutoModelForCausalLM.from_pretrained(
                         model,
@@ -720,72 +711,10 @@ class _LocalTransformersTopicChatClient:
                     )
         except Exception as exc:
             raise_with_local_hf_compat_hint(model=model, use_case=use_case, exc=exc)
-        generation_tokenizer = getattr(self.processor, "tokenizer", self.processor)
         self.pad_token_id = _configure_deterministic_generation_model(
             self.generator,
-            tokenizer=generation_tokenizer,
+            tokenizer=self.tokenizer,
         )
-
-    @staticmethod
-    def _load_processor(
-        *,
-        model: str,
-        auto_processor_cls: Any | None,
-        auto_tokenizer_cls: Any,
-    ) -> Any:
-        if auto_processor_cls is not None:
-            try:
-                processor = auto_processor_cls.from_pretrained(model)
-                if hasattr(processor, "apply_chat_template") and hasattr(processor, "decode"):
-                    return processor
-            except Exception:
-                pass
-        return auto_tokenizer_cls.from_pretrained(model)
-
-    @staticmethod
-    def _apply_chat_template(processor: Any, messages: list[dict[str, str]]) -> Any:
-        kwargs = {
-            "tokenize": True,
-            "add_generation_prompt": True,
-            "return_dict": True,
-            "return_tensors": "pt",
-        }
-        try:
-            return processor.apply_chat_template(
-                messages,
-                enable_thinking=False,
-                **kwargs,
-            )
-        except TypeError:
-            return processor.apply_chat_template(messages, **kwargs)
-
-    @staticmethod
-    def _parsed_response_text(parsed: Any) -> str:
-        if parsed is None:
-            return ""
-        if isinstance(parsed, str):
-            return parsed
-        if isinstance(parsed, dict):
-            for key in ("text", "content", "response", "answer"):
-                value = parsed.get(key)
-                if value is not None:
-                    return str(value)
-        for attr in ("text", "content", "response", "answer"):
-            value = getattr(parsed, attr, None)
-            if value is not None:
-                return str(value)
-        return str(parsed)
-
-    @classmethod
-    def _decode_generated_ids(cls, processor: Any, generated_ids: Any) -> str:
-        parse_response = getattr(processor, "parse_response", None)
-        if callable(parse_response):
-            raw = processor.decode(generated_ids, skip_special_tokens=False)
-            try:
-                return cls._parsed_response_text(parse_response(raw))
-            except Exception:
-                pass
-        return processor.decode(generated_ids, skip_special_tokens=True)
 
     def complete(
         self,
@@ -796,7 +725,13 @@ class _LocalTransformersTopicChatClient:
         stop: list[str] | None = None,
     ) -> str:
         del temperature
-        inputs = self._apply_chat_template(self.processor, messages)
+        inputs = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
         device = _resolve_local_model_input_device(self.generator)
         if device is not None and hasattr(inputs, "to"):
             inputs = inputs.to(device)
@@ -821,7 +756,7 @@ class _LocalTransformersTopicChatClient:
             output = self.generator.generate(**generate_kwargs)
 
         generated_ids = output[0][prompt_length:]
-        text = self._decode_generated_ids(self.processor, generated_ids)
+        text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
         for marker in stop or []:
             index = text.find(marker)
             if index >= 0:
@@ -833,7 +768,7 @@ def _release_local_transformers_client(client: Any) -> None:
     if not isinstance(client, _LocalTransformersTopicChatClient):
         return
     client.generator = None
-    client.processor = None
+    client.tokenizer = None
     client.pad_token_id = None
 
 

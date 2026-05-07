@@ -91,6 +91,8 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert "ensure_default_fasttext_model(" in code
     assert "import_sentence_transformer_class" in code
     assert 'SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")' in code
+    assert "AutoTokenizer.from_pretrained" in code
+    assert "AutoModelForCausalLM.from_pretrained" in code
     assert "clear_local_memory()" in code
     assert "torch.cuda.empty_cache()" not in code
     assert "login(token=" not in code
@@ -136,8 +138,6 @@ def test_public_colab_notebook_contract():
     assert '"bertopic_label_max_tokens": 24' not in code
     assert "_ensure_nllb_model(" in code
     assert "release_nllb_model()" in code
-    assert "AutoTokenizer.from_pretrained" in code
-    assert "AutoModelForCausalLM.from_pretrained" in code
     assert 'RUN_NAME = "ads_bib_colab_hawking"' in code
     assert "run_name=RUN_NAME" in code
     assert "USE_STRICT_LOCAL_GPU_PRESET" not in code
@@ -158,12 +158,8 @@ def test_gemma_colab_notebook_contract():
     assert "https://huggingface.co/settings/tokens" in markdown
     assert "google/translategemma-4b-it" in markdown
     assert "google/gemma-4-E2B-it" in markdown
-    assert '"transformers>=5.5.4"' in code
     assert "_load_local_transformers_translation_model(" in code
     assert "release_local_translation_models(" in code
-    assert "_LocalTransformersTopicChatClient(" in code
-    assert "AutoTokenizer.from_pretrained" not in code
-    assert "AutoModelForCausalLM.from_pretrained" not in code
     assert 'RUN_NAME = "ads_bib_colab_hawking_gemma4_qwen"' in code
     assert "run_name=RUN_NAME" in code
     assert 'CONFIG["translate"].update' not in code

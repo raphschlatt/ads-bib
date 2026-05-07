@@ -299,12 +299,6 @@ def test_create_llm_local_uses_transformers_chat_template(monkeypatch):
             calls["tokenizer_model"] = model
             return _FakeTokenizer()
 
-    class _FakeAutoProcessor:
-        @staticmethod
-        def from_pretrained(model):
-            calls["processor_model"] = model
-            raise OSError("no processor")
-
     class _FakeModel:
         def __init__(self):
             self.generation_config = _FakeGenerationConfig()
@@ -326,7 +320,6 @@ def test_create_llm_local_uses_transformers_chat_template(monkeypatch):
             return model_obj
 
     fake_transformers.AutoTokenizer = _FakeAutoTokenizer
-    fake_transformers.AutoProcessor = _FakeAutoProcessor
     fake_transformers.AutoModelForCausalLM = _FakeAutoModelForCausalLM
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
@@ -358,7 +351,6 @@ def test_create_llm_local_uses_transformers_chat_template(monkeypatch):
     assert calls["device_map"] == "auto"
     assert calls["dtype"] == "auto"
     assert calls["torch_dtype"] is None
-    assert calls["processor_model"] == "Qwen/Qwen3-0.6B"
     assert calls["tokenizer_model"] == "Qwen/Qwen3-0.6B"
     assert calls["messages"][0]["role"] == "system"
     assert calls["messages"][1]["role"] == "user"
@@ -381,119 +373,12 @@ def test_create_llm_local_uses_transformers_chat_template(monkeypatch):
     assert generation_config.eta_cutoff is None
 
 
-def test_local_transformers_topic_chat_client_supports_processor_parse(monkeypatch):
-    calls: dict[str, Any] = {}
-    fake_transformers = types.ModuleType("transformers")
-    fake_transformers.__spec__ = types.SimpleNamespace(name="transformers", submodule_search_locations=[])
-
-    class _FakeBatch(dict):
-        def to(self, device):
-            calls["input_device"] = device
-            return self
-
-    class _FakeTokenizerLike:
-        eos_token_id = 2
-        pad_token_id = None
-
-    class _FakeProcessor:
-        tokenizer = _FakeTokenizerLike()
-
-        def apply_chat_template(
-            self,
-            messages,
-            *,
-            tokenize,
-            add_generation_prompt,
-            enable_thinking,
-            return_dict,
-            return_tensors,
-        ):
-            calls["messages"] = messages
-            calls["enable_thinking"] = enable_thinking
-            calls["tokenize"] = tokenize
-            calls["add_generation_prompt"] = add_generation_prompt
-            calls["return_dict"] = return_dict
-            calls["return_tensors"] = return_tensors
-            return _FakeBatch({"input_ids": np.array([[1, 2, 3]])})
-
-        def decode(self, token_ids, *, skip_special_tokens):
-            calls["decoded_ids"] = list(token_ids)
-            calls["skip_special_tokens"] = skip_special_tokens
-            return "<raw-response>"
-
-        def parse_response(self, response):
-            calls["parsed_response"] = response
-            return {"text": "Gemma 4 Label"}
-
-    class _FakeAutoProcessor:
-        @staticmethod
-        def from_pretrained(model):
-            calls["processor_model"] = model
-            return _FakeProcessor()
-
-    class _FakeAutoTokenizer:
-        @staticmethod
-        def from_pretrained(model):
-            calls["tokenizer_model"] = model
-            raise AssertionError("AutoTokenizer should not be used when AutoProcessor works")
-
-    class _FakeGenerationConfig:
-        do_sample = True
-        temperature = 0.7
-        top_p = 0.9
-        top_k = 40
-
-    class _FakeModel:
-        def __init__(self):
-            self.generation_config = _FakeGenerationConfig()
-            self.device = "cuda:0"
-
-        def generate(self, **kwargs):
-            calls["generate_kwargs"] = kwargs
-            return np.array([[1, 2, 3, 4, 5]])
-
-    class _FakeAutoModelForCausalLM:
-        @staticmethod
-        def from_pretrained(model, *, device_map, dtype=None, torch_dtype=None):
-            calls["model"] = model
-            calls["device_map"] = device_map
-            calls["dtype"] = dtype
-            calls["torch_dtype"] = torch_dtype
-            return _FakeModel()
-
-    fake_transformers.AutoProcessor = _FakeAutoProcessor
-    fake_transformers.AutoTokenizer = _FakeAutoTokenizer
-    fake_transformers.AutoModelForCausalLM = _FakeAutoModelForCausalLM
-    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
-
-    client = tm_backends._LocalTransformersTopicChatClient(
-        model="google/gemma-4-E2B-it",
-        use_case="topic labeling",
-        runtime_log_path=None,
-    )
-    text = client.complete(
-        messages=[{"role": "user", "content": "label this"}],
-        max_tokens=12,
-        temperature=0.0,
-    )
-
-    assert text == "Gemma 4 Label"
-    assert calls["processor_model"] == "google/gemma-4-E2B-it"
-    assert "tokenizer_model" not in calls
-    assert calls["enable_thinking"] is False
-    assert calls["generate_kwargs"]["pad_token_id"] == 2
-    assert calls["generate_kwargs"]["do_sample"] is False
-    assert calls["generate_kwargs"]["max_new_tokens"] == 12
-    assert calls["skip_special_tokens"] is False
-    assert calls["parsed_response"] == "<raw-response>"
-
-
 def test_release_local_topic_runtime_drops_retained_local_models(monkeypatch):
     client = tm_backends._LocalTransformersTopicChatClient.__new__(
         tm_backends._LocalTransformersTopicChatClient
     )
     client.generator = object()
-    client.processor = object()
+    client.tokenizer = object()
     client.pad_token_id = 2
     representation = types.SimpleNamespace(client=client)
     topic_model = types.SimpleNamespace(
@@ -506,7 +391,7 @@ def test_release_local_topic_runtime_drops_retained_local_models(monkeypatch):
     tm_backends.release_local_topic_runtime(topic_model)
 
     assert client.generator is None
-    assert client.processor is None
+    assert client.tokenizer is None
     assert client.pad_token_id is None
     assert topic_model.embedding_model is None
     assert cleanup_calls == [True]
