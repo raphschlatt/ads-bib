@@ -333,7 +333,8 @@ def test_official_pipeline_config_templates_load(
     assert config.translate.model_path is None
     assert config.search.query == ""
     assert config.translate.fasttext_model == "data/models/lid.176.bin"
-    assert config.translate.max_workers == 8
+    expected_translate_workers = 4 if config_name == "local_gpu.yaml" else 8
+    assert config.translate.max_workers == expected_translate_workers
     assert config.llama_server.command == "llama-server"
     expected_gpu_layers = 0 if config_name == "local_cpu.yaml" else -1
     if config_name in {"local_cpu.yaml", "local_gpu.yaml"}:
@@ -1192,6 +1193,47 @@ def test_run_translate_stage_recomputes_when_snapshot_metadata_mismatches(tmp_pa
 
     assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
     assert saved["metadata"]["stage"] == "translate"
+
+
+def test_run_translate_stage_releases_local_transformers_after_success(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {
+                "enabled": True,
+                "provider": "transformers",
+                "model": "google/translategemma-4b-it",
+                "fasttext_model": str(tmp_path / "lid.176.bin"),
+            },
+        }
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame([{"Bibcode": "fresh-pub", "Title": "T", "Abstract": "A"}])
+    ctx.refs = pd.DataFrame([{"Bibcode": "fresh-ref", "Title": "RT", "Abstract": "RA"}])
+    released: list[str | None] = []
+
+    monkeypatch.setattr(
+        pipeline,
+        "detect_languages",
+        lambda df, columns, model_path: df.assign(
+            **{f"{col}_lang": "en" for col in columns}
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "translate_dataframe",
+        lambda df, columns, **kwargs: (
+            df.assign(**{f"{col}_en": df[col] for col in columns}),
+            {},
+        ),
+    )
+    monkeypatch.setattr(pipeline, "save_translated_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(pipeline, "release_local_translation_models", released.append)
+
+    pipeline.run_translate_stage(ctx)
+
+    assert released == ["google/translategemma-4b-it"]
 
 
 def test_run_translate_stage_requires_export_when_no_inputs(tmp_path, monkeypatch):

@@ -95,7 +95,7 @@ from ads_bib.topic_model._runtime import (
     TOPONYMY_EMBEDDING_PROVIDERS,
     TOPONYMY_LLM_PROVIDERS,
 )
-from ads_bib.translate import detect_languages, translate_dataframe
+from ads_bib.translate import detect_languages, release_local_translation_models, translate_dataframe
 
 logger = logging.getLogger(__name__)
 
@@ -1403,6 +1403,8 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         refs=ctx.refs,
     )
     _advance_resume_block(ctx, "translate")
+    if cfg.provider == "transformers":
+        release_local_translation_models(cfg.model)
     return ctx
 
 
@@ -1962,6 +1964,11 @@ def run_topic_dataframe_stage(ctx: PipelineContext) -> PipelineContext:
         prepare_bundle=False,
         cleaning_report=cleaning_report,
     )
+    if (
+        ctx.config.topic_model.llm_provider == "local"
+        or ctx.config.topic_model.embedding_provider == "local"
+    ):
+        topic_model_backends.release_local_topic_runtime(ctx.topic_model)
     return ctx
 
 

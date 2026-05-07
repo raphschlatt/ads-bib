@@ -24,7 +24,7 @@ translate:
   model_file: null
   model_path: null
   api_key: null
-  max_workers: 8
+  max_workers: 4
   max_tokens: 2048
   fasttext_model: data/models/lid.176.bin
 

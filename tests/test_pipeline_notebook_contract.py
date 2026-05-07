@@ -89,10 +89,12 @@ def _assert_common_colab_contract(nb: dict) -> None:
 
     assert "## 5. Prepare models" in markdown
     assert "ensure_default_fasttext_model(" in code
-    assert "from sentence_transformers import SentenceTransformer" in code
+    assert "import_sentence_transformer_class" in code
     assert 'SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")' in code
     assert "AutoTokenizer.from_pretrained" in code
     assert "AutoModelForCausalLM.from_pretrained" in code
+    assert "clear_local_memory()" in code
+    assert "torch.cuda.empty_cache()" not in code
     assert "login(token=" not in code
 
     assert "MIN_CLUSTER_SIZE =" not in code
@@ -135,6 +137,7 @@ def test_public_colab_notebook_contract():
     assert '"llm_prompt"' not in code
     assert '"bertopic_label_max_tokens": 24' not in code
     assert "_ensure_nllb_model(" in code
+    assert "release_nllb_model()" in code
     assert 'RUN_NAME = "ads_bib_colab_hawking"' in code
     assert "run_name=RUN_NAME" in code
     assert "USE_STRICT_LOCAL_GPU_PRESET" not in code
@@ -157,6 +160,7 @@ def test_gemma_colab_notebook_contract():
     assert "google/embeddinggemma-300m" in markdown
     assert "google/gemma-3-1b-it" in markdown
     assert "_load_local_transformers_translation_model(" in code
+    assert "release_local_translation_models(" in code
     assert 'RUN_NAME = "ads_bib_colab_hawking_gemma"' in code
     assert "run_name=RUN_NAME" in code
     assert 'CONFIG["translate"].update' not in code

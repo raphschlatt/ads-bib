@@ -21,6 +21,7 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
 )
+from ads_bib._utils.local_models import clear_local_memory, is_memory_oom_error
 from ads_bib._utils.hf_compat import (
     import_sentence_transformer_class,
     raise_with_local_hf_compat_hint,
@@ -411,6 +412,7 @@ def _embed_local(
     if total_documents == 0:
         return np.array([], dtype=dtype)
 
+    st: Any | None = None
     try:
         with _local_progress_bar(
             total=total_documents,
@@ -419,37 +421,60 @@ def _embed_local(
             with capture_external_output(get_runtime_log_path()):
                 SentenceTransformer = import_sentence_transformer_class()
                 st = SentenceTransformer(model)
-                logger.info(
-                    "  Local embedding device | model=%s | device=%s",
-                    model,
-                    _resolve_sentence_transformer_device_label(st),
-                )
-                batches: list[np.ndarray] = []
-                for start in range(0, total_documents, chunk_size):
-                    batch = documents[start : start + chunk_size]
-                    batch_embeddings = np.asarray(
-                        st.encode(
-                            batch,
-                            show_progress_bar=False,
-                            batch_size=chunk_size,
-                        ),
-                        dtype=dtype,
-                    )
-                    if batch_embeddings.ndim != 2:
-                        raise RuntimeError("Local embedding batch must be a 2D array.")
-                    if batch_embeddings.shape[0] != len(batch):
-                        raise RuntimeError(
-                            "Local embedding batch size mismatch: "
-                            f"expected {len(batch)}, got {batch_embeddings.shape[0]}."
+            logger.info(
+                "  Local embedding device | model=%s | device=%s",
+                model,
+                _resolve_sentence_transformer_device_label(st),
+            )
+            batches: list[np.ndarray] = []
+            start = 0
+            while start < total_documents:
+                current_size = min(chunk_size, total_documents - start)
+                batch = documents[start : start + current_size]
+                try:
+                    with capture_external_output(get_runtime_log_path()):
+                        batch_embeddings = np.asarray(
+                            st.encode(
+                                batch,
+                                show_progress_bar=False,
+                                batch_size=current_size,
+                            ),
+                            dtype=dtype,
                         )
-                    batches.append(batch_embeddings)
-                    if progress_callback is not None:
-                        progress_callback(len(batch))
-                    elif pbar is not None:
-                        pbar.update(len(batch))
+                except Exception as exc:
+                    if is_memory_oom_error(exc):
+                        clear_local_memory()
+                        if current_size <= 1:
+                            raise RuntimeError(
+                                "Local embeddings ran out of memory at batch size 1. "
+                                "Use a smaller embedding model, shorten inputs, or use more memory."
+                            ) from exc
+                        chunk_size = max(1, current_size // 2)
+                        logger.warning(
+                            "  Local embeddings OOM; retrying with batch size %s",
+                            chunk_size,
+                        )
+                        continue
+                    raise
+                if batch_embeddings.ndim != 2:
+                    raise RuntimeError("Local embedding batch must be a 2D array.")
+                if batch_embeddings.shape[0] != len(batch):
+                    raise RuntimeError(
+                        "Local embedding batch size mismatch: "
+                        f"expected {len(batch)}, got {batch_embeddings.shape[0]}."
+                    )
+                batches.append(batch_embeddings)
+                if progress_callback is not None:
+                    progress_callback(len(batch))
+                elif pbar is not None:
+                    pbar.update(len(batch))
+                start += current_size
         emb = np.concatenate(batches, axis=0)
     except Exception as exc:
         raise_with_local_hf_compat_hint(model=model, use_case="embeddings", exc=exc)
+    finally:
+        st = None
+        clear_local_memory()
     return emb.astype(dtype)
 
 

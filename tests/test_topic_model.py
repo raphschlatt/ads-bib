@@ -373,6 +373,30 @@ def test_create_llm_local_uses_transformers_chat_template(monkeypatch):
     assert generation_config.eta_cutoff is None
 
 
+def test_release_local_topic_runtime_drops_retained_local_models(monkeypatch):
+    client = tm_backends._LocalTransformersTopicChatClient.__new__(
+        tm_backends._LocalTransformersTopicChatClient
+    )
+    client.generator = object()
+    client.tokenizer = object()
+    client.pad_token_id = 2
+    representation = types.SimpleNamespace(client=client)
+    topic_model = types.SimpleNamespace(
+        representation_model={"Main": [representation]},
+        embedding_model=object(),
+    )
+    cleanup_calls: list[bool] = []
+    monkeypatch.setattr(tm_backends, "clear_local_memory", lambda: cleanup_calls.append(True))
+
+    tm_backends.release_local_topic_runtime(topic_model)
+
+    assert client.generator is None
+    assert client.tokenizer is None
+    assert client.pad_token_id is None
+    assert topic_model.embedding_model is None
+    assert cleanup_calls == [True]
+
+
 def test_create_llm_local_raises_actionable_error_for_unknown_arch(monkeypatch):
     fake_representation = types.ModuleType("bertopic.representation")
     fake_representation.BaseRepresentation = object
@@ -1664,10 +1688,46 @@ def test_embed_local_batches_progress_and_disables_native_progress(monkeypatch):
         ["doc-e"],
     ]
     assert all(call["show_progress_bar"] is False for call in calls["encode"])
-    assert all(call["batch_size"] == 2 for call in calls["encode"])
+    assert [call["batch_size"] for call in calls["encode"]] == [2, 2, 1]
     assert updates == [2, 2, 1]
     assert emb.shape == (5, 2)
     assert emb.dtype == np.float32
+
+
+def test_embed_local_retries_smaller_batch_on_oom(monkeypatch):
+    fake_sentence_transformers = types.ModuleType("sentence_transformers")
+    calls: list[int] = []
+    cleanup_calls: list[bool] = []
+
+    class _FakeSentenceTransformer:
+        def __init__(self, model):
+            del model
+
+        def encode(self, documents, show_progress_bar=None, batch_size=64):
+            del show_progress_bar
+            calls.append(batch_size)
+            if batch_size == 4:
+                raise RuntimeError("CUDA out of memory")
+            return np.asarray([[float(len(doc))] for doc in documents], dtype=np.float32)
+
+    fake_sentence_transformers.SentenceTransformer = _FakeSentenceTransformer
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
+    monkeypatch.setattr(tm_embeddings, "clear_local_memory", lambda: cleanup_calls.append(True))
+
+    updates: list[int] = []
+    emb = tm_embeddings._embed_local(
+        ["doc-a", "doc-b", "doc-c", "doc-d", "doc-e"],
+        model="google/embeddinggemma-300m",
+        batch_size=4,
+        dtype=np.float32,
+        show_progress=False,
+        progress_callback=updates.append,
+    )
+
+    assert calls == [4, 2, 2, 1]
+    assert cleanup_calls == [True, True]
+    assert updates == [2, 2, 1]
+    assert emb.shape == (5, 1)
 
 
 def test_embed_local_captures_provider_output_but_keeps_repo_progress_visible(tmp_path, monkeypatch):

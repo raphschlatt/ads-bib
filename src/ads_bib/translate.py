@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import math
 from pathlib import Path
 import re
 import time
@@ -19,6 +20,12 @@ from ads_bib._utils.hf_compat import raise_with_local_hf_compat_hint
 from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
+)
+from ads_bib._utils.local_models import (
+    choose_local_torch_dtype,
+    clear_local_memory,
+    configure_deterministic_generation,
+    is_memory_oom_error,
 )
 from ads_bib._utils.llama_server import (
     LlamaServerConfig,
@@ -69,7 +76,7 @@ _ft_model = None
 _fasttext_predict_needs_compat = False
 _fasttext_numpy2_warning_emitted = False
 _FASTTEXT_NUMPY2_COPY_ERROR = "Unable to avoid copy while creating an array as requested."
-_local_translation_models: dict[str, tuple[Any, Any, str, Any]] = {}
+_local_translation_models: dict[str, tuple[Any, Any, str, Any, Any | None]] = {}
 
 
 def _load_fasttext_model(model_path: str | Path):
@@ -90,6 +97,13 @@ def _get_ft_model(model_path: str | Path | None = None):
             model_path = "lid.176.bin"
         _ft_model = _load_fasttext_model(model_path)
     return _ft_model
+
+
+def release_fasttext_model() -> None:
+    """Drop the cached fastText language model and release local allocator caches."""
+    global _ft_model
+    _ft_model = None
+    clear_local_memory()
 
 
 def _predict_language_fasttext_compat(model: object, text: str) -> tuple[tuple[str, ...], tuple[float, ...]]:
@@ -166,6 +180,9 @@ DEFAULT_TRANSLATION_MAX_TOKENS = 2048
 DEFAULT_LLAMA_SERVER_CHUNK_CHARS = 12000
 DEFAULT_LLAMA_SERVER_CHUNK_OVERLAP_CHARS = 1500
 DEFAULT_LOCAL_TRANSLATION_RETRIES = 2
+LOCAL_TRANSFORMERS_MIN_NEW_TOKENS = 96
+LOCAL_TRANSFORMERS_PROMPT_TOKEN_RATIO = 1.5
+LOCAL_TRANSFORMERS_TOKEN_BUFFER = 64
 
 
 def _prepare_translation_targets(
@@ -585,31 +602,168 @@ def _load_local_transformers_translation_model(
     model: str,
     *,
     runtime_log_path: Path | None,
-) -> tuple[Any, Any, str, Any]:
+) -> tuple[Any, Any, str, Any, Any | None]:
     """Load and cache the local HF translation stack once per process."""
     cached = _local_translation_models.get(model)
     if cached is not None:
         return cached
 
     try:
-        with capture_external_output(runtime_log_path or get_runtime_log_path()):
-            from transformers import AutoModelForImageTextToText, AutoProcessor
-
-            processor = AutoProcessor.from_pretrained(model)
-            local_model = AutoModelForImageTextToText.from_pretrained(model, device_map="auto")
-    except Exception as exc:
-        raise_with_local_hf_compat_hint(model=model, use_case="translation", exc=exc)
-
-    try:
         import torch
     except ImportError as exc:
         raise ImportError("provider='transformers' requires optional dependency 'torch'.") from exc
 
+    try:
+        with capture_external_output(runtime_log_path or get_runtime_log_path()):
+            from transformers import AutoModelForImageTextToText, AutoProcessor
+
+            processor = AutoProcessor.from_pretrained(model)
+            load_kwargs: dict[str, Any] = {"device_map": "auto"}
+            torch_dtype = choose_local_torch_dtype(torch)
+            if torch_dtype is not None:
+                try:
+                    local_model = AutoModelForImageTextToText.from_pretrained(
+                        model,
+                        dtype=torch_dtype,
+                        **load_kwargs,
+                    )
+                except TypeError:
+                    local_model = AutoModelForImageTextToText.from_pretrained(
+                        model,
+                        torch_dtype=torch_dtype,
+                        **load_kwargs,
+                    )
+            else:
+                local_model = AutoModelForImageTextToText.from_pretrained(model, **load_kwargs)
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=model, use_case="translation", exc=exc)
+
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is not None and hasattr(tokenizer, "padding_side"):
+        tokenizer.padding_side = "left"
+    pad_token_id = configure_deterministic_generation(local_model, tokenizer=tokenizer)
+
     device_label = _resolve_local_model_device_label(local_model)
-    cached = (processor, local_model, device_label, torch)
+    cached = (processor, local_model, device_label, torch, pad_token_id)
     _local_translation_models[model] = cached
     logger.info("  Local translation device | model=%s | device=%s", model, device_label)
     return cached
+
+
+def release_local_translation_models(model: str | None = None) -> None:
+    """Drop cached local Transformers translation stacks and release GPU caches."""
+    if model is None:
+        _local_translation_models.clear()
+    else:
+        _local_translation_models.pop(model, None)
+    clear_local_memory()
+
+
+def _local_transformers_prompt_token_count(inputs: Any) -> int:
+    """Return max non-padding prompt length for one batched processor output."""
+    attention_mask = inputs.get("attention_mask") if hasattr(inputs, "get") else None
+    if attention_mask is not None:
+        try:
+            return int(attention_mask.sum(dim=1).max().item())
+        except Exception:
+            pass
+    input_ids = inputs["input_ids"]
+    shape = getattr(input_ids, "shape", None)
+    if shape is not None:
+        return int(shape[-1])
+    return len(input_ids[0])
+
+
+def _dynamic_local_transformers_max_new_tokens(
+    *,
+    configured_max: int,
+    prompt_tokens: int,
+) -> int:
+    """Cap local translation generation by prompt length while honoring the public ceiling."""
+    dynamic_cap = max(
+        LOCAL_TRANSFORMERS_MIN_NEW_TOKENS,
+        int(math.ceil(prompt_tokens * LOCAL_TRANSFORMERS_PROMPT_TOKEN_RATIO))
+        + LOCAL_TRANSFORMERS_TOKEN_BUFFER,
+    )
+    return max(1, min(int(configured_max), dynamic_cap))
+
+
+def _decode_local_transformers_generation(
+    processor: Any,
+    generated: Any,
+    *,
+    prompt_width: int,
+) -> list[str]:
+    """Decode a batched generation tensor/list after the padded prompt width."""
+    decoded: list[str] = []
+    for row in generated:
+        row_tokens = row[prompt_width:]
+        decoded_text = processor.decode(row_tokens, skip_special_tokens=True).strip()
+        decoded.append(_strip_think_tags(decoded_text))
+    return decoded
+
+
+def _translate_transformers_batch(
+    texts: list[str],
+    *,
+    target_lang: str,
+    source_langs: list[str],
+    model: str,
+    max_tokens: int,
+    runtime_log_path: Path | None,
+) -> list[str]:
+    """Translate a batch via TranslateGemma's structured chat template."""
+    if len(texts) != len(source_langs):
+        raise ValueError("texts and source_langs must have the same length.")
+    if not texts:
+        return []
+
+    processor, local_model, _device_label, torch, pad_token_id = (
+        _load_local_transformers_translation_model(model, runtime_log_path=runtime_log_path)
+    )
+    batch_messages = [
+        _build_transformers_translation_messages(
+            text,
+            target_lang=target_lang,
+            source_lang=source_lang,
+        )
+        for text, source_lang in zip(texts, source_langs)
+    ]
+    try:
+        with capture_external_output(runtime_log_path or get_runtime_log_path()):
+            inputs = processor.apply_chat_template(
+                batch_messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                padding=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+            input_device = _resolve_local_model_device(local_model)
+            if input_device is not None and hasattr(inputs, "to"):
+                inputs = inputs.to(input_device)
+            prompt_width = int(inputs["input_ids"].shape[-1])
+            prompt_tokens = _local_transformers_prompt_token_count(inputs)
+            max_new_tokens = _dynamic_local_transformers_max_new_tokens(
+                configured_max=max_tokens,
+                prompt_tokens=prompt_tokens,
+            )
+            generate_kwargs: dict[str, Any] = {
+                **dict(inputs),
+                "do_sample": False,
+                "max_new_tokens": max_new_tokens,
+            }
+            if pad_token_id is not None:
+                generate_kwargs["pad_token_id"] = pad_token_id
+            with torch.inference_mode():
+                generation = local_model.generate(**generate_kwargs)
+    except Exception as exc:
+        raise_with_local_hf_compat_hint(model=model, use_case="translation", exc=exc)
+    return _decode_local_transformers_generation(
+        processor,
+        generation,
+        prompt_width=prompt_width,
+    )
 
 
 def _translate_transformers(
@@ -622,38 +776,15 @@ def _translate_transformers(
     runtime_log_path: Path | None,
 ) -> str:
     """Translate one text via the official local Transformers path."""
-    processor, local_model, _device_label, torch = _load_local_transformers_translation_model(
-        model,
+    translations = _translate_transformers_batch(
+        [str(text)],
+        target_lang=target_lang,
+        source_langs=[str(source_lang)],
+        model=model,
+        max_tokens=max_tokens,
         runtime_log_path=runtime_log_path,
     )
-    messages = _build_transformers_translation_messages(
-        text,
-        target_lang=target_lang,
-        source_lang=source_lang,
-    )
-    try:
-        with capture_external_output(runtime_log_path or get_runtime_log_path()):
-            inputs = processor.apply_chat_template(
-                messages,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-            )
-            input_device = _resolve_local_model_device(local_model)
-            if input_device is not None and hasattr(inputs, "to"):
-                inputs = inputs.to(input_device)
-            input_len = int(inputs["input_ids"].shape[-1])
-            with torch.inference_mode():
-                generation = local_model.generate(
-                    **inputs,
-                    do_sample=False,
-                    max_new_tokens=max_tokens,
-                )
-    except Exception as exc:
-        raise_with_local_hf_compat_hint(model=model, use_case="translation", exc=exc)
-    decoded = processor.decode(generation[0][input_len:], skip_special_tokens=True).strip()
-    return _strip_think_tags(decoded)
+    return translations[0]
 
 
 def _translate_rows_transformers(
@@ -664,6 +795,7 @@ def _translate_rows_transformers(
     to_translate: pd.DataFrame,
     target_lang: str,
     model: str,
+    max_workers: int,
     max_tokens: int,
     runtime_log_path: Path | None,
     show_progress: bool = True,
@@ -674,27 +806,70 @@ def _translate_rows_transformers(
     failed: list[tuple[object, str]] = []
     started = time.perf_counter()
 
-    items = list(zip(to_translate.index, to_translate[source_col], to_translate[lang_col]))
-    for idx, text, src_lang in tqdm(
-        items,
+    items = [
+        (idx, str(row[source_col]), str(row[lang_col]))
+        for idx, row in to_translate.iterrows()
+    ]
+    items.sort(key=lambda item: len(item[1]), reverse=True)
+    batch_size = max(1, int(max_workers))
+    item_index = 0
+    progress = tqdm(
         total=len(items),
         desc=f"  {source_col}",
         disable=(not show_progress) or (progress_callback is not None),
-    ):
-        if progress_callback is not None:
-            progress_callback(1)
-        try:
-            translated = _translate_transformers(
-                str(text),
-                target_lang=target_lang,
-                source_lang=str(src_lang),
-                model=model,
-                max_tokens=max_tokens,
-                runtime_log_path=runtime_log_path,
-            )
-            df.at[idx, target_col] = translated or str(text)
-        except Exception as exc:
-            failed.append((idx, f"{type(exc).__name__}: {exc}"))
+    )
+    try:
+        while item_index < len(items):
+            current_size = min(batch_size, len(items) - item_index)
+            batch = items[item_index : item_index + current_size]
+            try:
+                translated_batch = _translate_transformers_batch(
+                    [text for _idx, text, _src_lang in batch],
+                    target_lang=target_lang,
+                    source_langs=[src_lang for _idx, _text, src_lang in batch],
+                    model=model,
+                    max_tokens=max_tokens,
+                    runtime_log_path=runtime_log_path,
+                )
+            except Exception as exc:
+                if is_memory_oom_error(exc):
+                    clear_local_memory()
+                    if current_size <= 1:
+                        raise RuntimeError(
+                            "Local transformers translation ran out of memory at batch size 1. "
+                            "Use a smaller local model, shorten inputs, or use a GPU with more memory."
+                        ) from exc
+                    batch_size = max(1, current_size // 2)
+                    logger.warning(
+                        "  %s: local transformers OOM; retrying with batch size %s",
+                        source_col,
+                        batch_size,
+                    )
+                    continue
+                for idx, _text, _src_lang in batch:
+                    failed.append((idx, f"{type(exc).__name__}: {exc}"))
+                    df.at[idx, target_col] = str(df.at[idx, source_col])
+                if progress_callback is not None:
+                    progress_callback(current_size)
+                else:
+                    progress.update(current_size)
+                item_index += current_size
+                continue
+
+            if len(translated_batch) != len(batch):
+                raise RuntimeError(
+                    "Local transformers translation batch size mismatch: "
+                    f"expected {len(batch)}, got {len(translated_batch)}."
+                )
+            for (idx, text, _src_lang), translated in zip(batch, translated_batch):
+                df.at[idx, target_col] = translated or text
+            if progress_callback is not None:
+                progress_callback(current_size)
+            else:
+                progress.update(current_size)
+            item_index += current_size
+    finally:
+        progress.close()
 
     elapsed = max(1e-9, time.perf_counter() - started)
     return failed, elapsed
@@ -1042,6 +1217,15 @@ def _ensure_nllb_model(model: str, *, cache_dir: Path | None = None) -> tuple:
     return _nllb_translator, _nllb_tokenizer
 
 
+def release_nllb_model() -> None:
+    """Drop the cached NLLB translator/tokenizer and release local allocator caches."""
+    global _nllb_translator, _nllb_tokenizer, _nllb_model_path
+    _nllb_translator = None
+    _nllb_tokenizer = None
+    _nllb_model_path = None
+    clear_local_memory()
+
+
 def _encode_nllb(text: str, src_lang: str, tokenizer) -> list[str]:
     """Tokenize text for NLLB with correct language prefix via AutoTokenizer."""
     tokenizer.src_lang = src_lang
@@ -1248,7 +1432,8 @@ def translate_dataframe(
     api_base : str
         OpenRouter API base URL.
     max_workers : int
-        Concurrent workers for remote translation providers.
+        Concurrent workers for remote translation providers; initial batch size
+        for local Transformers translation.
     max_translation_tokens : int
         Token ceiling per translation call.
     llama_server_config : LlamaServerConfig, optional
@@ -1408,6 +1593,7 @@ def translate_dataframe(
                 to_translate=to_translate,
                 target_lang=target_lang,
                 model=str(model_name),
+                max_workers=max_workers,
                 max_tokens=max_translation_tokens,
                 runtime_log_path=runtime_log_path,
                 show_progress=show_progress,

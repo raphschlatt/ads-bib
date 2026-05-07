@@ -126,8 +126,8 @@ offline or avoiding APIs, `nllb` on the `local_cpu` road (or a local
 
 The official local translation defaults are asymmetric: `local_cpu` uses
 `nllb`, `local_gpu` uses TranslateGemma via `transformers`. `max_workers`
-controls concurrency for remote providers; local `transformers` translation
-currently prioritizes correctness over aggressive fan-out.
+controls concurrency for remote providers and the initial local `transformers`
+batch size; the local path automatically retries smaller batches on OOM.
 
 `fasttext_model` points to `lid.176.bin` in `data/models/`. Packaged starter
 presets download the default file automatically when it is missing. See

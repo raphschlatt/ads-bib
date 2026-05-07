@@ -27,6 +27,7 @@ from ads_bib._utils.huggingface_api import (
     normalize_huggingface_model,
     resolve_huggingface_api_key,
 )
+from ads_bib._utils.local_models import clear_local_memory, configure_deterministic_generation
 from ads_bib._utils.llama_server import (
     DEFAULT_LLAMA_SERVER_PARALLEL,
     LlamaServerConfig,
@@ -286,33 +287,23 @@ def _suppress_manual_topics_warning():
         logger_name.removeFilter(warning_filter)
 
 
-def _configure_deterministic_generation_model(model: Any) -> None:
+def _configure_deterministic_generation_model(
+    model: Any,
+    *,
+    tokenizer: Any | None = None,
+) -> Any | None:
     """Normalize local HF generation defaults for deterministic topic labeling."""
-    generation_config = getattr(model, "generation_config", None)
-    if generation_config is None:
-        return
-
-    generation_config.do_sample = False
-
-    # Some instruct checkpoints ship sampling-oriented defaults in generation_config.
-    # For deterministic labeling we unset sampling-only values so Transformers
-    # does not warn about ignored flags when do_sample=False.
-    for name, value in {
-        "temperature": None,
-        "top_p": None,
-        "top_k": None,
-        "min_p": None,
-        "typical_p": None,
-        "epsilon_cutoff": None,
-        "eta_cutoff": None,
-    }.items():
-        if hasattr(generation_config, name):
-            setattr(generation_config, name, value)
+    if model is None:
+        return None
+    return configure_deterministic_generation(model, tokenizer=tokenizer)
 
 
 def _configure_deterministic_generation_pipeline(generator: Any) -> None:
     """Normalize local HF pipeline generation defaults for deterministic topic labeling."""
-    _configure_deterministic_generation_model(getattr(generator, "model", None))
+    _configure_deterministic_generation_model(
+        getattr(generator, "model", None),
+        tokenizer=getattr(generator, "tokenizer", None),
+    )
 
 
 @contextmanager
@@ -720,7 +711,10 @@ class _LocalTransformersTopicChatClient:
                     )
         except Exception as exc:
             raise_with_local_hf_compat_hint(model=model, use_case=use_case, exc=exc)
-        _configure_deterministic_generation_model(self.generator)
+        self.pad_token_id = _configure_deterministic_generation_model(
+            self.generator,
+            tokenizer=self.tokenizer,
+        )
 
     def complete(
         self,
@@ -745,17 +739,13 @@ class _LocalTransformersTopicChatClient:
         input_ids = model_inputs["input_ids"]
         shape = getattr(input_ids, "shape", None)
         prompt_length = int(shape[-1]) if shape is not None else len(input_ids[0])
-        pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
-        if pad_token_id is None:
-            pad_token_id = getattr(self.tokenizer, "eos_token_id", None)
-
         generate_kwargs: dict[str, Any] = {
             **model_inputs,
             "max_new_tokens": max(1, int(max_tokens)),
             "do_sample": False,
         }
-        if pad_token_id is not None:
-            generate_kwargs["pad_token_id"] = pad_token_id
+        if self.pad_token_id is not None:
+            generate_kwargs["pad_token_id"] = self.pad_token_id
 
         try:
             import torch
@@ -772,6 +762,49 @@ class _LocalTransformersTopicChatClient:
             if index >= 0:
                 text = text[:index]
         return str(text)
+
+
+def _release_local_transformers_client(client: Any) -> None:
+    if not isinstance(client, _LocalTransformersTopicChatClient):
+        return
+    client.generator = None
+    client.tokenizer = None
+    client.pad_token_id = None
+
+
+def _release_representation_runtime(representation_model: Any, seen: set[int]) -> None:
+    obj_id = id(representation_model)
+    if obj_id in seen:
+        return
+    seen.add(obj_id)
+
+    if isinstance(representation_model, dict):
+        for value in representation_model.values():
+            _release_representation_runtime(value, seen)
+        return
+    if isinstance(representation_model, (list, tuple, set)):
+        for value in representation_model:
+            _release_representation_runtime(value, seen)
+        return
+
+    _release_local_transformers_client(representation_model)
+    client = getattr(representation_model, "client", None)
+    if client is not None:
+        _release_local_transformers_client(client)
+
+
+def release_local_topic_runtime(topic_model: Any) -> None:
+    """Drop local topic-labeling/embedding runtime objects once outputs are materialized."""
+    if topic_model is None:
+        return
+    _release_representation_runtime(getattr(topic_model, "representation_model", None), set())
+    for attr in ("embedding_model", "text_embedding_model"):
+        if hasattr(topic_model, attr):
+            setattr(topic_model, attr, None)
+    llm_wrapper = getattr(topic_model, "llm_wrapper", None)
+    if llm_wrapper is not None:
+        _release_representation_runtime(llm_wrapper, set())
+    clear_local_memory()
 
 
 def _create_bertopic_chat_representation(

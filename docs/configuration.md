@@ -149,7 +149,7 @@ query: 'author:"Hawking, S*" OR citations(author:"Hawking, S*")'
 | `model_file` | string \| null | `null` | Filename within the repo (`llama_server` provider) |
 | `model_path` | string \| null | `null` | Explicit local path to a GGUF file (`llama_server` provider) |
 | `api_key` | string \| null | `null` | Provider API key; falls back to env var |
-| `max_workers` | int | `10` | Concurrent translation requests for remote providers; local `transformers` translation currently runs sequentially |
+| `max_workers` | int | `10` | Concurrent translation requests for remote providers; initial batch size for local `transformers` translation |
 | `max_tokens` | int | `2048` | Maximum tokens per translation request |
 | `fasttext_model` | string \| null | `null` | Path to the fasttext language detection model; packaged presets set `data/models/lid.176.bin` |
 

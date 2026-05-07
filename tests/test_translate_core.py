@@ -388,7 +388,7 @@ def test_translate_transformers_uses_structured_messages(monkeypatch):
     monkeypatch.setattr(
         tr,
         "_load_local_transformers_translation_model",
-        lambda model, runtime_log_path: (_FakeProcessor(), _FakeModel(), "cuda:0", fake_torch),
+        lambda model, runtime_log_path: (_FakeProcessor(), _FakeModel(), "cuda:0", fake_torch, 0),
     )
 
     translated = tr._translate_transformers(
@@ -401,17 +401,76 @@ def test_translate_transformers_uses_structured_messages(monkeypatch):
     )
 
     assert translated == "Hello World"
-    assert calls["messages"] == tr._build_transformers_translation_messages(
+    assert calls["messages"] == [tr._build_transformers_translation_messages(
         "Hallo Welt",
         target_lang="en",
         source_lang="de",
-    )
+    )]
     assert calls["kwargs"]["add_generation_prompt"] is True
+    assert calls["kwargs"]["padding"] is True
     assert calls["kwargs"]["return_dict"] is True
     assert calls["kwargs"]["return_tensors"] == "pt"
     assert calls["generate_kwargs"]["do_sample"] is False
     assert calls["generate_kwargs"]["max_new_tokens"] == 77
+    assert calls["generate_kwargs"]["pad_token_id"] == 0
     assert calls["decoded_tokens"] == [201, 202]
+
+
+def test_translate_transformers_dynamic_max_tokens_respects_configured_ceiling():
+    assert tr._dynamic_local_transformers_max_new_tokens(
+        configured_max=2048,
+        prompt_tokens=10,
+    ) == 96
+    assert tr._dynamic_local_transformers_max_new_tokens(
+        configured_max=2048,
+        prompt_tokens=1000,
+    ) == 1564
+    assert tr._dynamic_local_transformers_max_new_tokens(
+        configured_max=100,
+        prompt_tokens=1000,
+    ) == 100
+
+
+def test_translate_rows_transformers_retries_smaller_batch_on_oom(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "Title": ["eins", "zwei", "drei", "vier", "funf"],
+            "Title_lang": ["de", "de", "de", "de", "de"],
+        }
+    )
+    calls: list[int] = []
+    progress: list[int] = []
+    cleanup_calls: list[bool] = []
+
+    def _fake_translate_batch(texts, **kwargs):
+        del kwargs
+        calls.append(len(texts))
+        if len(texts) == 4:
+            raise RuntimeError("CUDA out of memory")
+        return [f"{text}-EN" for text in texts]
+
+    monkeypatch.setattr(tr, "_translate_transformers_batch", _fake_translate_batch)
+    monkeypatch.setattr(tr, "clear_local_memory", lambda: cleanup_calls.append(True))
+
+    failed, _elapsed = tr._translate_rows_transformers(
+        df,
+        source_col="Title",
+        target_col="Title_en",
+        to_translate=df,
+        target_lang="en",
+        model="google/translategemma-4b-it",
+        max_workers=4,
+        max_tokens=2048,
+        runtime_log_path=None,
+        show_progress=False,
+        progress_callback=lambda amount: progress.append(amount),
+    )
+
+    assert failed == []
+    assert calls == [4, 2, 2, 1]
+    assert cleanup_calls == [True]
+    assert sum(progress) == 5
+    assert df["Title_en"].tolist() == ["eins-EN", "zwei-EN", "drei-EN", "vier-EN", "funf-EN"]
 
 
 def test_translate_dataframe_transformers_success(monkeypatch):
@@ -426,12 +485,13 @@ def test_translate_dataframe_transformers_success(monkeypatch):
         to_translate,
         target_lang,
         model,
+        max_workers,
         max_tokens,
         runtime_log_path,
         show_progress,
         progress_callback,
     ):
-        del source_col, target_lang, runtime_log_path, show_progress, progress_callback
+        del source_col, target_lang, max_workers, runtime_log_path, show_progress, progress_callback
         calls["model"] = model
         calls["max_tokens"] = max_tokens
         out_df.at[to_translate.index[0], target_col] = "Hallo-EN"
