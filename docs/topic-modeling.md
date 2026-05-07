@@ -75,7 +75,7 @@ Default preset models:
 | `openrouter` | `qwen/qwen3-embedding-8b` |
 | `hf_api` | `Qwen/Qwen3-Embedding-8B` |
 | `local_cpu` | `google/embeddinggemma-300m` |
-| `local_gpu` | `google/embeddinggemma-300m` |
+| `local_gpu` | `Qwen/Qwen3-Embedding-0.6B` |
 
 For local roads, the active Torch build decides whether these run on CPU or
 CUDA. For early exploration on a large corpus, set

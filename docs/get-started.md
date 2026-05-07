@@ -47,12 +47,12 @@ keys depend on the road you pick:
 | `openrouter` | `ADS_TOKEN`, `OPENROUTER_API_KEY` |
 | `hf_api` | `ADS_TOKEN`, `HF_TOKEN` |
 | `local_cpu` | `ADS_TOKEN` |
-| `local_gpu` | `ADS_TOKEN` |
+| `local_gpu` | `ADS_TOKEN`, `HF_TOKEN` |
 
 ```env
 ADS_TOKEN=...
 OPENROUTER_API_KEY=...  # only for openrouter providers
-HF_TOKEN=...            # only for huggingface_api providers
+HF_TOKEN=...            # for hf_api and local_gpu model access
 ```
 
 `HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted, but `HF_TOKEN` is

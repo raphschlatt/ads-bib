@@ -119,22 +119,22 @@ explicit path only when you intentionally want to override that.
 
 Local GPU road for machines with a compatible Torch/CUDA stack.
 
-- **Keys**: `ADS_TOKEN`
+- **Keys**: `ADS_TOKEN`, `HF_TOKEN`
 - **Hardware**:
     - NVIDIA / CUDA for the official accelerated path
     - without CUDA, local HF/Torch work falls back to CPU and `doctor` flags
       the official GPU road as unsupported
 - **Defaults**:
     - translation: `google/translategemma-4b-it` via local `transformers`
-    - embeddings: local SentenceTransformers (`google/embeddinggemma-300m`)
-    - labeling: local `transformers` with `google/gemma-3-1b-it`
+    - embeddings: local SentenceTransformers (`Qwen/Qwen3-Embedding-0.6B`)
+    - labeling: local `transformers` with `Qwen/Qwen3-4B-Instruct-2507`
     - backend: `bertopic`
 - **Optional switch**: set `topic_model.llm_provider=llama_server` to use GGUF
   labeling instead
 
-The packaged `local_gpu` defaults use Gemma-family Hugging Face models. If a
-first download is blocked, sign in to Hugging Face, accept the model terms, and
-set `HF_TOKEN`; see [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
+The `local_gpu` preset downloads models from Hugging Face. If the first
+download is blocked, sign in to Hugging Face, accept any required model terms,
+and set `HF_TOKEN`; see [Hugging Face Access Tokens](https://huggingface.co/settings/tokens).
 
 ### GPU runtime differs between Windows and Linux
 

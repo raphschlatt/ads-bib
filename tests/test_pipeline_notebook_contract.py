@@ -6,7 +6,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_NOTEBOOK_PATH = PROJECT_ROOT / "pipeline.ipynb"
-GEMMA_NOTEBOOK_PATH = PROJECT_ROOT / "pipeline_gemma.ipynb"
+GEMMA_NOTEBOOK_PATH = PROJECT_ROOT / "notebooks" / "pipeline_gemma_experiment.ipynb"
 
 
 def _load_notebook(path: Path) -> dict:
@@ -128,32 +128,34 @@ def test_public_colab_notebook_contract():
     markdown = _all_markdown_source(nb)
 
     assert "# ads-bib Colab quickstart" in markdown
-    assert "public Hugging Face models" in markdown
-    assert "HF_TOKEN optional" in code
-    assert '"provider": "nllb"' in code
-    assert '"model": "JustFrederik/nllb-200-distilled-600M-ct2-int8"' in code
-    assert '"embedding_model": "Qwen/Qwen3-Embedding-0.6B"' in code
-    assert '"llm_model": "Qwen/Qwen3-4B-Instruct-2507"' in code
+    assert "recommended `local_gpu` preset" in markdown
+    assert "HF_TOKEN (https://huggingface.co/settings/tokens)" in code
+    assert "HF_TOKEN is required for the local_gpu Colab notebook." in code
+    assert 'CONFIG["translate"].update' not in code
+    assert 'CONFIG["topic_model"].update' not in code
+    assert '"provider": "nllb"' not in code
+    assert '"model": "JustFrederik/nllb-200-distilled-600M-ct2-int8"' not in code
+    assert '"embedding_model": "Qwen/Qwen3-Embedding-0.6B"' not in code
+    assert '"llm_model": "Qwen/Qwen3-4B-Instruct-2507"' not in code
     assert '"llm_prompt"' not in code
     assert '"bertopic_label_max_tokens": 24' not in code
-    assert "_ensure_nllb_model(" in code
-    assert "release_nllb_model()" in code
+    assert "_load_local_transformers_translation_model(" in code
+    assert "release_local_translation_models(" in code
     assert 'RUN_NAME = "ads_bib_colab_hawking"' in code
     assert "run_name=RUN_NAME" in code
     assert "USE_STRICT_LOCAL_GPU_PRESET" not in code
-    assert "google/translategemma-4b-it" not in code
     assert "google/embeddinggemma-300m" not in code
     assert "google/gemma-3-1b-it" not in code
 
 
-def test_gemma_colab_notebook_contract():
+def test_gemma_experiment_notebook_contract():
     nb = _load_notebook(GEMMA_NOTEBOOK_PATH)
     _assert_common_colab_contract(nb)
     code = _all_code_source(nb)
     markdown = _all_markdown_source(nb)
 
-    assert "# ads-bib Colab quickstart: Gemma preset" in markdown
-    assert "unchanged `local_gpu` preset" in markdown
+    assert "# ads-bib Colab experiment: Gemma embeddings and labels" in markdown
+    assert "root `pipeline.ipynb` is the recommended quickstart" in markdown
     assert "HF_TOKEN is required" in code
     assert "https://huggingface.co/settings/tokens" in markdown
     assert "google/translategemma-4b-it" in markdown
@@ -164,11 +166,10 @@ def test_gemma_colab_notebook_contract():
     assert 'RUN_NAME = "ads_bib_colab_hawking_gemma"' in code
     assert "run_name=RUN_NAME" in code
     assert 'CONFIG["translate"].update' not in code
-    assert 'CONFIG["topic_model"].update' not in code
+    assert 'CONFIG["topic_model"]["embedding_model"] = "google/embeddinggemma-300m"' in code
+    assert 'CONFIG["topic_model"]["llm_model"] = "google/gemma-3-1b-it"' in code
     assert "Return only a concise 3-6 word topic label" not in code
     assert "JustFrederik/nllb-200-distilled-600M-ct2-int8" not in code
-    assert "Qwen/Qwen3-Embedding-0.6B" not in code
-    assert "Qwen/Qwen3-4B-Instruct-2507" not in code
 
 
 def test_pipeline_notebook_is_output_clean():

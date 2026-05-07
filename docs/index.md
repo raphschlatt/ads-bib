@@ -15,7 +15,7 @@ Create a `.env` file in your project root with the relevant API keys.
 ```bash
 ADS_TOKEN=your-ads-token           # required
 OPENROUTER_API_KEY=your-key        # only for the openrouter road
-HF_TOKEN=your-key                  # only for the huggingface road
+HF_TOKEN=your-key                  # for hf_api and local_gpu model access
 MODAL_TOKEN_ID=your-modal-id       # only for AND with backend=modal
 MODAL_TOKEN_SECRET=your-modal-secret
 ```

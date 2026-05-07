@@ -63,7 +63,7 @@ author_disambiguation:
 topic_model:
   sample_size: null
   embedding_provider: local
-  embedding_model: google/embeddinggemma-300m
+  embedding_model: Qwen/Qwen3-Embedding-0.6B
   embedding_api_key: null
   embedding_batch_size: 32
   embedding_max_workers: 8
@@ -88,7 +88,7 @@ topic_model:
   llm_prompt_name: physics
   llm_prompt: null
   llm_provider: local
-  llm_model: google/gemma-3-1b-it
+  llm_model: Qwen/Qwen3-4B-Instruct-2507
   llm_model_repo: null
   llm_model_file: null
   llm_model_path: null

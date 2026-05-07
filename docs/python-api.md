@@ -482,6 +482,5 @@ rows are written to CSV sidecars.
 
 The repository also includes
 [`pipeline.ipynb`](https://github.com/raphschlatt/ads-bib/blob/main/pipeline.ipynb)
-as a Colab quickstart for the high-level `ads_bib.run(...)` path. The companion
-`pipeline_gemma.ipynb` keeps the packaged `local_gpu` Gemma preset unchanged.
-These notebooks are not shipped in the `ads-bib` wheel; open them from GitHub.
+as a Colab quickstart for the high-level `ads_bib.run(...)` path. It is not
+shipped in the `ads-bib` wheel; open it from GitHub.

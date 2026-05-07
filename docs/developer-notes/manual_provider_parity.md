@@ -183,10 +183,10 @@ TRANSLATE = {
 TOPIC_MODEL = {
     ...
     "embedding_provider": "local",
-    "embedding_model": "google/embeddinggemma-300m",
+    "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
     "backend": "bertopic",
     "llm_provider": "local",
-    "llm_model": "google/gemma-3-1b-it",
+    "llm_model": "Qwen/Qwen3-4B-Instruct-2507",
 }
 ```
 
