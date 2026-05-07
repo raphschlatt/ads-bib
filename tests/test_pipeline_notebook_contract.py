@@ -152,22 +152,23 @@ def test_gemma_colab_notebook_contract():
     code = _all_code_source(nb)
     markdown = _all_markdown_source(nb)
 
-    assert "# ads-bib Colab quickstart: Gemma preset" in markdown
-    assert "unchanged `local_gpu` preset" in markdown
+    assert "# ads-bib Colab quickstart: Gemma/Qwen experiment" in markdown
+    assert "keeps TranslateGemma" in markdown
     assert "HF_TOKEN is required" in code
     assert "https://huggingface.co/settings/tokens" in markdown
     assert "google/translategemma-4b-it" in markdown
-    assert "google/embeddinggemma-300m" in markdown
-    assert "google/gemma-3-1b-it" in markdown
+    assert "google/gemma-4-E2B-it" in markdown
     assert "_load_local_transformers_translation_model(" in code
     assert "release_local_translation_models(" in code
-    assert 'RUN_NAME = "ads_bib_colab_hawking_gemma"' in code
+    assert 'RUN_NAME = "ads_bib_colab_hawking_gemma4_qwen"' in code
     assert "run_name=RUN_NAME" in code
     assert 'CONFIG["translate"].update' not in code
-    assert 'CONFIG["topic_model"].update' not in code
+    assert 'CONFIG["topic_model"]["embedding_model"] = "Qwen/Qwen3-Embedding-0.6B"' in code
+    assert 'CONFIG["topic_model"]["llm_model"] = "google/gemma-4-E2B-it"' in code
     assert "Return only a concise 3-6 word topic label" not in code
     assert "JustFrederik/nllb-200-distilled-600M-ct2-int8" not in code
-    assert "Qwen/Qwen3-Embedding-0.6B" not in code
+    assert "google/embeddinggemma-300m" not in code
+    assert "google/gemma-3-1b-it" not in code
     assert "Qwen/Qwen3-4B-Instruct-2507" not in code
 
 
