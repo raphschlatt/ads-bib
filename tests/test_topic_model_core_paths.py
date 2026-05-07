@@ -73,6 +73,42 @@ def test_reduce_pacmap_normalizes_metric_and_ignores_min_dist(monkeypatch):
     assert calls["kwargs"]["n_neighbors"] == 30
 
 
+def test_reduce_pacmap_keeps_library_warnings_out_of_console(monkeypatch, caplog):
+    pacmap_logger = logging.getLogger("pacmap.pacmap")
+    original_level = pacmap_logger.level
+    caplog.set_level(logging.WARNING, logger="pacmap.pacmap")
+
+    class _FakePaCMAP:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            pacmap_logger.warning("Warning: random state is set to 42.")
+
+        def fit_transform(self, embeddings):
+            pacmap_logger.warning("Note: `n_components != 2` have not been thoroughly tested.")
+            return np.ones((len(embeddings), self.kwargs["n_components"]), dtype=np.float32)
+
+    fake_pacmap = types.ModuleType("pacmap")
+    fake_pacmap.PaCMAP = _FakePaCMAP
+    monkeypatch.setitem(sys.modules, "pacmap", fake_pacmap)
+
+    try:
+        out = tm_reduction._reduce_with_cache(
+            embeddings=np.ones((3, 4), dtype=np.float32),
+            n_components=5,
+            method="pacmap",
+            params={},
+            random_state=42,
+            cache_dir=None,
+            name="unit",
+        )
+    finally:
+        pacmap_logger.setLevel(original_level)
+
+    assert out.shape == (3, 5)
+    assert "random state is set" not in caplog.text
+    assert "n_components != 2" not in caplog.text
+
+
 def test_cluster_documents_uses_selected_cluster_model(monkeypatch):
     calls: dict = {}
 

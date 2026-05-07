@@ -122,7 +122,8 @@ def _reduce_with_cache(
         )
         defaults.update(normalized_params)
         defaults["n_components"] = n_components
-        model = pacmap.PaCMAP(**defaults)
+        with temporarily_raise_logger_level("pacmap.pacmap", level=logging.ERROR):
+            model = pacmap.PaCMAP(**defaults)
     elif method == "umap":
         from umap import UMAP
 

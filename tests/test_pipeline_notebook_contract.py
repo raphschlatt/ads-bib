@@ -61,6 +61,9 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert "bitsandbytes" in code
     assert "torch.cuda.is_available()" in code
     assert "Runtime > Change runtime type" in code
+    assert "\nimport transformers\n" not in code
+    assert "transformers.logging.set_verbosity_error()" not in code
+    assert 'warnings.filterwarnings("ignore")' not in code
     assert "getpass(" in code
     assert "ADS_TOKEN" in code
     assert 'userdata.get("ADS_TOKEN")' in code
