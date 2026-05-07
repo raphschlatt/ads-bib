@@ -4,6 +4,7 @@ from pathlib import Path
 
 import ads_bib.bootstrap as bootstrap
 import ads_bib.doctor as doctor
+from ads_bib._utils import hf_compat
 from ads_bib._utils.llama_server import LlamaServerRuntimeResolution
 from ads_bib.pipeline import PipelineConfig
 from ads_bib.presets import load_preset_config
@@ -77,6 +78,20 @@ def test_ensure_default_fasttext_model_skips_custom_path(monkeypatch, tmp_path):
     )
 
     assert resolved is None
+
+
+def test_import_sentence_transformer_class_uses_hf_compat(monkeypatch):
+    sentinel = object()
+    calls = {"n": 0}
+
+    def _fake_import_class():
+        calls["n"] += 1
+        return sentinel
+
+    monkeypatch.setattr(hf_compat, "import_sentence_transformer_class", _fake_import_class)
+
+    assert bootstrap.import_sentence_transformer_class() is sentinel
+    assert calls["n"] == 1
 
 
 def test_bootstrap_workspace_keeps_existing_files_without_force(tmp_path):

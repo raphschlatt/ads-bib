@@ -69,6 +69,13 @@ def ensure_default_fasttext_model(
     return configured
 
 
+def import_sentence_transformer_class():
+    """Import SentenceTransformer without loading optional audio/video codecs."""
+    from ads_bib._utils.hf_compat import import_sentence_transformer_class as _import_class
+
+    return _import_class()
+
+
 def bootstrap_workspace(
     *,
     project_root: str | Path | None = None,

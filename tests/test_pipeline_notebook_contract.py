@@ -89,7 +89,9 @@ def _assert_common_colab_contract(nb: dict) -> None:
 
     assert "## 5. Prepare models" in markdown
     assert "ensure_default_fasttext_model(" in code
-    assert "from sentence_transformers import SentenceTransformer" in code
+    assert "from sentence_transformers import SentenceTransformer" not in code
+    assert "import_sentence_transformer_class" in code
+    assert "SentenceTransformer = import_sentence_transformer_class()" in code
     assert 'SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")' in code
     assert "AutoTokenizer.from_pretrained" in code
     assert "AutoModelForCausalLM.from_pretrained" in code
