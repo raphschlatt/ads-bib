@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Literal
+import warnings
 
 from tqdm.auto import tqdm
 
@@ -25,6 +26,20 @@ _FILE_HANDLER_NAME = "ads_bib_runtime_file"
 _CONSOLE_LOGGER_NAME = "ads_bib.console"
 _PACKAGE_LOGGER_NAME = "ads_bib"
 _RUNTIME_LOG_PATH: Path | None = None
+
+
+def suppress_known_third_party_warnings() -> None:
+    """Suppress known harmless dependency warnings before optional imports happen."""
+    # colorspacious 1.1.2 emits this under Python 3.12 from a docstring escape.
+    warnings.filterwarnings(
+        "ignore",
+        message=r"invalid escape sequence '\\D'",
+        category=SyntaxWarning,
+        module=r"colorspacious\.comparison",
+    )
+
+
+suppress_known_third_party_warnings()
 
 
 def _remove_named_handler(logger: logging.Logger, handler_name: str) -> None:
@@ -222,6 +237,7 @@ class StageReporter:
 def suppress_noisy_third_party_logs() -> None:
     """Suppress repetitive third-party transport logs while keeping pipeline logs."""
     try:
+        suppress_known_third_party_warnings()
         for noisy_logger_name in (
             "httpx",
             "httpcore",

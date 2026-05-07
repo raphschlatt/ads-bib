@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import io
+import warnings
 
 from ads_bib._utils import logging as logging_utils
 
@@ -24,6 +25,27 @@ def test_configure_runtime_logging_cli_filters_console_and_writes_run_log(tmp_pa
     with logging_utils.capture_external_output(log_path):
         print("hidden third-party line")
     assert "hidden third-party line" in log_path.read_text(encoding="utf-8")
+
+
+def test_runtime_logging_installs_colorspacious_syntaxwarning_filter(monkeypatch):
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    original = warnings.filterwarnings
+
+    def _record_filterwarnings(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(warnings, "filterwarnings", _record_filterwarnings)
+
+    logging_utils.suppress_known_third_party_warnings()
+
+    assert any(
+        args[:1] == ("ignore",)
+        and kwargs.get("message") == r"invalid escape sequence '\\D'"
+        and kwargs.get("category") is SyntaxWarning
+        and kwargs.get("module") == r"colorspacious\.comparison"
+        for args, kwargs in calls
+    )
 
 
 def test_stage_reporter_cli_uses_stage_numbering():
