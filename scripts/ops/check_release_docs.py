@@ -38,8 +38,20 @@ def main() -> int:
         fail("README.md still says ads-bib is not yet on PyPI")
     if "uv pip install ads-bib" not in readme:
         fail("README.md missing canonical PyPI install command")
+    if "colab.research.google.com/github/raphschlatt/ads-bib/blob/main/pipeline.ipynb" not in readme:
+        fail("README.md missing root pipeline.ipynb Colab badge target")
     if "author_disambiguation.enabled=true" not in readme:
         fail("README.md missing the AND opt-in command hint")
+
+    docs_text = "\n".join(
+        read_text(path)
+        for path in (ROOT / "docs").rglob("*.md")
+        if ".venv" not in path.parts
+    )
+    if "pipeline_gemma.ipynb" in docs_text:
+        fail("docs still reference obsolete root pipeline_gemma.ipynb")
+    if "ten inline configuration dicts" in docs_text:
+        fail("docs still describe the old notebook section-dict contract")
 
     zensical = read_text(ROOT / "zensical.toml")
     if f'site_url = "{docs_url}"' not in zensical:

@@ -1,213 +1,70 @@
 # Manual Provider Parity Runbook
 
-Use this runbook to verify that the notebook pipeline works across all four
-official roads and both supported topic backends.
+Use this maintainer runbook before a release when provider changes affect
+translation, embeddings, labeling, or notebook execution.
 
-Scope:
+## Baseline
 
-1. Full run (all stages).
-2. Use the Hawking query (`'author:"Hawking, S*"'`).
-3. Validate the supported topic backends: `bertopic` and `toponymy`.
-
-!!! note "Model IDs follow the packaged presets"
-    The provider/model values below mirror the current
-    `src/ads_bib/_presets/*.yaml`. The runnable code accepts any provider-valid
-    model ID; when a preset model id is bumped, update the matching block here
-    so the runbook keeps matching real runs.
-
-## Shared Baseline
-
-1. Activate your Python 3.12 repo dev environment.
-2. Open `pipeline.ipynb`.
-3. Set `RESET_SESSION = True` for a clean run directory.
-4. Preflight for local HF models:
+1. Use the repo Python 3.12 environment.
+2. Use the Hawking smoke query:
 
 ```bash
-python -c "import transformers, sentence_transformers; print('transformers', transformers.__version__); print('sentence-transformers', sentence_transformers.__version__)"
+QUERY='author:"Hawking, S*"'
 ```
 
-If `transformers < 4.56`, `transformers >= 4.57`, or `sentence-transformers < 5.1`,
-upgrade before local runs:
+3. For local HF roads, check the installed stack:
 
 ```bash
-uv pip install -U "transformers>=4.56,<4.57" "sentence-transformers>=5.1"
+uv run python -c "import transformers, sentence_transformers; print('transformers', transformers.__version__); print('sentence-transformers', sentence_transformers.__version__)"
 ```
 
-Parity runs should cover all four roads and both supported backends.
+4. Record pass/fail, runtime, notable warnings, run folder, topic map path, and
+   citation export paths for each profile.
 
-## Profile A: OpenRouter + BERTopic
+## Official Road Checks
 
-Set in notebook section dicts:
-
-```python
-TRANSLATE = {
-    ...
-    "provider": "openrouter",
-    "model": "google/gemini-3-flash-preview",
-}
-TOPIC_MODEL = {
-    ...
-    "embedding_provider": "openrouter",
-    "embedding_model": "qwen/qwen3-embedding-8b",
-    "backend": "bertopic",
-    "llm_provider": "openrouter",
-    "llm_model": "google/gemini-3-flash-preview",
-}
-```
-
-Run notebook top-to-bottom and record:
-
-1. No uncaught exceptions.
-2. Topic dataframe columns include `topic_id`, `embedding_5d_0` ...
-   `embedding_5d_4`, `embedding_2d_x`, `embedding_2d_y`.
-3. Topic map HTML exists.
-4. Citation exports exist.
-
-## Profile B: OpenRouter + Toponymy
-
-Same as Profile A, except:
-
-```python
-TOPIC_MODEL = { ..., "backend": "toponymy" }
-```
-
-Run notebook top-to-bottom and record the same checks.
-
-For Toponymy backends, also verify that the topic dataframe keeps the
-working-layer compatibility view in `topic_id`/`Name` and persists hierarchy columns such as
-`topic_layer_0_id`, `topic_layer_0_label`, `topic_primary_layer_index`, and
-`topic_layer_count`. Verify that the topic map keeps one right-side `Topics`
-panel, flat for BERTopic and indented for Toponymy, and that hover cards show
-the full hierarchy path.
-If `visualization.topic_tree` is explicitly enabled, verify the tree appears as
-an extra expert panel with color-coded bullets.
-
-## Profile C: HF API + BERTopic
-
-Set in notebook section dicts:
-
-```python
-TRANSLATE = {
-    ...
-    "provider": "huggingface_api",
-    "model": "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
-}
-TOPIC_MODEL = {
-    ...
-    "embedding_provider": "huggingface_api",
-    "embedding_model": "Qwen/Qwen3-Embedding-8B",
-    "backend": "bertopic",
-    "llm_provider": "huggingface_api",
-    "llm_model": "unsloth/Qwen2.5-72B-Instruct:featherless-ai",
-}
-```
-
-Run notebook top-to-bottom and record the same checks.
-
-## Profile D: HF API + Toponymy
-
-Same as Profile C, except:
-
-```python
-TOPIC_MODEL = { ..., "backend": "toponymy" }
-```
-
-Run notebook top-to-bottom and record the same checks.
-
-## Profile E: Local CPU + BERTopic
-
-Set in notebook section dicts:
-
-```python
-TRANSLATE = {
-    ...
-    "provider": "nllb",
-    "model": "JustFrederik/nllb-200-distilled-600M-ct2-int8",
-}
-LLAMA_SERVER = {
-    "command": "llama-server",
-    "host": "127.0.0.1",
-    "port": None,
-    "threads": None,
-    "ctx_size": 4096,
-    "gpu_layers": -1,
-    "startup_timeout_s": 120.0,
-    "reasoning": "off",
-}
-TOPIC_MODEL = {
-    ...
-    "embedding_provider": "local",
-    "embedding_model": "google/embeddinggemma-300m",
-    "backend": "bertopic",
-    "llm_provider": "llama_server",
-    "llm_model_path": "data/models/qwen35_gguf/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
-}
-```
-
-Preflight for llama-server:
+Run each official road with BERTopic and Toponymy. The examples below show
+BERTopic first; repeat with `--set topic_model.backend=toponymy`.
 
 ```bash
-where llama-server
-llama-server --version
+uv run ads-bib run --preset openrouter \
+  --set search.query="$QUERY" \
+  --set topic_model.backend=bertopic
+
+uv run ads-bib run --preset hf_api \
+  --set search.query="$QUERY" \
+  --set topic_model.backend=bertopic
+
+uv run ads-bib run --preset local_cpu \
+  --set search.query="$QUERY" \
+  --set topic_model.backend=bertopic
+
+uv run ads-bib run --preset local_gpu \
+  --set search.query="$QUERY" \
+  --set topic_model.backend=bertopic
 ```
 
-If the default `llama_server.command` is left at `llama-server`, the package-managed
-runtime path now covers the usual `local_cpu` / `local_gpu` setup. Only set or
-install an external binary manually when you intentionally want to override the
-managed runtime.
+Expected provider defaults:
 
-Run notebook top-to-bottom and record the same checks.
+| Preset | Translation | Embeddings | Labels |
+| --- | --- | --- | --- |
+| `openrouter` | `google/gemini-3-flash-preview` | `qwen/qwen3-embedding-8b` | `google/gemini-3-flash-preview` |
+| `hf_api` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` | `Qwen/Qwen3-Embedding-8B` | `unsloth/Qwen2.5-72B-Instruct:featherless-ai` |
+| `local_cpu` | `JustFrederik/nllb-200-distilled-600M-ct2-int8` | `google/embeddinggemma-300m` | managed `llama-server` with `mradermacher/Qwen3.5-0.8B-GGUF` |
+| `local_gpu` | `google/translategemma-4b-it` | `Qwen/Qwen3-Embedding-0.6B` | `Qwen/Qwen3-4B-Instruct-2507` |
 
-## Profile F: Local CPU + Toponymy
+For every run, verify:
 
-Same as Profile E, except:
+1. no uncaught exception,
+2. `topic_df` contains topic ids, 5D coordinates, and 2D coordinates,
+3. topic map HTML exists and opens,
+4. citation exports exist,
+5. Toponymy runs keep hierarchy columns such as `topic_layer_0_id`,
+   `topic_primary_layer_index`, and `topic_layer_count`.
 
-```python
-TOPIC_MODEL = { ..., "backend": "toponymy" }
-```
+## Colab Quickstart Smoke
 
-Run notebook top-to-bottom and record the same checks.
-
-
-
-## Profile G: Local GPU + BERTopic
-
-Set in notebook section dicts:
-
-```python
-TRANSLATE = {
-    ...
-    "provider": "transformers",
-    "model": "google/translategemma-4b-it",
-}
-TOPIC_MODEL = {
-    ...
-    "embedding_provider": "local",
-    "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
-    "backend": "bertopic",
-    "llm_provider": "local",
-    "llm_model": "Qwen/Qwen3-4B-Instruct-2507",
-}
-```
-
-Run notebook top-to-bottom and record the same checks.
-
-## Profile H: Local GPU + Toponymy
-
-Same as Profile G, except:
-
-```python
-TOPIC_MODEL = { ..., "backend": "toponymy" }
-```
-
-Run notebook top-to-bottom and record the same checks.
-
-## Suggested Result Table
-
-For each profile, store:
-
-1. date/time,
-2. runtime,
-3. pass/fail,
-4. notable warnings,
-5. artifact paths.
+Open the root `pipeline.ipynb` from GitHub in Colab, choose a T4 runtime, add
+`ADS_TOKEN` and `HF_TOKEN` as Colab Secrets, and run the notebook top to bottom.
+It should use the packaged `local_gpu` preset without model overrides and
+finish with a topic map, citation files, and export files under the run folder.

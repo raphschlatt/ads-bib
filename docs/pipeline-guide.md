@@ -83,7 +83,7 @@ choose the corpus.
 | `topic_model.backend`, `cluster_params`, `toponymy_cluster_params`, `llm_model`, `llm_prompt`, labeler provider/path | `topic_fit` | embeddings and reductions |
 | `visualization.*` | `visualize` | topic dataframe from the base run |
 | `citations.*` | `citations` | curated publications, references, and AND author entities when present |
-| `curation.*` | `topic_fit` in this release | earlier corpus preparation and embeddings; this avoids curating an already curated public artifact |
+| `curation.*` | `topic_fit` | earlier corpus preparation and embeddings; this avoids curating an already curated public artifact |
 
 Each variant writes normal outputs plus a `variant` block in
 `run_summary.yaml` so you can see the base run, changed keys, and reuse
@@ -99,6 +99,24 @@ After `export`, the pipeline holds two DataFrames: `publications` and
 `Abstract`, `Citation Count`, `DOI`, and more. During iteration on later
 phases, leave `refresh_search` and `refresh_export` at `false` so you do not
 re-hit the ADS API.
+
+If your corpus already comes from another metadata source, use `source_input`
+instead of ADS search/export. Point it at prepared publication and reference
+Parquet files, set `run.start_stage` to the first downstream stage you want
+(`translate` for a full run from prepared metadata), and keep the rest of the
+pipeline unchanged:
+
+```yaml
+source_input:
+  publications_path: data/source/publications.parquet
+  references_path: data/source/references.parquet
+  source_name: semantic_scholar
+run:
+  start_stage: translate
+```
+
+The repository includes utility scripts for Semantic Scholar and INSPIRE source
+exports. They are repo tools, not installed `ads-bib` commands.
 
 ## Phase 2: Translation
 

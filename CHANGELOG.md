@@ -6,6 +6,28 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-07
+
+### Added
+- External source input support for starting runs from prepared publication and reference Parquet files instead of an ADS search/export step.
+- Repository utility scripts for preparing source input from Semantic Scholar and INSPIRE exports.
+
+### Changed
+- The `local_gpu` preset is now the recommended Colab/GPU road: TranslateGemma for translation, Qwen3 embeddings, and Qwen3 topic labels.
+- `pipeline.ipynb` is now a preset-driven Colab quickstart that loads `local_gpu`, sets only the example query/run context, and uses notebook-friendly output.
+- The previous Gemma embedding/labeling notebook has moved to `notebooks/pipeline_gemma_experiment.ipynb` as a non-primary experiment.
+
+### Improved
+- Local Transformers translation now batches TranslateGemma calls, retries smaller batches on memory pressure, and applies dynamic generation limits inside the configured maximum.
+- Local model stages now share cleanup helpers so GPU memory is released between translation, embeddings, and topic labeling.
+- Notebook runs now pre-load the local models through package paths and keep normal progress output cleaner.
+
+### Fixed
+- Local topic labeling now uses chat-template based interaction for local chat models, avoiding instruction text leaking into BERTopic labels.
+- Optional TorchCodec import failures are handled for the local Hugging Face stack used in Colab.
+- Topic-map rendering now falls back cleanly when datamapplot cannot form cluster boundary polygons.
+- The colorspacious SyntaxWarning emitted during topic-map setup is filtered at the runtime logging boundary.
+
 ## [0.2.0] - 2026-05-05
 
 ### Added

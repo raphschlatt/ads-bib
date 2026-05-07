@@ -92,16 +92,12 @@ presets when they deviate from the code default. Inspect
 `src/ads_bib/_presets/*.yaml` or write a preset locally with
 `ads-bib preset write ...` when you need the full road-specific starter config.
 
-## Notebook Section Dicts
+## Notebook Companion
 
-The GitHub notebook uses ten inline configuration dicts:
-
-`RUN`, `SEARCH`, `TRANSLATE`, `LLAMA_SERVER`, `TOKENIZE`,
-`AUTHOR_DISAMBIGUATION`, `TOPIC_MODEL`, `VISUALIZATION`, `CURATION`,
-`CITATIONS`
-
-Each dict is passed to `session.set_section(...)`. The keys below map directly
-to notebook dict keys and YAML config keys.
+The root Colab notebook is a small frontend for the same preset-driven runner
+path. It loads the `local_gpu` preset, sets the example query and run folder,
+and runs the resolved config. It does not define a separate configuration
+schema; the keys below are the YAML, CLI override, Python, and notebook keys.
 
 ---
 
@@ -136,6 +132,29 @@ query: '(author:"Hawking, S*") AND abs:"black hole"'
 
 # Seed + forward citations
 query: 'author:"Hawking, S*" OR citations(author:"Hawking, S*")'
+```
+
+## Source Input
+
+Use `source_input` when the publication/reference corpus already exists outside
+ADS, for example after preparing Semantic Scholar or INSPIRE exports in the
+repository. When both paths are set, the high-level runner loads those Parquet
+files as the initial corpus and starts from the first requested downstream
+stage; leave the paths unset for normal ADS search/export runs.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `publications_path` | string \| null | `null` | Parquet file with source publications |
+| `references_path` | string \| null | `null` | Parquet file with cited/reference records |
+| `source_name` | string \| null | `null` | Optional source label recorded with the run config |
+
+```yaml
+source_input:
+  publications_path: data/source/publications.parquet
+  references_path: data/source/references.parquet
+  source_name: semantic_scholar
+run:
+  start_stage: translate
 ```
 
 ## Translate
@@ -245,7 +264,7 @@ params_2d:
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `llm_provider` | string | varies | `openrouter`, `llama_server`, `huggingface_api`, or `local` |
-| `llm_model` | string \| null | varies | Model identifier for `openrouter`/`huggingface_api` |
+| `llm_model` | string \| null | varies | Model identifier for `openrouter`, `huggingface_api`, or local Transformers labeling |
 | `llm_model_repo` | string \| null | `null` | HF repo for GGUF download (`llama_server`) |
 | `llm_model_file` | string \| null | `null` | Filename within the repo (`llama_server`) |
 | `llm_model_path` | string \| null | `null` | Explicit local GGUF path (`llama_server`) |
@@ -380,7 +399,7 @@ configs.
 | --- | --- |
 | `ADS_TOKEN` | Always |
 | `OPENROUTER_API_KEY` | Using `openrouter` providers |
-| `HF_TOKEN` | Using `huggingface_api` providers (`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted) |
+| `HF_TOKEN` | Using `huggingface_api` providers or `local_gpu` model access (`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted for API providers) |
 
 ## Read next
 

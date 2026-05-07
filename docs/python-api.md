@@ -482,5 +482,5 @@ rows are written to CSV sidecars.
 
 The repository also includes
 [`pipeline.ipynb`](https://github.com/raphschlatt/ads-bib/blob/main/pipeline.ipynb)
-as a Colab quickstart for the high-level `ads_bib.run(...)` path. It is not
-shipped in the `ads-bib` wheel; open it from GitHub.
+as a preset-driven Colab quickstart for the same resolved runner path. It is
+not shipped in the `ads-bib` wheel; open it from GitHub.

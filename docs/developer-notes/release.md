@@ -10,11 +10,12 @@ This runbook is for maintainers preparing a tagged `ads-bib` release.
    - `CITATION.cff`
    - `.zenodo.json`
    - `uv.lock`
-2. Run the local release checks:
+2. Run the local release checks, replacing `vX.Y.Z` with the tag you are
+   preparing:
 
 ```bash
 uv lock --check
-uv run python scripts/ops/check_release_version.py v0.2.0
+uv run python scripts/ops/check_release_version.py vX.Y.Z
 uv run python scripts/ops/check_release_docs.py
 uv run ruff check src tests scripts
 uv run pytest -q
@@ -31,8 +32,8 @@ uvx twine check dist/*
 7. Tag the checked commit, for example:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 The tag workflow builds the distribution once, publishes it to PyPI, and
