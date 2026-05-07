@@ -64,6 +64,8 @@ def _assert_common_colab_contract(nb: dict) -> None:
     assert "getpass(" in code
     assert "ADS_TOKEN" in code
     assert 'userdata.get("ADS_TOKEN")' in code
+    assert "ADS token loaded." in code
+    assert ".strip()" not in code
     assert 'PROJECT_ROOT = "/content/ads-bib-colab"' in code
     assert "os.chdir(PROJECT_ROOT)" in code
 
