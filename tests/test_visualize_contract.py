@@ -192,6 +192,26 @@ def test_create_topic_map_auto_detects_canonical_topic_layer_columns_in_natural_
     assert plot is not None
 
 
+def test_label_color_map_spreads_each_toponymy_layer_across_palette(monkeypatch):
+    viz, _ = _load_visualize_module(monkeypatch)
+    df = pd.DataFrame(
+        {
+            "topic_layer_1_label": ["Macro A", "Macro B", "Macro C", "Macro A", "Macro B"],
+            "topic_layer_0_label": ["Fine A", "Fine B", "Fine C", "Fine D", "Fine E"],
+        }
+    )
+
+    color_map = viz._build_label_color_map(
+        df,
+        palette_columns=["topic_layer_1_label", "topic_layer_0_label"],
+        noise_labels=[],
+    )
+
+    assert [color_map[label] for label in ["Macro A", "Macro B", "Macro C"]] == [
+        viz.rgb2hex(color) for color in viz.sns.color_palette("turbo", n_colors=3)
+    ]
+
+
 def test_create_topic_map_hierarchical_panel_uses_collapsed_tree_layout_and_rows_scroll_container(monkeypatch):
     viz, calls = _load_visualize_module(monkeypatch)
     df = _build_df()

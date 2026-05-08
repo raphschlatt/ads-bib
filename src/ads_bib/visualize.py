@@ -865,27 +865,25 @@ def _build_label_color_map(
     noise_labels: list[str],
 ) -> dict[str, str]:
     """Build one deterministic turbo palette shared across map labels and widgets."""
-    ordered_labels: list[str] = []
-    seen: set[str] = set()
     noise_set = {str(label) for label in noise_labels}
+    color_map: dict[str, str] = {}
 
     for column in palette_columns:
         if column not in df.columns:
             continue
+        ordered_labels: list[str] = []
+        seen: set[str] = set()
         for value in df[column].dropna().astype(str):
             if value in noise_set or value in seen:
                 continue
             seen.add(value)
             ordered_labels.append(value)
-
-    color_map = {
-        label: rgb2hex(color)
         for label, color in zip(
             ordered_labels,
             sns.color_palette("turbo", n_colors=max(len(ordered_labels), 1)),
             strict=False,
-        )
-    }
+        ):
+            color_map.setdefault(label, rgb2hex(color))
     for label in noise_set:
         color_map[label] = "#aaaaaa44"
     return color_map
