@@ -470,6 +470,34 @@ def test_main_doctor_returns_nonzero_on_failures(monkeypatch, capsys):
     assert capsys.readouterr().out == "doctor failed\n"
 
 
+def test_main_doctor_reports_config_validation_errors(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli,
+        "collect_doctor_report",
+        lambda *args, **kwargs: pytest.fail("doctor should not run with invalid config"),
+    )
+
+    rc = cli.main(
+        [
+            "doctor",
+            "--preset",
+            "openrouter",
+            "--set",
+            "search.query=author:test",
+            "--set",
+            "curation.clusters_to_remove=7",
+        ]
+    )
+
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert (
+        "Config error: curation.clusters_to_remove must be a list of integer cluster IDs; "
+        "use [7] for one cluster."
+    ) in captured.err
+
+
 def test_parse_override_requires_equals():
     try:
         cli._parse_override("invalid")

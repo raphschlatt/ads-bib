@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import ads_bib
 import ads_bib.doctor as doctor
@@ -83,6 +84,66 @@ def test_run_with_yaml_config_applies_dotted_overrides(monkeypatch, tmp_path):
     assert calls["kwargs"]["output_mode"] == "cli"
 
 
+def test_run_with_from_run_delegates_to_variant_plan(monkeypatch, tmp_path):
+    calls: dict[str, object] = {}
+    base_run = tmp_path / "runs" / "run_base"
+    plan = SimpleNamespace(
+        config=pipeline.PipelineConfig.from_dict({"search": {"query": "author:base"}}),
+        effective_start_stage="topic_fit",
+        stop_stage="citations",
+        run_name="variant-name",
+        initial_state=pipeline.PipelineInitialState(),
+        variant={"base_run_id": "run_base"},
+    )
+
+    def _fake_plan_run_variant(**kwargs):
+        calls["plan_kwargs"] = kwargs
+        return plan
+
+    def _fake_run_resolved_config(config, **kwargs):
+        calls["config"] = config
+        calls["run_kwargs"] = kwargs
+        return "ctx"
+
+    monkeypatch.setattr(runner, "plan_run_variant", _fake_plan_run_variant)
+    monkeypatch.setattr(runner, "run_resolved_config", _fake_run_resolved_config)
+
+    result = ads_bib.run(
+        from_run=base_run,
+        query="author:new",
+        overrides={"curation.clusters_to_remove": [7, 12]},
+        start_stage="curate",
+        stop_stage="citations",
+        run_name="variant-name",
+        project_root=tmp_path,
+        output_mode="notebook",
+    )
+
+    assert result == "ctx"
+    assert calls["plan_kwargs"] == {
+        "from_run": base_run,
+        "overrides": {
+            "curation.clusters_to_remove": [7, 12],
+            "search.query": "author:new",
+        },
+        "start_stage": "curate",
+        "stop_stage": "citations",
+        "run_name": "variant-name",
+        "project_root": tmp_path,
+    }
+    assert calls["config"] is plan.config
+    assert calls["run_kwargs"] == {
+        "start_stage": "topic_fit",
+        "stop_stage": "citations",
+        "run_name": "variant-name",
+        "project_root": tmp_path,
+        "preflight": True,
+        "output_mode": "notebook",
+        "initial_state": plan.initial_state,
+        "variant": plan.variant,
+    }
+
+
 def test_run_accepts_explicit_output_mode(monkeypatch):
     calls: dict[str, object] = {}
 
@@ -110,11 +171,24 @@ def test_run_requires_exactly_one_config_source():
     with pytest.raises(ValueError, match="Exactly one"):
         ads_bib.run(preset="openrouter", config={})
 
+    with pytest.raises(ValueError, match="Exactly one"):
+        ads_bib.run(from_run="run_base", preset="openrouter")
+
+    with pytest.raises(ValueError, match="Exactly one"):
+        ads_bib.run(from_run="run_base", config={})
+
 
 def test_run_rejects_query_override_conflict():
     with pytest.raises(ValueError, match="search.query"):
         ads_bib.run(
             preset="openrouter",
+            query="author:test",
+            overrides={"search.query": "author:other"},
+        )
+
+    with pytest.raises(ValueError, match="search.query"):
+        ads_bib.run(
+            from_run="run_base",
             query="author:test",
             overrides={"search.query": "author:other"},
         )

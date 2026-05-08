@@ -341,6 +341,11 @@ curation:
       cluster_id: 12
 ```
 
+`clusters_to_remove` is always a list. For one cluster, use
+`clusters_to_remove: [7]`, not `clusters_to_remove: 7`. Cluster IDs are
+run-local, so inspect a completed run first and apply removals with a variant
+run from that same run.
+
 ## Citations
 
 | Key | Type | Default | Preset Override | Description |

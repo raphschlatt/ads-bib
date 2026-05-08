@@ -108,11 +108,18 @@ def _handle_run(args: argparse.Namespace) -> int:
     except RunBlockedError as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
+    except (TypeError, ValueError) as exc:
+        sys.stderr.write(f"Config error: {exc}\n")
+        return 1
     return 0
 
 
 def _handle_doctor(args: argparse.Namespace) -> int:
-    config = _load_config_from_args(args)
+    try:
+        config = _load_config_from_args(args)
+    except (TypeError, ValueError) as exc:
+        sys.stderr.write(f"Config error: {exc}\n")
+        return 1
     report = collect_doctor_report(
         config,
         start_stage=args.from_stage,

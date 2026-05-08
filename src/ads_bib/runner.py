@@ -21,6 +21,7 @@ from ads_bib.pipeline import (
     run_pipeline,
 )
 from ads_bib.presets import load_preset_config
+from ads_bib.run_variants import plan_run_variant
 from ads_bib.source_input import load_source_input_frames
 
 Notify = Callable[[str], None]
@@ -91,6 +92,7 @@ def load_run_config(
 
 def run(
     *,
+    from_run: str | Path | None = None,
     preset: str | None = None,
     config: PipelineConfig | Mapping[str, Any] | Path | str | None = None,
     query: str | None = None,
@@ -103,6 +105,35 @@ def run(
     output_mode: OutputMode | None = None,
 ) -> PipelineContext:
     """Run the ADS pipeline from a packaged preset or config source."""
+    sources = [from_run is not None, preset is not None, config is not None]
+    if sum(sources) != 1:
+        raise ValueError("Exactly one of from_run, preset, or config is required.")
+    if from_run is not None:
+        variant_overrides = dict(overrides or {})
+        if query is not None:
+            if _overrides_search_query(variant_overrides):
+                raise ValueError("Pass search.query either via query or overrides, not both.")
+            variant_overrides["search.query"] = query
+        plan = plan_run_variant(
+            from_run=from_run,
+            overrides=variant_overrides,
+            start_stage=start_stage,
+            stop_stage=stop_stage,
+            run_name=run_name,
+            project_root=project_root,
+        )
+        return run_resolved_config(
+            plan.config,
+            start_stage=plan.effective_start_stage,
+            stop_stage=plan.stop_stage,
+            run_name=plan.run_name,
+            project_root=project_root,
+            preflight=preflight,
+            output_mode=output_mode,
+            initial_state=plan.initial_state,
+            variant=plan.variant,
+        )
+
     resolved_config = load_run_config(
         preset=preset,
         config=config,

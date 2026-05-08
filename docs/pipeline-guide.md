@@ -238,12 +238,19 @@ clusters are semantically irrelevant to your research question, and remove
 them. Inspect `topic_info` to review cluster labels, sizes, and
 representative documents.
 
+Cluster IDs are run-local. Inspect the run first, then remove clusters by
+starting a variant from that same run with `ads-bib run --from-run <run_id>`
+or `ads_bib.run(from_run=...)`.
+
 **BERTopic** — use `clusters_to_remove`:
 
 ```yaml
 curation:
   clusters_to_remove: [3, 4]
 ```
+
+Use a list even for one cluster: `clusters_to_remove: [7]`, not
+`clusters_to_remove: 7`.
 
 **Toponymy** — use `cluster_targets` for hierarchy-aware removal:
 

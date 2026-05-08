@@ -30,7 +30,13 @@ You want to run stages one at a time, inspect intermediate results between
 stages, and adjust section configs without re-running upstream work.
 Use [`NotebookSession`](#notebooksession).
 
-### 4. Pre-built config straight into the runner
+### 4. Variant run from an existing run
+
+You inspected an existing run and want to change one config value while
+reusing the saved upstream artifacts. Use [`ads_bib.run`](#ads_bibrun) with
+`from_run`, which mirrors `ads-bib run --from-run ...`.
+
+### 5. Pre-built config straight into the runner
 
 You already have a fully-built `PipelineConfig` (for example loaded from
 `runs/<run_id>/config_used.yaml` or constructed in code) and want to hand it
@@ -38,7 +44,7 @@ directly to the pipeline runner.
 Use [`PipelineConfig.from_dict`](#pipelineconfig) followed by
 [`run_pipeline`](#run_pipeline).
 
-### 5. Topic modeling on your own texts
+### 6. Topic modeling on your own texts
 
 You want to apply the topic-model primitives to arbitrary text, outside the
 ADS data flow. Use the low-level chain:
@@ -115,6 +121,7 @@ Source:
 ```python
 run(
     *,
+    from_run: str | Path | None = None,
     preset: str | None = None,
     config: PipelineConfig | Mapping[str, Any] | Path | str | None = None,
     query: str | None = None,
@@ -128,8 +135,8 @@ run(
 ) -> PipelineContext
 ```
 
-Use either `preset` or `config`. `query` is a shortcut for `search.query`, and
-`overrides` accepts the same dotted keys as CLI `--set`:
+Use exactly one of `from_run`, `preset`, or `config`. `query` is a shortcut for
+`search.query`, and `overrides` accepts the same dotted keys as CLI `--set`:
 
 ```python
 result = ads_bib.run(
@@ -139,6 +146,23 @@ result = ads_bib.run(
     start_stage="search",
     stop_stage="citations",
 )
+```
+
+To create a variant from a run you already inspected, pass its run id or run
+directory with `from_run`:
+
+```python
+result = ads_bib.run(
+    from_run="run_20260407_120000_ads_bib_local_gpu",
+    overrides={"curation.clusters_to_remove": [7, 12]},
+)
+```
+
+This is the Python equivalent of:
+
+```bash
+ads-bib run --from-run run_20260407_120000_ads_bib_local_gpu \
+  --set 'curation.clusters_to_remove=[7, 12]'
 ```
 
 With `preflight=True`, the function performs the same run preflight as the CLI

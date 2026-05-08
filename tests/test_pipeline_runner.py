@@ -649,6 +649,22 @@ def test_pipeline_config_normalizes_curation_cluster_targets():
     ]
 
 
+def test_pipeline_config_normalizes_curation_clusters_to_remove():
+    config = pipeline.PipelineConfig.from_dict(
+        {"curation": {"clusters_to_remove": [7, "12", -1]}}
+    )
+
+    assert config.curation.clusters_to_remove == [7, 12, -1]
+
+
+def test_pipeline_config_rejects_scalar_curation_clusters_to_remove():
+    with pytest.raises(
+        TypeError,
+        match=r"curation\.clusters_to_remove must be a list of integer cluster IDs; use \[7\] for one cluster",
+    ):
+        pipeline.PipelineConfig.from_dict({"curation": {"clusters_to_remove": 7}})
+
+
 def test_summary_lines_for_topic_fit_include_toponymy_hierarchy():
     ctx = SimpleNamespace(
         topics=np.asarray([0, 0, 1, -1]),

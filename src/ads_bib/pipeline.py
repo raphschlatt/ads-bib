@@ -280,6 +280,26 @@ class CurationConfig:
     clusters_to_remove: list[int] = field(default_factory=list)
 
 
+def _normalize_clusters_to_remove(value: object) -> list[int]:
+    if value is None:
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(
+            "curation.clusters_to_remove must be a list of integer cluster IDs; "
+            "use [7] for one cluster."
+        )
+    normalized: list[int] = []
+    for index, cluster_id in enumerate(value):
+        try:
+            normalized.append(int(cluster_id))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "curation.clusters_to_remove must contain integer cluster IDs; "
+                f"item {index} is {cluster_id!r}."
+            ) from exc
+    return normalized
+
+
 @dataclass
 class CitationsConfig:
     metrics: list[str] = field(
@@ -332,6 +352,9 @@ class PipelineConfig:
         )
         self.curation.cluster_targets = normalize_cluster_targets(
             self.curation.cluster_targets
+        )
+        self.curation.clusters_to_remove = _normalize_clusters_to_remove(
+            self.curation.clusters_to_remove
         )
         validate_provider(
             self.translate.provider,
