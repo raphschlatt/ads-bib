@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-08
+
+### Added
+- `ads_bib.run(from_run=...)` now mirrors CLI run variants from Python, including dotted overrides and run-local artifact reuse.
+
+### Improved
+- Toponymy topic-map layer colors now spread across the full palette for clearer hierarchy inspection.
+- Curation docs now clarify that cluster IDs are run-local and that removals should be applied through a variant from the inspected run.
+
+### Fixed
+- `curation.clusters_to_remove` is now validated when configs load; scalar values such as `7` fail early with a hint to use `[7]`.
+- CLI `run` and `doctor` now report config validation errors without a traceback.
+
 ## [0.3.0] - 2026-05-07
 
 ### Added
