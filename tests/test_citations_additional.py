@@ -82,6 +82,79 @@ def test_export_wos_format_writes_expected_core_tags(tmp_path):
     assert "ER" in text
 
 
+def test_export_wos_format_collapses_abstract_newlines(tmp_path):
+    publications = _publications_for_networks().iloc[:1].copy()
+    publications.loc[publications.index[0], "Abstract_en"] = "Line one.\n\nLine two."
+    references = pd.DataFrame(
+        {
+            "Bibcode": ["r1"],
+            "Author": [["Smith, A."]],
+            "Year": [1999],
+            "Journal": ["ApJ"],
+            "Volume": ["10"],
+            "First Page": ["100"],
+        }
+    )
+
+    out = tmp_path / "sample_wos.txt"
+    cit.export_wos_format(publications, references, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert "AB Line one. Line two." in text
+    record = text.split("ER", 1)[0]
+    assert "\n\n" not in record
+    assert "\nLine two." not in record
+
+
+def test_export_wos_format_uses_abstract_when_translated_abstract_is_empty(tmp_path):
+    publications = _publications_for_networks().iloc[:1].copy()
+    publications.loc[publications.index[0], "Abstract_en"] = ""
+    publications.loc[publications.index[0], "Abstract"] = "Original abstract."
+    references = pd.DataFrame(
+        {
+            "Bibcode": ["r1"],
+            "Author": [["Smith, A."]],
+            "Year": [1999],
+            "Journal": ["ApJ"],
+            "Volume": ["10"],
+            "First Page": ["100"],
+        }
+    )
+
+    out = tmp_path / "sample_wos.txt"
+    cit.export_wos_format(publications, references, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert "AB Original abstract." in text
+
+
+def test_export_wos_format_treats_nan_translated_fields_as_empty(tmp_path):
+    publications = _publications_for_networks().iloc[:1].copy()
+    publications.loc[publications.index[0], "Title_en"] = np.nan
+    publications.loc[publications.index[0], "Title"] = "Original title."
+    publications.loc[publications.index[0], "Abstract_en"] = np.nan
+    publications.loc[publications.index[0], "Abstract"] = "Original abstract."
+    references = pd.DataFrame(
+        {
+            "Bibcode": ["r1"],
+            "Author": [["Smith, A."]],
+            "Year": [1999],
+            "Journal": ["ApJ"],
+            "Volume": ["10"],
+            "First Page": ["100"],
+        }
+    )
+
+    out = tmp_path / "sample_wos.txt"
+    cit.export_wos_format(publications, references, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert "TI Original title." in text
+    assert "AB Original abstract." in text
+    assert "TI nan" not in text
+    assert "AB nan" not in text
+
+
 def test_process_all_citations_runs_selected_metrics_and_exports_csv(tmp_path):
     publications = _publications_for_networks()
     bibcodes = ["p1", "p2"]

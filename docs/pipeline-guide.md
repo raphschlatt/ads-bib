@@ -236,7 +236,7 @@ that adds an extra hierarchy tree panel for Toponymy runs.
 Curation is an intellectual step: explore the topic map, decide which
 clusters are semantically irrelevant to your research question, and remove
 them. Inspect `topic_info` to review cluster labels, sizes, and
-representative documents.
+representative documents before you start a variant.
 
 Cluster IDs are run-local. Inspect the run first, then remove clusters by
 starting a variant from that same run with `ads-bib run --from-run <run_id>`
@@ -250,7 +250,11 @@ curation:
 ```
 
 Use a list even for one cluster: `clusters_to_remove: [7]`, not
-`clusters_to_remove: 7`.
+`clusters_to_remove: 7`. From the CLI, quote the whole override:
+
+```bash
+ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7]'
+```
 
 **Toponymy** — use `cluster_targets` for hierarchy-aware removal:
 
@@ -264,7 +268,17 @@ curation:
 ```
 
 Each target removes documents whose `topic_layer_<layer>_id` matches
-`cluster_id`. Multiple targets are unioned.
+`cluster_id`. Multiple targets are unioned. From the CLI, quote the whole
+override so your shell does not split the `{layer: ..., cluster_id: ...}`
+mapping:
+
+```bash
+ads-bib run --from-run <run_id> --set 'curation.cluster_targets=[{layer: 2, cluster_id: 0}]'
+```
+
+`clusters_to_remove` also works with Toponymy, but only for the selected
+working layer. Use `cluster_targets` when you are removing clusters from a
+specific hierarchy layer.
 
 ## Phase 6: Citation Networks
 

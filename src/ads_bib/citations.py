@@ -568,16 +568,38 @@ def export_wos_format(
         """Format reference author values as first-author last name."""
         return _first_author_lastname(authors) or ""
 
+    def _format_single_line(value: object) -> str:
+        """Collapse whitespace for WOS fields that must stay on one line."""
+        if value is None:
+            return ""
+        missing = pd.isna(value)
+        if isinstance(missing, bool | np.bool_) and missing:
+            return ""
+        return " ".join(str(value).split())
+
+    def _first_non_empty(*values: object) -> str:
+        for value in values:
+            text = _format_single_line(value)
+            if text:
+                return text
+        return ""
+
     def _format_pub(pub: dict[str, object]) -> str:
         """Format one publication record into a WOS `PT ... ER` block."""
-        lines = [f"PT J\nAU {_format_author(pub['Author'])}\nTI {pub.get('Title_en', pub.get('Title', ''))}\nSO {pub['Journal']}\nDT {pub['Category']}"]
+        lines = [
+            f"PT J\nAU {_format_author(pub['Author'])}"
+            f"\nTI {_first_non_empty(pub.get('Title_en'), pub.get('Title'))}"
+            f"\nSO {_format_single_line(pub['Journal'])}"
+            f"\nDT {_format_single_line(pub['Category'])}"
+        ]
 
         if pub.get("Affiliation"):
-            lines.append(f"C1 {pub['Affiliation']}")
+            lines.append(f"C1 {_format_single_line(pub['Affiliation'])}")
         if pub.get("Keywords"):
-            lines.append(f"DE {pub['Keywords']}")
-        if pub.get("Abstract_en") or pub.get("Abstract"):
-            lines.append(f"AB {pub.get('Abstract_en', pub.get('Abstract', ''))}")
+            lines.append(f"DE {_format_single_line(pub['Keywords'])}")
+        abstract = _first_non_empty(pub.get("Abstract_en"), pub.get("Abstract"))
+        if abstract:
+            lines.append(f"AB {abstract}")
 
         ref_lines = []
         for ref in pub.get("References", []):

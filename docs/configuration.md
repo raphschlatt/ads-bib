@@ -323,8 +323,8 @@ requests; it does not change the internal HDBSCAN/Boruvka thread count.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `cluster_targets` | list | `[]` | Hierarchy-aware removals: `[{layer: <int>, cluster_id: <int>}]` (Toponymy) |
-| `clusters_to_remove` | list | `[]` | Flat cluster IDs to discard (BERTopic; also works for Toponymy working layer) |
+| `cluster_targets` | list | `[]` | Toponymy hierarchy removals: one or more `{layer, cluster_id}` mappings |
+| `clusters_to_remove` | list | `[]` | Flat cluster IDs to discard (BERTopic; also Toponymy's selected working layer) |
 
 Example:
 ```yaml
@@ -345,6 +345,16 @@ curation:
 `clusters_to_remove: [7]`, not `clusters_to_remove: 7`. Cluster IDs are
 run-local, so inspect a completed run first and apply removals with a variant
 run from that same run.
+
+For CLI overrides, quote the whole value:
+
+```bash
+ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7]'
+ads-bib run --from-run <run_id> --set 'curation.cluster_targets=[{layer: 2, cluster_id: 0}]'
+```
+
+Each `cluster_targets` item removes rows whose `topic_layer_<layer>_id`
+matches `cluster_id`. Multiple items are combined.
 
 ## Citations
 
