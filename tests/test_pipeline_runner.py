@@ -56,7 +56,7 @@ def test_pipeline_config_yaml_roundtrip(tmp_path):
     assert "keybert_model" not in data["topic_model"]
 
 
-def test_source_input_defaults_start_stage_to_translate():
+def test_source_input_keeps_explicit_start_stage_contract():
     config = pipeline.PipelineConfig.from_dict(
         {
             "source_input": {
@@ -75,8 +75,16 @@ def test_source_input_defaults_start_stage_to_translate():
         }
     )
 
-    assert config.run.start_stage == "translate"
+    assert config.run.start_stage == "search"
     assert explicit.run.start_stage == "search"
+
+
+def test_pipeline_config_rejects_unknown_keys():
+    with pytest.raises(ValueError, match="Unknown config key 'curatoin'"):
+        pipeline.PipelineConfig.from_dict({"curatoin": {"clusters_to_remove": [1]}})
+
+    with pytest.raises(ValueError, match="Unknown config key 'curation.unknown'"):
+        pipeline.PipelineConfig.from_dict({"curation": {"unknown": []}})
 
 
 def test_tokenized_snapshot_metadata_includes_and_source_fingerprints(tmp_path):

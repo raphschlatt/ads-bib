@@ -62,19 +62,16 @@ from ads_bib import (
     run,
     RunBlockedError,
     PipelineConfig,
+    PipelineContext,
     NotebookSession,
+    get_notebook_session,
     run_pipeline,
-    compute_embeddings,
-    reduce_dimensions,
-    fit_bertopic,
-    fit_toponymy,
-    build_topic_dataframe,
-    process_all_citations,
-    reduce_outliers,
 )
 ```
 
-The full export list is in
+Low-level stage helpers remain importable from their own modules. The root
+package intentionally exposes only the main run/config/session entry points.
+The full root export list is in
 [`src/ads_bib/__init__.py`](https://github.com/raphschlatt/ads-bib/blob/main/src/ads_bib/__init__.py).
 
 ## End-to-End Example
@@ -276,7 +273,7 @@ Source:
 NotebookSession(
     *,
     project_root: Path | str | None = None,
-    run_name: str = "ADS_Curation_Run",
+    run_name: str = "ads_bib_run",
     start_time: float | None = None,
 )
 ```
@@ -369,7 +366,7 @@ other.
 
 ```python
 from pathlib import Path
-from ads_bib import compute_embeddings
+from ads_bib.topic_model import compute_embeddings
 
 embeddings = compute_embeddings(
     documents,
@@ -401,7 +398,7 @@ Returns `(reduced_5d, reduced_2d)` — the 5D array is the input to clustering,
 the 2D array is the visualization coordinate space.
 
 ```python
-from ads_bib import reduce_dimensions
+from ads_bib.topic_model import reduce_dimensions
 
 reduced_5d, reduced_2d = reduce_dimensions(
     embeddings,
@@ -455,9 +452,8 @@ fit_toponymy(
 ```
 
 Fits Toponymy and returns `(topic_model, topics, topic_info)`. The
-`topics` array is the working-layer assignment vector (compatibility view
-for BERTopic-style downstream code); the hierarchy layers live on the model
-and end up on the topic DataFrame when you pass it through
+`topics` array is the selected working-layer assignment vector; the hierarchy
+layers live on the model and end up on the topic DataFrame when you pass it through
 [`build_topic_dataframe`](#build_topic_dataframe).
 
 ### `build_topic_dataframe`

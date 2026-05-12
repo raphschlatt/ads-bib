@@ -177,7 +177,7 @@ Schema conventions:
 - `embedding_2d_x` / `embedding_2d_y` are the 2D coordinates for visualization.
 - Full embedding vectors stay in `data/cache/embeddings/*.npz`; they are not
   written into the run parquet files.
-- For Toponymy, `topic_id` and `Name` are **working-layer aliases**. The
+- For Toponymy, `topic_id` and `Name` describe the selected working layer. The
   canonical hierarchy is `topic_layer_<n>_id` / `topic_layer_<n>_label`,
   where layer 0 is the finest and higher layers are coarser.
 

@@ -7,6 +7,7 @@ import yaml
 
 import ads_bib.notebook as notebook_module
 import ads_bib.pipeline as pipeline
+import ads_bib._stage_state as stage_state
 from ads_bib.prompts import BERTOPIC_LABELING_GENERIC
 
 
@@ -77,8 +78,8 @@ def test_config_change_invalidates_from_correct_stage(tmp_path):
 
 
 def test_notebook_uses_shared_pipeline_invalidation_helpers():
-    assert notebook_module._earliest_invalidation_stage is pipeline._earliest_invalidation_stage
-    assert notebook_module._invalidate_context_from is pipeline._invalidate_context_from
+    assert notebook_module._earliest_invalidation_stage is stage_state._earliest_invalidation_stage
+    assert notebook_module._invalidate_context_from is stage_state._invalidate_context_from
 
 
 def test_llama_server_section_change_invalidates_topic_fit_stage(tmp_path):

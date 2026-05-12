@@ -84,6 +84,14 @@ def test_run_with_yaml_config_applies_dotted_overrides(monkeypatch, tmp_path):
     assert calls["kwargs"]["output_mode"] == "cli"
 
 
+def test_load_run_config_rejects_unknown_override_key():
+    with pytest.raises(ValueError, match="Unknown config key 'curatoin'"):
+        runner.load_run_config(
+            preset="openrouter",
+            overrides={"curatoin.clusters_to_remove": [1]},
+        )
+
+
 def test_run_with_from_run_delegates_to_variant_plan(monkeypatch, tmp_path):
     calls: dict[str, object] = {}
     base_run = tmp_path / "runs" / "run_base"
@@ -299,7 +307,7 @@ def test_run_resolved_config_loads_source_input_as_initial_state(monkeypatch, tm
     ).to_parquet(references_path, index=False)
     config = pipeline.PipelineConfig.from_dict(
         {
-            "run": {"project_root": str(tmp_path)},
+            "run": {"project_root": str(tmp_path), "start_stage": "translate"},
             "source_input": {
                 "publications_path": "publications.parquet",
                 "references_path": "references.parquet",

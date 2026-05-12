@@ -38,12 +38,12 @@ fixed 2D layout. Never tune clustering against the 2D projection.
 | Topology | flat (one layer) | hierarchical (`topic_layer_<n>_*`) |
 | Use when | you want one flat topic list for curation and visualization | you need semantic drill-down from coarse to fine |
 | Preset default | `hf_api`, `local_cpu`, `local_gpu` | `openrouter` |
-| Downstream columns | `topic_id`, `Name` | `topic_layer_<n>_id`, `topic_layer_<n>_label`, plus `topic_id` / `Name` as working-layer aliases |
+| Downstream columns | `topic_id`, `Name` | `topic_layer_<n>_id`, `topic_layer_<n>_label`, plus working-layer `topic_id` / `Name` |
 
-Toponymy keeps `topic_id` and `Name` as compatibility aliases for a selected
-"working layer" so every downstream tool (curation, visualization, citation
-export) behaves identically. `toponymy_layer_index="auto"` picks the coarsest
-available overview layer; set an explicit integer to pin it.
+Toponymy sets `topic_id` and `Name` from the selected "working layer" so every
+downstream tool (curation, visualization, citation export) has one active
+document-topic column and one active display label. `toponymy_layer_index="auto"`
+picks the coarsest available overview layer; set an explicit integer to pin it.
 
 ## Provider Matrix
 

@@ -34,7 +34,6 @@ def _persist_topic_hierarchy_metadata(df: pd.DataFrame, topic_model: TopicModelI
         topic_name_vector = getattr(layer, "topic_name_vector", None)
         if topic_name_vector is not None:
             df[f"topic_layer_{i}_label"] = topic_name_vector
-            df[f"Topic_Layer_{i}"] = df[f"topic_layer_{i}_label"]
 
 
 def build_topic_dataframe(
@@ -77,10 +76,9 @@ def build_topic_dataframe(
         topic label columns (for example ``Name``/``Main``/``MMR``/``POS``/``KeyBERT``),
         optional ``full_embeddings``, and optional Toponymy hierarchy columns
         such as ``topic_layer_0_id``, ``topic_layer_0_label``,
-        ``topic_primary_layer_index``, ``topic_layer_count``, and
-        compatibility aliases ``Topic_Layer_X``. For Toponymy backends,
-        ``topic_id`` and ``Name`` remain compatibility aliases for the selected
-        working layer; the hierarchy columns are the canonical multi-layer output.
+        ``topic_primary_layer_index``, and ``topic_layer_count``. For Toponymy
+        backends, ``topic_id`` and ``Name`` describe the selected working layer;
+        the hierarchy columns are the canonical multi-layer output.
     """
     df = df.copy()
     df["topic_id"] = topics

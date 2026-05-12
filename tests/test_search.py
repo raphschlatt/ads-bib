@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from ads_bib._utils.io import load_pickle
 import ads_bib.search as search
 

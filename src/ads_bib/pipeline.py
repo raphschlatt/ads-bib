@@ -23,12 +23,11 @@ from ads_bib._dataset_bundle import (
     prepare_dataset_bundle as _prepare_dataset_bundle,
     write_dataset_bundle as _write_dataset_bundle,
 )
+from ads_bib._config_overrides import validate_config_mapping
 from ads_bib._stage_state import (
     STAGE_ORDER,
     StageName,
     _advance_resume_block,
-    _earliest_invalidation_stage,
-    _invalidate_context_from,
     _snapshot_allowed,
     validate_stage_name,
 )
@@ -142,7 +141,7 @@ def _resolve_runtime_path(path: str | Path | None, *, project_root: Path | str |
 
 @dataclass
 class RunConfig:
-    run_name: str = "ADS_Curation_Run"
+    run_name: str = "ads_bib_run"
     start_stage: StageName = "search"
     stop_stage: StageName | None = None
     random_seed: int = 42
@@ -435,13 +434,9 @@ class PipelineConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
+        validate_config_mapping(data, cls)
         run_data = dict(data.get("run", {}))
         source_input_data = dict(data.get("source_input", {}))
-        if (
-            (source_input_data.get("publications_path") or source_input_data.get("references_path"))
-            and "start_stage" not in run_data
-        ):
-            run_data["start_stage"] = "translate"
         return cls(
             run=RunConfig(**run_data),
             search=SearchConfig(**data.get("search", {})),

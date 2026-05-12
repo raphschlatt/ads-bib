@@ -105,7 +105,7 @@ schema; the keys below are the YAML, CLI override, Python, and notebook keys.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `run_name` | string | `"ADS_Curation_Run"` | Identifier appended to the timestamped run directory name |
+| `run_name` | string | `"ads_bib_run"` | Identifier appended to the timestamped run directory name |
 | `start_stage` | string | `"search"` | First stage to run. Used from YAML or `PipelineConfig` when you do not pass a start stage from Python/CLI. CLI `--from` and `ads_bib.run(start_stage=...)` override this. |
 | `stop_stage` | string \| null | `null` | Last stage to run; `null` runs to the end. CLI `--to` and `ads_bib.run(stop_stage=...)` override this. |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
@@ -426,7 +426,7 @@ configs.
 | --- | --- |
 | `ADS_TOKEN` | Always |
 | `OPENROUTER_API_KEY` | Using `openrouter` providers |
-| `HF_TOKEN` | Using `huggingface_api` providers or `local_gpu` model access (`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted for API providers) |
+| `HF_TOKEN` | Using `huggingface_api` providers or `local_gpu` model access |
 
 ## Read next
 

@@ -1205,8 +1205,6 @@ def _co_citation_fast(
     if len(ri) == 0:
         return pd.DataFrame(columns=_COLS)
 
-    # Build qualifying pair set (canonical order by index)
-    idx_to_ref = {v: k for k, v in ref_to_idx.items()}
     qualifying = set(zip(ri.tolist(), ci.tolist()))
     del ri, ci
 

@@ -117,10 +117,6 @@ visualization:
   font_family: Cinzel
   topic_tree: false
 
-curation:
-  clusters_to_remove: []
-  layered_clusters_to_remove: []
-
 citations:
   metrics:
     - direct

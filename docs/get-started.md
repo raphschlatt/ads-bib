@@ -55,8 +55,7 @@ OPENROUTER_API_KEY=...  # only for openrouter providers
 HF_TOKEN=...            # for hf_api and local_gpu model access
 ```
 
-`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted, but `HF_TOKEN` is
-the canonical variable throughout the package.
+Use `HF_TOKEN` throughout the package.
 
 ## Run the CLI
 

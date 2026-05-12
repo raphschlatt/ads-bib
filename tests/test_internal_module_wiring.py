@@ -7,10 +7,8 @@ import ads_bib.pipeline as pipeline
 import ads_bib.topic_model.input as topic_input
 
 
-def test_pipeline_uses_extracted_stage_state_helpers():
+def test_pipeline_uses_extracted_stage_validation_helper():
     assert pipeline.validate_stage_name is stage_state.validate_stage_name
-    assert pipeline._earliest_invalidation_stage is stage_state._earliest_invalidation_stage
-    assert pipeline._invalidate_context_from is stage_state._invalidate_context_from
 
 
 def test_pipeline_uses_extracted_dataset_and_topic_helpers():

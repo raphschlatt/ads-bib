@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from io import StringIO
-from pathlib import Path
 import platform
 
 import pytest
