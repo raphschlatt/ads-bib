@@ -11,14 +11,14 @@ from pandas.api.types import is_string_dtype
 logger = logging.getLogger(__name__)
 
 
-def normalize_cluster_targets(
-    cluster_targets: Sequence[Mapping[str, object]] | None,
+def normalize_layered_clusters_to_remove(
+    layered_clusters_to_remove: Sequence[Mapping[str, object]] | None,
     *,
     field_name: str = "curation.layered_clusters_to_remove",
 ) -> list[dict[str, int]]:
     """Normalize layered cluster selections from config or notebook input."""
     normalized: list[dict[str, int]] = []
-    for index, target in enumerate(cluster_targets or []):
+    for index, target in enumerate(layered_clusters_to_remove or []):
         if not isinstance(target, Mapping):
             raise TypeError(
                 f"{field_name}[{index}] must be a mapping with 'layer' and 'cluster_id'."
@@ -184,12 +184,12 @@ def remove_clusters(
     return df_out
 
 
-def remove_cluster_targets(
+def remove_layered_clusters(
     df: pd.DataFrame,
-    cluster_targets: Sequence[Mapping[str, object]] | None,
+    layered_clusters_to_remove: Sequence[Mapping[str, object]] | None,
 ) -> pd.DataFrame:
     """Remove rows matching one or more explicit ``(layer, cluster_id)`` targets."""
-    normalized = normalize_cluster_targets(cluster_targets)
+    normalized = normalize_layered_clusters_to_remove(layered_clusters_to_remove)
     if not normalized:
         return df.copy()
 

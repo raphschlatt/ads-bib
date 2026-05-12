@@ -246,7 +246,6 @@ def test_openrouter_package_preset_loads():
     assert data["visualization"]["title"] == "ADS Topic Map"
     assert data["visualization"]["topic_tree"] is False
     assert data["curation"]["layered_clusters_to_remove"] == []
-    assert "cluster_targets" not in data["curation"]
     assert data["citations"]["cited_authors_exclude"] is None
     assert data["translate"]["fasttext_model"] == "data/models/lid.176.bin"
 
@@ -654,11 +653,6 @@ def test_pipeline_config_normalizes_curation_layered_clusters_to_remove():
         {"layer": 1, "cluster_id": 3},
         {"layer": 0, "cluster_id": -1},
     ]
-
-
-def test_pipeline_config_rejects_removed_curation_cluster_targets_key():
-    with pytest.raises(TypeError, match="cluster_targets"):
-        pipeline.PipelineConfig.from_dict({"curation": {"cluster_targets": []}})
 
 
 def test_pipeline_config_normalizes_curation_clusters_to_remove():

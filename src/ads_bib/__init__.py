@@ -22,8 +22,8 @@ from ads_bib.pipeline import (
 from ads_bib.curate import (
     get_cluster_summary,
     get_hierarchy_cluster_summary,
-    normalize_cluster_targets,
-    remove_cluster_targets,
+    normalize_layered_clusters_to_remove,
+    remove_layered_clusters,
     remove_clusters,
 )
 from ads_bib.export import resolve_dataset
@@ -67,11 +67,11 @@ __all__ = [
     "init_paths",
     "load_env",
     "get_notebook_session",
-    "normalize_cluster_targets",
+    "normalize_layered_clusters_to_remove",
     "process_all_citations",
     "reduce_dimensions",
     "reduce_outliers",
-    "remove_cluster_targets",
+    "remove_layered_clusters",
     "remove_clusters",
     "resolve_dataset",
     "search_ads",

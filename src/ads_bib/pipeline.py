@@ -66,8 +66,8 @@ from ads_bib.config import init_paths, load_env, validate_provider
 from ads_bib.curate import (
     get_cluster_summary,
     get_hierarchy_cluster_summary,
-    normalize_cluster_targets,
-    remove_cluster_targets,
+    normalize_layered_clusters_to_remove,
+    remove_layered_clusters,
     remove_clusters,
 )
 from ads_bib.export import resolve_dataset
@@ -350,7 +350,7 @@ class PipelineConfig:
         self.visualization.topic_tree = _normalize_topic_tree_setting(
             self.visualization.topic_tree
         )
-        self.curation.layered_clusters_to_remove = normalize_cluster_targets(
+        self.curation.layered_clusters_to_remove = normalize_layered_clusters_to_remove(
             self.curation.layered_clusters_to_remove,
             field_name="curation.layered_clusters_to_remove",
         )
@@ -2081,7 +2081,7 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
                 for cluster_id in ctx.config.curation.clusters_to_remove
             )
         if layered_selections:
-            ctx.curated_df = remove_cluster_targets(
+            ctx.curated_df = remove_layered_clusters(
                 ctx.curated_df,
                 layered_selections,
             )

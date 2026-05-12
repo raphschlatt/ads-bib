@@ -33,8 +33,8 @@ def _hierarchy_df() -> pd.DataFrame:
     )
 
 
-def test_normalize_cluster_targets_accepts_integer_like_values():
-    normalized = curate.normalize_cluster_targets(
+def test_normalize_layered_clusters_to_remove_accepts_integer_like_values():
+    normalized = curate.normalize_layered_clusters_to_remove(
         [{"layer": "1", "cluster_id": "20"}, {"layer": 0, "cluster_id": -1}]
     )
 
@@ -113,8 +113,8 @@ def test_remove_clusters_supports_custom_topic_column():
     assert len(out) == 4
 
 
-def test_remove_cluster_targets_unions_multiple_layer_targets():
-    out = curate.remove_cluster_targets(
+def test_remove_layered_clusters_unions_multiple_layer_selections():
+    out = curate.remove_layered_clusters(
         _hierarchy_df(),
         [
             {"layer": 0, "cluster_id": 101},
@@ -126,10 +126,10 @@ def test_remove_cluster_targets_unions_multiple_layer_targets():
     assert out["topic_layer_1_id"].tolist() == [20, -1]
 
 
-def test_remove_cluster_targets_warns_for_unmatched_targets(caplog):
+def test_remove_layered_clusters_warns_for_unmatched_selections(caplog):
     caplog.set_level(logging.INFO, logger="ads_bib.curate")
     df = _hierarchy_df()
-    out = curate.remove_cluster_targets(df, [{"layer": 0, "cluster_id": 999}])
+    out = curate.remove_layered_clusters(df, [{"layer": 0, "cluster_id": 999}])
 
     assert len(out) == len(df)
     assert "No rows matched layer 0 cluster_id 999." in caplog.text
