@@ -7,7 +7,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from collections.abc import Callable
-from urllib.parse import parse_qsl
 
 from ._utils.ads_api import create_session, retry_request
 

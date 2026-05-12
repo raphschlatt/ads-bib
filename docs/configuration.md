@@ -105,7 +105,7 @@ schema; the keys below are the YAML, CLI override, Python, and notebook keys.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `run_name` | string | `"ADS_Curation_Run"` | Identifier appended to the timestamped run directory name |
+| `run_name` | string | `"ads_bib_run"` | Identifier appended to the timestamped run directory name |
 | `start_stage` | string | `"search"` | First stage to run. Used from YAML or `PipelineConfig` when you do not pass a start stage from Python/CLI. CLI `--from` and `ads_bib.run(start_stage=...)` override this. |
 | `stop_stage` | string \| null | `null` | Last stage to run; `null` runs to the end. CLI `--to` and `ads_bib.run(stop_stage=...)` override this. |
 | `random_seed` | int | `42` | Seed for reproducible reductions and clustering |
@@ -323,10 +323,18 @@ requests; it does not change the internal HDBSCAN/Boruvka thread count.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `cluster_targets` | list | `[]` | Hierarchy-aware removals: `[{layer: <int>, cluster_id: <int>}]` (Toponymy) |
-| `clusters_to_remove` | list | `[]` | Flat cluster IDs to discard (BERTopic; also works for Toponymy working layer) |
+| `clusters_to_remove` | list | `[]` | Flat cluster list to discard (BERTopic; also Toponymy's selected working layer) |
+| `layered_clusters_to_remove` | list | `[]` | Layered cluster list for Toponymy: one or more `{layer, cluster_id}` mappings |
 
-Example:
+Use the simplest field that identifies the clusters you inspected:
+
+| Use case | Setting |
+| --- | --- |
+| BERTopic or another flat topic model | `clusters_to_remove` |
+| Toponymy, removing clusters from the selected working layer | `clusters_to_remove` |
+| Toponymy, removing clusters from explicit hierarchy layers | `layered_clusters_to_remove` |
+
+Examples:
 ```yaml
 # BERTopic: remove clusters 3 and 4
 curation:
@@ -334,7 +342,7 @@ curation:
 
 # Toponymy: remove noise from layer 1 and cluster 12 from layer 0
 curation:
-  cluster_targets:
+  layered_clusters_to_remove:
     - layer: 1
       cluster_id: -1
     - layer: 0
@@ -345,6 +353,20 @@ curation:
 `clusters_to_remove: [7]`, not `clusters_to_remove: 7`. Cluster IDs are
 run-local, so inspect a completed run first and apply removals with a variant
 run from that same run.
+
+`layered_clusters_to_remove` is also a list, but each list item is a mapping
+with both `layer` and `cluster_id`. Multiple selections are combined: a document
+is removed when it matches any selection. Coarser Toponymy layers can remove
+more documents than finer layers because their clusters group broader branches
+of the hierarchy.
+
+For CLI overrides, quote the whole value. The quotes protect the YAML-style
+list or mapping from your shell; they are not part of the value:
+
+```bash
+ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7, 12]'
+ads-bib run --from-run <run_id> --set 'curation.layered_clusters_to_remove=[{layer: 0, cluster_id: 12}, {layer: 1, cluster_id: 20}]'
+```
 
 ## Citations
 
@@ -404,7 +426,7 @@ configs.
 | --- | --- |
 | `ADS_TOKEN` | Always |
 | `OPENROUTER_API_KEY` | Using `openrouter` providers |
-| `HF_TOKEN` | Using `huggingface_api` providers or `local_gpu` model access (`HF_API_KEY` and `HUGGINGFACE_API_KEY` are also accepted for API providers) |
+| `HF_TOKEN` | Using `huggingface_api` providers or `local_gpu` model access |
 
 ## Read next
 

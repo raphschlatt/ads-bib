@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from ads_bib._config_overrides import apply_config_override
 from ads_bib._stage_state import (
     STAGE_ORDER,
     StageName,
@@ -63,7 +64,7 @@ def plan_run_variant(
 
     normalized_overrides = {str(key): value for key, value in (overrides or {}).items()}
     for key, value in normalized_overrides.items():
-        _apply_override(config_data, key, value)
+        apply_config_override(config_data, key, value, schema_type=PipelineConfig)
 
     requested_start = validate_stage_name(start_stage) if start_stage is not None else None
     requested_stop = validate_stage_name(stop_stage) if stop_stage is not None else None
@@ -254,20 +255,6 @@ def _anchor_author_disambiguation_cache(config_data: dict[str, Any], *, base_run
         return
     if and_config.get("enabled") and not and_config.get("dataset_id"):
         and_config["dataset_id"] = base_run_id
-
-
-def _apply_override(data: dict[str, Any], key: str, value: Any) -> None:
-    current: dict[str, Any] = data
-    parts = [part for part in key.split(".") if part]
-    if not parts:
-        raise ValueError("Override key cannot be empty.")
-    for part in parts[:-1]:
-        next_value = current.get(part)
-        if not isinstance(next_value, dict):
-            next_value = {}
-            current[part] = next_value
-        current = next_value
-    current[parts[-1]] = value
 
 
 def _normalize_redacted_secrets(value: Any, *, key_name: str | None = None) -> Any:

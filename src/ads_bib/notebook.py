@@ -59,7 +59,7 @@ class NotebookSession:
         self,
         *,
         project_root: Path | str | None = None,
-        run_name: str = "ADS_Curation_Run",
+        run_name: str = "ads_bib_run",
         start_time: float | None = None,
     ) -> None:
         self._project_root = Path(project_root or Path.cwd())
@@ -221,7 +221,7 @@ class NotebookSession:
 def get_notebook_session(
     *,
     project_root: Path | str | None = None,
-    run_name: str = "ADS_Curation_Run",
+    run_name: str = "ads_bib_run",
     reset: bool = False,
     start_time: float | None = None,
 ) -> NotebookSession:

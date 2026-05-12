@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from ads_bib._config_overrides import apply_config_override
 from ads_bib._utils.logging import OutputMode
 from ads_bib._utils.llama_server import prepare_llama_server_runtime
 from ads_bib.bootstrap import ensure_default_fasttext_model
@@ -49,17 +50,7 @@ def parse_override(raw: str) -> tuple[str, object]:
 
 def apply_override(data: dict[str, Any], key: str, value: object) -> None:
     """Apply one dotted-key override to a pipeline config dict."""
-    current: dict[str, Any] = data
-    parts = [part for part in key.split(".") if part]
-    if not parts:
-        raise ValueError("Override key cannot be empty.")
-    for part in parts[:-1]:
-        next_value = current.get(part)
-        if not isinstance(next_value, dict):
-            next_value = {}
-            current[part] = next_value
-        current = next_value
-    current[parts[-1]] = value
+    apply_config_override(data, key, value, schema_type=PipelineConfig)
 
 
 def load_run_config(

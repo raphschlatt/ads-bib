@@ -548,11 +548,9 @@ def _normalize_label_columns(label_column: str | list[str]) -> list[str]:
 
 
 def _topic_layer_index_from_label_column(column: str) -> int | None:
-    """Extract a layer index from a canonical or legacy topic-label column."""
+    """Extract a layer index from a canonical topic-label column."""
     if column.startswith("topic_layer_") and column.endswith("_label"):
         suffix = column[len("topic_layer_") : -len("_label")]
-    elif column.startswith("Topic_Layer_"):
-        suffix = column[len("Topic_Layer_") :]
     else:
         return None
 
@@ -563,7 +561,7 @@ def _topic_layer_index_from_label_column(column: str) -> int | None:
 
 
 def _topic_layer_sort_key(column: str) -> tuple[int, str]:
-    """Sort canonical and legacy topic-layer label columns by layer index."""
+    """Sort canonical topic-layer label columns by layer index."""
     layer_index = _topic_layer_index_from_label_column(column)
     if layer_index is None:
         return (10**6, column)
@@ -572,21 +570,10 @@ def _topic_layer_sort_key(column: str) -> tuple[int, str]:
 
 def _auto_detect_hierarchy_label_columns(df: pd.DataFrame) -> list[str]:
     """Auto-detect hierarchical topic label columns in natural Toponymy order."""
-    canonical = sorted(
+    return sorted(
         [c for c in df.columns if c.startswith("topic_layer_") and c.endswith("_label")],
         key=_topic_layer_sort_key,
     )
-    if canonical:
-        return canonical
-
-    legacy = sorted(
-        [c for c in df.columns if c.startswith("Topic_Layer_")],
-        key=_topic_layer_sort_key,
-    )
-    if legacy:
-        return legacy
-
-    return []
 
 
 def _resolve_display_label_column(
@@ -602,9 +589,6 @@ def _resolve_display_label_column(
         canonical = f"topic_layer_{working_layer_index}_label"
         if canonical in df.columns:
             return canonical
-        legacy = f"Topic_Layer_{working_layer_index}"
-        if legacy in df.columns:
-            return legacy
 
     if hierarchy_label_columns:
         return hierarchy_label_columns[0]

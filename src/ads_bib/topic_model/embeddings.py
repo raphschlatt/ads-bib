@@ -10,7 +10,6 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-import sys
 from typing import Any
 
 import numpy as np

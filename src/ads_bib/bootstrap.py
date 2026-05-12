@@ -26,8 +26,7 @@ def _env_template() -> str:
         "ADS_TOKEN=\n\n"
         "# Required for OpenRouter providers\n"
         "OPENROUTER_API_KEY=\n\n"
-        "# Canonical Hugging Face API token variable.\n"
-        "# HF_API_KEY and HUGGINGFACE_API_KEY are also accepted.\n"
+        "# Required for Hugging Face providers and gated local models.\n"
         "HF_TOKEN=\n"
     )
 

@@ -600,7 +600,7 @@ def test_translate_dataframe_huggingface_api_success_tracks_usage(monkeypatch):
         df,
         columns=["Title"],
         provider="huggingface_api",
-        model="huggingface/featherless-ai/unsloth/Qwen2.5-72B-Instruct",
+        model="unsloth/Qwen2.5-72B-Instruct:featherless-ai",
         api_key=None,
         max_workers=2,
         max_translation_tokens=777,

@@ -89,10 +89,6 @@ def _topic_layer_sort_key(column: str) -> tuple[int, int, str]:
         if len(parts) >= 4 and parts[2].isdigit():
             kind = 0 if column.endswith("_id") else 1
             return (int(parts[2]), kind, column)
-    if column.startswith("Topic_Layer_"):
-        suffix = column.removeprefix("Topic_Layer_")
-        if suffix.isdigit():
-            return (int(suffix), 2, column)
     return (10**6, 10**6, column)
 
 
@@ -103,8 +99,7 @@ def _ordered_dataset_frame(df: pd.DataFrame) -> pd.DataFrame:
         [
             column
             for column in columns
-            if (column.startswith("topic_layer_") or column.startswith("Topic_Layer_"))
-            and column not in front
+            if column.startswith("topic_layer_") and column not in front
         ],
         key=_topic_layer_sort_key,
     )

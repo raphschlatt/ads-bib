@@ -256,8 +256,7 @@ Symptom: `huggingface_api` validation, authentication, or runtime failures.
 
 Fix:
 
-- Ensure `HF_TOKEN` is set. `HF_API_KEY` and `HUGGINGFACE_API_KEY` are also
-  accepted.
+- Ensure `HF_TOKEN` is set.
 - Ensure the `huggingface-hub` Python package is installed. `uv pip install ads-bib`
   already includes it for the official roads.
 - Use HF-native model ids such as `Qwen/Qwen3-Embedding-8B` or

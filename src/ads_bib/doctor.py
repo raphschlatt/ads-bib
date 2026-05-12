@@ -9,7 +9,7 @@ from typing import Literal
 
 import spacy.util
 
-from ads_bib._utils.huggingface_api import HUGGINGFACE_API_KEY_ENV_VARS
+from ads_bib._utils.huggingface_api import HF_TOKEN_ENV_VAR
 from ads_bib._utils.llama_server import inspect_llama_server_command, prepare_llama_server_command
 from ads_bib._utils.model_specs import ModelSpec
 from ads_bib.bootstrap import DEFAULT_FASTTEXT_MODEL_RELATIVE_PATH
@@ -283,10 +283,7 @@ def _collect_translate_checks(
             _api_key_check(
                 "translate.api_key",
                 cfg.api_key,
-                hint=(
-                    "missing Hugging Face key; set HF_TOKEN "
-                    f"(aliases: {', '.join(HUGGINGFACE_API_KEY_ENV_VARS[1:])}) or translate.api_key"
-                ),
+                hint=f"missing Hugging Face key; set {HF_TOKEN_ENV_VAR} or translate.api_key",
             )
         )
         checks.append(_module_check("translate.provider", "huggingface_hub"))
@@ -469,8 +466,8 @@ def _collect_topic_checks(
                 "topic_model.embedding_api_key",
                 cfg.embedding_api_key,
                 hint=(
-                    "missing Hugging Face embedding key; set HF_TOKEN "
-                    f"(aliases: {', '.join(HUGGINGFACE_API_KEY_ENV_VARS[1:])}) or topic_model.embedding_api_key"
+                    f"missing Hugging Face embedding key; set {HF_TOKEN_ENV_VAR} "
+                    "or topic_model.embedding_api_key"
                 ),
             )
         )
@@ -506,14 +503,14 @@ def _collect_topic_checks(
     elif cfg.llm_provider == "huggingface_api":
         checks.append(
             _api_key_check(
-                "topic_model.llm_api_key",
-                cfg.llm_api_key,
-                hint=(
-                    "missing Hugging Face labeling key; set HF_TOKEN "
-                    f"(aliases: {', '.join(HUGGINGFACE_API_KEY_ENV_VARS[1:])}) or topic_model.llm_api_key"
-                ),
+                    "topic_model.llm_api_key",
+                    cfg.llm_api_key,
+                    hint=(
+                        f"missing Hugging Face labeling key; set {HF_TOKEN_ENV_VAR} "
+                        "or topic_model.llm_api_key"
+                    ),
+                )
             )
-        )
     elif cfg.llm_provider == "llama_server":
         checks.append(
             _llama_server_runtime_check(

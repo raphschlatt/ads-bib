@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-12
+
+### Changed
+- Configuration loading is now strict for CLI, Python overrides, and run variants: unknown sections or keys fail early instead of being accepted silently.
+- Toponymy outputs now use only canonical snake_case layer columns such as `topic_layer_0_id` and `topic_layer_0_label`; the working-layer `topic_id` and `Name` columns remain.
+- The root `ads_bib` package now exports only the primary public entry points; lower-level stage helpers stay importable from their own modules.
+- Hugging Face configuration now uses `HF_TOKEN` as the single public token environment variable.
+
+### Removed
+- Removed the intermediate `curation.cluster_targets` config key. Use `curation.layered_clusters_to_remove` for layer-aware Toponymy curation.
+- Removed legacy `Topic_Layer_X` output columns from new Toponymy runs.
+- Removed public `HF_API_KEY` and `HUGGINGFACE_API_KEY` token names from docs, bootstrap, and doctor hints.
+
 ## [0.3.1] - 2026-05-08
 
 ### Added

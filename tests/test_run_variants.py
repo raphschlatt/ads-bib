@@ -123,6 +123,16 @@ def test_embedding_model_change_starts_at_embeddings(tmp_path):
     assert plan.initial_state.author_entities is not None
 
 
+def test_variant_plan_rejects_unknown_override_key(tmp_path):
+    run_dir = _write_run(tmp_path)
+
+    with pytest.raises(ValueError, match="Unknown config key 'curatoin'"):
+        plan_run_variant(
+            from_run=run_dir,
+            overrides={"curatoin.clusters_to_remove": [1]},
+        )
+
+
 def test_reduction_params_change_starts_at_reduction(tmp_path):
     run_dir = _write_run(tmp_path)
     _write_dataset_artifacts(run_dir)

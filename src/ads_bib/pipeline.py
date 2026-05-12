@@ -23,12 +23,11 @@ from ads_bib._dataset_bundle import (
     prepare_dataset_bundle as _prepare_dataset_bundle,
     write_dataset_bundle as _write_dataset_bundle,
 )
+from ads_bib._config_overrides import validate_config_mapping
 from ads_bib._stage_state import (
     STAGE_ORDER,
     StageName,
     _advance_resume_block,
-    _earliest_invalidation_stage,
-    _invalidate_context_from,
     _snapshot_allowed,
     validate_stage_name,
 )
@@ -66,8 +65,8 @@ from ads_bib.config import init_paths, load_env, validate_provider
 from ads_bib.curate import (
     get_cluster_summary,
     get_hierarchy_cluster_summary,
-    normalize_cluster_targets,
-    remove_cluster_targets,
+    normalize_layered_clusters_to_remove,
+    remove_layered_clusters,
     remove_clusters,
 )
 from ads_bib.export import resolve_dataset
@@ -142,7 +141,7 @@ def _resolve_runtime_path(path: str | Path | None, *, project_root: Path | str |
 
 @dataclass
 class RunConfig:
-    run_name: str = "ADS_Curation_Run"
+    run_name: str = "ads_bib_run"
     start_stage: StageName = "search"
     stop_stage: StageName | None = None
     random_seed: int = 42
@@ -276,8 +275,8 @@ class VisualizationConfig:
 
 @dataclass
 class CurationConfig:
-    cluster_targets: list[dict[str, int]] = field(default_factory=list)
     clusters_to_remove: list[int] = field(default_factory=list)
+    layered_clusters_to_remove: list[dict[str, int]] = field(default_factory=list)
 
 
 def _normalize_clusters_to_remove(value: object) -> list[int]:
@@ -350,8 +349,9 @@ class PipelineConfig:
         self.visualization.topic_tree = _normalize_topic_tree_setting(
             self.visualization.topic_tree
         )
-        self.curation.cluster_targets = normalize_cluster_targets(
-            self.curation.cluster_targets
+        self.curation.layered_clusters_to_remove = normalize_layered_clusters_to_remove(
+            self.curation.layered_clusters_to_remove,
+            field_name="curation.layered_clusters_to_remove",
         )
         self.curation.clusters_to_remove = _normalize_clusters_to_remove(
             self.curation.clusters_to_remove
@@ -434,13 +434,9 @@ class PipelineConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
+        validate_config_mapping(data, cls)
         run_data = dict(data.get("run", {}))
         source_input_data = dict(data.get("source_input", {}))
-        if (
-            (source_input_data.get("publications_path") or source_input_data.get("references_path"))
-            and "start_stage" not in run_data
-        ):
-            run_data["start_stage"] = "translate"
         return cls(
             run=RunConfig(**run_data),
             search=SearchConfig(**data.get("search", {})),
@@ -959,12 +955,12 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         base = f"curated dataset: {len(ctx.curated_df):,} | topics: {topic_count:,}"
         if ctx.topic_df is not None and len(ctx.topic_df) > len(ctx.curated_df):
             removed = len(ctx.topic_df) - len(ctx.curated_df)
-            n_targets = len(ctx.config.curation.cluster_targets)
-            n_legacy = len(ctx.config.curation.clusters_to_remove)
-            total_targets = n_targets + n_legacy
+            n_layered = len(ctx.config.curation.layered_clusters_to_remove)
+            n_flat = len(ctx.config.curation.clusters_to_remove)
+            total_targets = n_layered + n_flat
             if total_targets > 0:
-                target_label = "targets" if n_targets > 0 else "clusters"
-                base += f" ({removed:,} rows removed from {total_targets} {target_label})"
+                selection_label = "cluster selection" if total_targets == 1 else "cluster selections"
+                base += f" ({removed:,} rows removed from {total_targets} {selection_label})"
         return [base]
 
     if stage == "citations" and ctx.citation_results is not None:
@@ -2062,31 +2058,31 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
     )
     logger.info("Cluster summary rows: %s", f"{len(display_summary):,}")
     if hierarchical_backend:
-        cluster_targets = list(ctx.config.curation.cluster_targets)
+        layered_selections = list(ctx.config.curation.layered_clusters_to_remove)
         if ctx.config.curation.clusters_to_remove:
             if working_layer_index is None:
                 raise ValueError(
-                    "Legacy curation.clusters_to_remove requires a resolved Toponymy working layer."
+                    "curation.clusters_to_remove requires a resolved Toponymy working layer."
                 )
             logger.info(
-                "Applying legacy curation.clusters_to_remove against working layer %s.",
+                "Applying curation.clusters_to_remove against Toponymy working layer %s.",
                 working_layer_index,
             )
-            cluster_targets.extend(
+            layered_selections.extend(
                 {
                     "layer": working_layer_index,
                     "cluster_id": int(cluster_id),
                 }
                 for cluster_id in ctx.config.curation.clusters_to_remove
             )
-        if cluster_targets:
-            ctx.curated_df = remove_cluster_targets(
+        if layered_selections:
+            ctx.curated_df = remove_layered_clusters(
                 ctx.curated_df,
-                cluster_targets,
+                layered_selections,
             )
-    elif ctx.config.curation.cluster_targets:
+    elif ctx.config.curation.layered_clusters_to_remove:
         raise ValueError(
-            "curation.cluster_targets is supported only for the toponymy backend."
+            "curation.layered_clusters_to_remove is supported only for the toponymy backend."
         )
     elif ctx.config.curation.clusters_to_remove:
         ctx.curated_df = remove_clusters(

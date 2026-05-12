@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import builtins
-import contextlib
 from contextlib import contextmanager
 import io
 import logging
@@ -159,7 +158,7 @@ def test_build_topic_dataframe_persists_toponymy_hierarchy_columns():
     assert out["topic_layer_0_label"].tolist() == ["Outlier Topic", "Alpha", "Beta"]
     assert out["topic_layer_1_id"].tolist() == [0, 0, 1]
     assert out["topic_layer_1_label"].tolist() == ["Macro Alpha", "Macro Alpha", "Macro Beta"]
-    assert out["Topic_Layer_1"].tolist() == ["Macro Alpha", "Macro Alpha", "Macro Beta"]
+    assert "Topic" + "_Layer_1" not in out.columns
 
 
 def test_reduce_outliers_refreshes_representations_and_logs(caplog):
