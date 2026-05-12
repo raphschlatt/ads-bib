@@ -505,3 +505,28 @@ def test_parse_override_requires_equals():
         assert "key=value" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
+
+
+def test_parse_override_reads_clusters_to_remove_as_list():
+    key, value = cli._parse_override("curation.clusters_to_remove=[7, 12]")
+
+    assert key == "curation.clusters_to_remove"
+    assert value == [7, 12]
+
+
+def test_parse_override_reads_layered_clusters_to_remove_as_list_of_mappings():
+    key, value = cli._parse_override(
+        "curation.layered_clusters_to_remove=[{layer: 0, cluster_id: 12}, {layer: 1, cluster_id: 20}]"
+    )
+
+    assert key == "curation.layered_clusters_to_remove"
+    assert value == [{"layer": 0, "cluster_id": 12}, {"layer": 1, "cluster_id": 20}]
+
+
+def test_parse_override_still_reads_legacy_cluster_targets():
+    key, value = cli._parse_override(
+        "curation.cluster_targets=[{layer: 0, cluster_id: 12}]"
+    )
+
+    assert key == "curation.cluster_targets"
+    assert value == [{"layer": 0, "cluster_id": 12}]

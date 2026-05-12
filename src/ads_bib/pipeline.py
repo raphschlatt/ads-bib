@@ -276,8 +276,9 @@ class VisualizationConfig:
 
 @dataclass
 class CurationConfig:
-    cluster_targets: list[dict[str, int]] = field(default_factory=list)
     clusters_to_remove: list[int] = field(default_factory=list)
+    layered_clusters_to_remove: list[dict[str, int]] = field(default_factory=list)
+    cluster_targets: list[dict[str, int]] = field(default_factory=list)
 
 
 def _normalize_clusters_to_remove(value: object) -> list[int]:
@@ -350,9 +351,18 @@ class PipelineConfig:
         self.visualization.topic_tree = _normalize_topic_tree_setting(
             self.visualization.topic_tree
         )
-        self.curation.cluster_targets = normalize_cluster_targets(
-            self.curation.cluster_targets
+        self.curation.layered_clusters_to_remove = normalize_cluster_targets(
+            self.curation.layered_clusters_to_remove,
+            field_name="curation.layered_clusters_to_remove",
         )
+        self.curation.cluster_targets = normalize_cluster_targets(
+            self.curation.cluster_targets,
+            field_name="curation.cluster_targets",
+        )
+        if self.curation.layered_clusters_to_remove and self.curation.cluster_targets:
+            raise ValueError(
+                "Use either curation.layered_clusters_to_remove or curation.cluster_targets, not both."
+            )
         self.curation.clusters_to_remove = _normalize_clusters_to_remove(
             self.curation.clusters_to_remove
         )
@@ -430,7 +440,11 @@ class PipelineConfig:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        curation = data.get("curation")
+        if isinstance(curation, dict) and not curation.get("cluster_targets"):
+            curation.pop("cluster_targets", None)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
@@ -479,6 +493,11 @@ def _shape_repr(value: object) -> str:
         return str(len(value))  # type: ignore[arg-type]
     except TypeError:
         return type(value).__name__
+
+
+def _layered_clusters_to_remove(config: CurationConfig) -> list[dict[str, int]]:
+    """Return the preferred layered curation selection, including legacy aliases."""
+    return config.layered_clusters_to_remove or config.cluster_targets
 
 
 @dataclass
@@ -959,12 +978,12 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         base = f"curated dataset: {len(ctx.curated_df):,} | topics: {topic_count:,}"
         if ctx.topic_df is not None and len(ctx.topic_df) > len(ctx.curated_df):
             removed = len(ctx.topic_df) - len(ctx.curated_df)
-            n_targets = len(ctx.config.curation.cluster_targets)
+            n_targets = len(_layered_clusters_to_remove(ctx.config.curation))
             n_legacy = len(ctx.config.curation.clusters_to_remove)
             total_targets = n_targets + n_legacy
             if total_targets > 0:
-                target_label = "targets" if n_targets > 0 else "clusters"
-                base += f" ({removed:,} rows removed from {total_targets} {target_label})"
+                selection_label = "cluster selection" if total_targets == 1 else "cluster selections"
+                base += f" ({removed:,} rows removed from {total_targets} {selection_label})"
         return [base]
 
     if stage == "citations" and ctx.citation_results is not None:
@@ -2062,14 +2081,14 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
     )
     logger.info("Cluster summary rows: %s", f"{len(display_summary):,}")
     if hierarchical_backend:
-        cluster_targets = list(ctx.config.curation.cluster_targets)
+        cluster_targets = list(_layered_clusters_to_remove(ctx.config.curation))
         if ctx.config.curation.clusters_to_remove:
             if working_layer_index is None:
                 raise ValueError(
-                    "Legacy curation.clusters_to_remove requires a resolved Toponymy working layer."
+                    "curation.clusters_to_remove requires a resolved Toponymy working layer."
                 )
             logger.info(
-                "Applying legacy curation.clusters_to_remove against working layer %s.",
+                "Applying curation.clusters_to_remove against Toponymy working layer %s.",
                 working_layer_index,
             )
             cluster_targets.extend(
@@ -2084,9 +2103,9 @@ def run_curate_stage(ctx: PipelineContext) -> PipelineContext:
                 ctx.curated_df,
                 cluster_targets,
             )
-    elif ctx.config.curation.cluster_targets:
+    elif _layered_clusters_to_remove(ctx.config.curation):
         raise ValueError(
-            "curation.cluster_targets is supported only for the toponymy backend."
+            "curation.layered_clusters_to_remove is supported only for the toponymy backend."
         )
     elif ctx.config.curation.clusters_to_remove:
         ctx.curated_df = remove_clusters(

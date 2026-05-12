@@ -242,43 +242,57 @@ Cluster IDs are run-local. Inspect the run first, then remove clusters by
 starting a variant from that same run with `ads-bib run --from-run <run_id>`
 or `ads_bib.run(from_run=...)`.
 
-**BERTopic** — use `clusters_to_remove`:
+Choose the curation setting from the topic model and the IDs you inspected:
+
+| Use case | Setting |
+| --- | --- |
+| BERTopic or another flat topic model | `clusters_to_remove` |
+| Toponymy, removing clusters from the selected working layer | `clusters_to_remove` |
+| Toponymy, removing clusters from explicit hierarchy layers | `layered_clusters_to_remove` |
+
+**BERTopic** — use the flat cluster list:
 
 ```yaml
 curation:
-  clusters_to_remove: [3, 4]
+  clusters_to_remove: [7, 12]
 ```
 
 Use a list even for one cluster: `clusters_to_remove: [7]`, not
 `clusters_to_remove: 7`. From the CLI, quote the whole override:
 
 ```bash
-ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7]'
+ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7, 12]'
 ```
 
-**Toponymy** — use `cluster_targets` for hierarchy-aware removal:
+**Toponymy** — use layered cluster removals when you are removing from specific
+hierarchy layers:
 
 ```yaml
 curation:
-  cluster_targets:
-    - layer: 1
-      cluster_id: -1
+  layered_clusters_to_remove:
     - layer: 0
       cluster_id: 12
+    - layer: 1
+      cluster_id: 20
 ```
 
-Each target removes documents whose `topic_layer_<layer>_id` matches
-`cluster_id`. Multiple targets are unioned. From the CLI, quote the whole
-override so your shell does not split the `{layer: ..., cluster_id: ...}`
-mapping:
+`layered_clusters_to_remove` is a list of mappings, not one mapping. Each
+selection removes documents whose `topic_layer_<layer>_id` matches `cluster_id`.
+Multiple selections are unioned: a document is removed when it matches any
+selection. Coarser Toponymy layers can remove more documents than finer layers
+because their clusters group broader branches of the hierarchy.
+
+From the CLI, quote the whole override so your shell does not split the
+YAML-style list and mappings:
 
 ```bash
-ads-bib run --from-run <run_id> --set 'curation.cluster_targets=[{layer: 2, cluster_id: 0}]'
+ads-bib run --from-run <run_id> --set 'curation.layered_clusters_to_remove=[{layer: 0, cluster_id: 12}, {layer: 1, cluster_id: 20}]'
 ```
 
 `clusters_to_remove` also works with Toponymy, but only for the selected
-working layer. Use `cluster_targets` when you are removing clusters from a
-specific hierarchy layer.
+working layer. Use `layered_clusters_to_remove` when you are removing clusters
+from a specific hierarchy layer. Existing configs may still use the older
+`cluster_targets` name.
 
 ## Phase 6: Citation Networks
 

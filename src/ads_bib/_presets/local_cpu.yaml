@@ -118,8 +118,8 @@ visualization:
   topic_tree: false
 
 curation:
-  cluster_targets: []
   clusters_to_remove: []
+  layered_clusters_to_remove: []
 
 citations:
   metrics:

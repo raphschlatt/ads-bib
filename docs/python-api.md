@@ -165,6 +165,28 @@ ads-bib run --from-run run_20260407_120000_ads_bib_local_gpu \
   --set 'curation.clusters_to_remove=[7, 12]'
 ```
 
+For Toponymy, use layered cluster removals when you want to remove clusters
+from explicit hierarchy layers:
+
+```python
+result = ads_bib.run(
+    from_run="run_20260407_120000_ads_bib_local_gpu",
+    overrides={
+        "curation.layered_clusters_to_remove": [
+            {"layer": 0, "cluster_id": 12},
+            {"layer": 1, "cluster_id": 20},
+        ]
+    },
+)
+```
+
+The CLI equivalent quotes the whole YAML-style list:
+
+```bash
+ads-bib run --from-run run_20260407_120000_ads_bib_local_gpu \
+  --set 'curation.layered_clusters_to_remove=[{layer: 0, cluster_id: 12}, {layer: 1, cluster_id: 20}]'
+```
+
 With `preflight=True`, the function performs the same run preflight as the CLI
 and raises `RunBlockedError` if required keys, dependencies, or managed runtime
 preparation block the run.

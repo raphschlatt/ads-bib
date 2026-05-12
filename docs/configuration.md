@@ -323,10 +323,19 @@ requests; it does not change the internal HDBSCAN/Boruvka thread count.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `cluster_targets` | list | `[]` | Toponymy hierarchy removals: one or more `{layer, cluster_id}` mappings |
-| `clusters_to_remove` | list | `[]` | Flat cluster IDs to discard (BERTopic; also Toponymy's selected working layer) |
+| `clusters_to_remove` | list | `[]` | Flat cluster list to discard (BERTopic; also Toponymy's selected working layer) |
+| `layered_clusters_to_remove` | list | `[]` | Layered cluster list for Toponymy: one or more `{layer, cluster_id}` mappings |
+| `cluster_targets` | list | `[]` | Older compatibility alias for `layered_clusters_to_remove` |
 
-Example:
+Use the simplest field that identifies the clusters you inspected:
+
+| Use case | Setting |
+| --- | --- |
+| BERTopic or another flat topic model | `clusters_to_remove` |
+| Toponymy, removing clusters from the selected working layer | `clusters_to_remove` |
+| Toponymy, removing clusters from explicit hierarchy layers | `layered_clusters_to_remove` |
+
+Examples:
 ```yaml
 # BERTopic: remove clusters 3 and 4
 curation:
@@ -334,7 +343,7 @@ curation:
 
 # Toponymy: remove noise from layer 1 and cluster 12 from layer 0
 curation:
-  cluster_targets:
+  layered_clusters_to_remove:
     - layer: 1
       cluster_id: -1
     - layer: 0
@@ -346,15 +355,20 @@ curation:
 run-local, so inspect a completed run first and apply removals with a variant
 run from that same run.
 
-For CLI overrides, quote the whole value:
+`layered_clusters_to_remove` is also a list, but each list item is a mapping
+with both `layer` and `cluster_id`. Multiple selections are combined: a document
+is removed when it matches any selection. Coarser Toponymy layers can remove
+more documents than finer layers because their clusters group broader branches
+of the hierarchy. `cluster_targets` is the older name for the same setting and
+is still accepted for existing configs.
+
+For CLI overrides, quote the whole value. The quotes protect the YAML-style
+list or mapping from your shell; they are not part of the value:
 
 ```bash
-ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7]'
-ads-bib run --from-run <run_id> --set 'curation.cluster_targets=[{layer: 2, cluster_id: 0}]'
+ads-bib run --from-run <run_id> --set 'curation.clusters_to_remove=[7, 12]'
+ads-bib run --from-run <run_id> --set 'curation.layered_clusters_to_remove=[{layer: 0, cluster_id: 12}, {layer: 1, cluster_id: 20}]'
 ```
-
-Each `cluster_targets` item removes rows whose `topic_layer_<layer>_id`
-matches `cluster_id`. Multiple items are combined.
 
 ## Citations
 

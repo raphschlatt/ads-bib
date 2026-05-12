@@ -95,6 +95,15 @@ def test_remove_clusters_filters_and_logs(caplog):
     assert set(out["topic_id"].unique()) == {2}
 
 
+def test_remove_clusters_warns_for_unmatched_ids(caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.curate")
+    df = _sample_df()
+    out = curate.remove_clusters(df, cluster_ids=[99])
+
+    assert len(out) == len(df)
+    assert "No rows matched cluster id 99 in column topic_id." in caplog.text
+
+
 def test_remove_clusters_supports_custom_topic_column():
     df = _sample_df().assign(topic_layer_1_id=[10, 10, 20, -1, 20, 20])
 
@@ -115,6 +124,15 @@ def test_remove_cluster_targets_unions_multiple_layer_targets():
 
     assert out["topic_layer_0_id"].tolist() == [100, -1]
     assert out["topic_layer_1_id"].tolist() == [20, -1]
+
+
+def test_remove_cluster_targets_warns_for_unmatched_targets(caplog):
+    caplog.set_level(logging.INFO, logger="ads_bib.curate")
+    df = _hierarchy_df()
+    out = curate.remove_cluster_targets(df, [{"layer": 0, "cluster_id": 999}])
+
+    assert len(out) == len(df)
+    assert "No rows matched layer 0 cluster_id 999." in caplog.text
 
 
 def test_filter_by_field_string_case_insensitive_keep_and_drop(caplog):

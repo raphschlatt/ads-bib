@@ -13,28 +13,30 @@ logger = logging.getLogger(__name__)
 
 def normalize_cluster_targets(
     cluster_targets: Sequence[Mapping[str, object]] | None,
+    *,
+    field_name: str = "curation.cluster_targets",
 ) -> list[dict[str, int]]:
-    """Normalize layer-aware cluster targets from config or notebook input."""
+    """Normalize layered cluster selections from config or notebook input."""
     normalized: list[dict[str, int]] = []
     for index, target in enumerate(cluster_targets or []):
         if not isinstance(target, Mapping):
             raise TypeError(
-                f"curation.cluster_targets[{index}] must be a mapping with 'layer' and 'cluster_id'."
+                f"{field_name}[{index}] must be a mapping with 'layer' and 'cluster_id'."
             )
         if "layer" not in target or "cluster_id" not in target:
             raise ValueError(
-                f"curation.cluster_targets[{index}] must contain both 'layer' and 'cluster_id'."
+                f"{field_name}[{index}] must contain both 'layer' and 'cluster_id'."
             )
         try:
             layer = int(target["layer"])
             cluster_id = int(target["cluster_id"])
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"curation.cluster_targets[{index}] must contain integer-like 'layer' and 'cluster_id' values."
+                f"{field_name}[{index}] must contain integer-like 'layer' and 'cluster_id' values."
             ) from exc
         if layer < 0:
             raise ValueError(
-                f"curation.cluster_targets[{index}].layer must be >= 0."
+                f"{field_name}[{index}].layer must be >= 0."
             )
         normalized.append({"layer": layer, "cluster_id": cluster_id})
     return normalized
@@ -162,6 +164,14 @@ def remove_clusters(
         Filtered copy of *df*.
     """
     before = len(df)
+    present_cluster_ids = set(df[topic_id_column].dropna().astype(int).tolist())
+    for cluster_id in cluster_ids:
+        if int(cluster_id) not in present_cluster_ids:
+            logger.warning(
+                "No rows matched cluster id %s in column %s.",
+                cluster_id,
+                topic_id_column,
+            )
     df_out = df[~df[topic_id_column].isin(cluster_ids)].copy()
     removed = before - len(df_out)
     logger.info(
@@ -192,14 +202,22 @@ def remove_cluster_targets(
         id_column = _topic_layer_id_column(layer)
         if id_column not in df.columns:
             raise ValueError(
-                f"Missing hierarchy id column '{id_column}' required by curation.cluster_targets."
+                f"Missing hierarchy id column '{id_column}' required by layered curation selections."
             )
+        present_cluster_ids = set(df[id_column].dropna().astype(int).tolist())
+        for cluster_id in sorted(cluster_ids):
+            if int(cluster_id) not in present_cluster_ids:
+                logger.warning(
+                    "No rows matched layer %s cluster_id %s.",
+                    layer,
+                    cluster_id,
+                )
         mask |= df[id_column].isin(cluster_ids)
 
     df_out = df[~mask].copy()
     removed = int(mask.sum())
     logger.info(
-        "Removed %s documents from cluster targets %s",
+        "Removed %s documents from layered cluster selections %s",
         f"{removed:,}",
         normalized,
     )
