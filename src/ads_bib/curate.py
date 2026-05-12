@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def normalize_cluster_targets(
     cluster_targets: Sequence[Mapping[str, object]] | None,
     *,
-    field_name: str = "curation.cluster_targets",
+    field_name: str = "curation.layered_clusters_to_remove",
 ) -> list[dict[str, int]]:
     """Normalize layered cluster selections from config or notebook input."""
     normalized: list[dict[str, int]] = []

@@ -291,8 +291,7 @@ ads-bib run --from-run <run_id> --set 'curation.layered_clusters_to_remove=[{lay
 
 `clusters_to_remove` also works with Toponymy, but only for the selected
 working layer. Use `layered_clusters_to_remove` when you are removing clusters
-from a specific hierarchy layer. Existing configs may still use the older
-`cluster_targets` name.
+from a specific hierarchy layer.
 
 ## Phase 6: Citation Networks
 

@@ -325,7 +325,6 @@ requests; it does not change the internal HDBSCAN/Boruvka thread count.
 | --- | --- | --- | --- |
 | `clusters_to_remove` | list | `[]` | Flat cluster list to discard (BERTopic; also Toponymy's selected working layer) |
 | `layered_clusters_to_remove` | list | `[]` | Layered cluster list for Toponymy: one or more `{layer, cluster_id}` mappings |
-| `cluster_targets` | list | `[]` | Older compatibility alias for `layered_clusters_to_remove` |
 
 Use the simplest field that identifies the clusters you inspected:
 
@@ -359,8 +358,7 @@ run from that same run.
 with both `layer` and `cluster_id`. Multiple selections are combined: a document
 is removed when it matches any selection. Coarser Toponymy layers can remove
 more documents than finer layers because their clusters group broader branches
-of the hierarchy. `cluster_targets` is the older name for the same setting and
-is still accepted for existing configs.
+of the hierarchy.
 
 For CLI overrides, quote the whole value. The quotes protect the YAML-style
 list or mapping from your shell; they are not part of the value:

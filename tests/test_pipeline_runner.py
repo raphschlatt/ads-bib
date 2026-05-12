@@ -627,11 +627,10 @@ def test_pipeline_config_defaults_visualization_topic_tree_to_false():
     assert config.visualization.topic_tree is False
 
 
-def test_pipeline_config_to_dict_omits_empty_legacy_cluster_targets():
+def test_pipeline_config_to_dict_includes_layered_clusters_to_remove():
     data = pipeline.PipelineConfig.from_dict({}).to_dict()
 
     assert "layered_clusters_to_remove" in data["curation"]
-    assert "cluster_targets" not in data["curation"]
 
 
 def test_pipeline_config_normalizes_visualization_topic_tree_auto_to_false():
@@ -657,37 +656,9 @@ def test_pipeline_config_normalizes_curation_layered_clusters_to_remove():
     ]
 
 
-def test_pipeline_config_accepts_legacy_curation_cluster_targets_alias():
-    config = pipeline.PipelineConfig.from_dict(
-        {
-            "curation": {
-                "cluster_targets": [
-                    {"layer": "1", "cluster_id": "3"},
-                    {"layer": 0, "cluster_id": -1},
-                ]
-            }
-        }
-    )
-
-    assert config.curation.cluster_targets == [
-        {"layer": 1, "cluster_id": 3},
-        {"layer": 0, "cluster_id": -1},
-    ]
-
-
-def test_pipeline_config_rejects_both_layered_cluster_names():
-    with pytest.raises(
-        ValueError,
-        match="Use either curation.layered_clusters_to_remove or curation.cluster_targets",
-    ):
-        pipeline.PipelineConfig.from_dict(
-            {
-                "curation": {
-                    "layered_clusters_to_remove": [{"layer": 0, "cluster_id": 12}],
-                    "cluster_targets": [{"layer": 1, "cluster_id": 20}],
-                }
-            }
-        )
+def test_pipeline_config_rejects_removed_curation_cluster_targets_key():
+    with pytest.raises(TypeError, match="cluster_targets"):
+        pipeline.PipelineConfig.from_dict({"curation": {"cluster_targets": []}})
 
 
 def test_pipeline_config_normalizes_curation_clusters_to_remove():
@@ -739,7 +710,6 @@ def test_summary_lines_for_curate_uses_neutral_cluster_selection_label():
         config=SimpleNamespace(
             curation=SimpleNamespace(
                 layered_clusters_to_remove=[{"layer": 0, "cluster_id": 12}],
-                cluster_targets=[],
                 clusters_to_remove=[20],
             )
         ),
@@ -778,35 +748,7 @@ def test_run_curate_stage_uses_layered_clusters_to_remove_for_toponymy(tmp_path)
     assert ctx.curated_df["topic_layer_1_id"].tolist() == [30, -1]
 
 
-def test_run_curate_stage_keeps_legacy_cluster_targets_alias_for_toponymy(tmp_path):
-    config = pipeline.PipelineConfig.from_dict(
-        {
-            "run": {"project_root": str(tmp_path)},
-            "topic_model": {"backend": "toponymy"},
-            "curation": {"cluster_targets": [{"layer": 1, "cluster_id": 20}]},
-        }
-    )
-    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
-    ctx.topic_hierarchy = {"topic_primary_layer_index": 1}
-    ctx.topic_df = pd.DataFrame(
-        {
-            "topic_id": [20, 20, 30, -1],
-            "Name": ["Macro A", "Macro A", "Macro B", "Outlier Topic"],
-            "topic_primary_layer_index": [1, 1, 1, 1],
-            "topic_layer_0_id": [100, 101, 200, -1],
-            "topic_layer_0_label": ["Alpha", "Beta", "Gamma", "Unlabelled"],
-            "topic_layer_1_id": [20, 20, 30, -1],
-            "topic_layer_1_label": ["Macro A", "Macro A", "Macro B", "Unlabelled"],
-        }
-    )
-
-    pipeline.run_curate_stage(ctx)
-
-    assert ctx.curated_df is not None
-    assert ctx.curated_df["topic_layer_1_id"].tolist() == [30, -1]
-
-
-def test_run_curate_stage_maps_legacy_clusters_to_remove_to_working_layer_for_toponymy(tmp_path):
+def test_run_curate_stage_maps_clusters_to_remove_to_toponymy_working_layer(tmp_path):
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
