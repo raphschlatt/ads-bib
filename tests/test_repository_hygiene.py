@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import tomllib
 
+from packaging.requirements import Requirement
 import pytest
 
 
@@ -58,3 +60,16 @@ def test_head_does_not_contain_secret_like_values() -> None:
         locations.append(":".join(commit_path_line))
 
     assert not locations, "Secret-like values found in tracked files: " + ", ".join(locations)
+
+
+def test_package_pins_toponymy_dataset_stack_above_pyarrow_breakage() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = {
+        Requirement(dependency).name: Requirement(dependency)
+        for dependency in pyproject["project"]["dependencies"]
+    }
+
+    datasets_requirement = requirements["datasets"]
+
+    assert ">=4.8.5" in str(datasets_requirement.specifier)
+    assert "<5" in str(datasets_requirement.specifier)

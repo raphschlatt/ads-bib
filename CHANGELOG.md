@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-05-22
+
+### Fixed
+- Fresh installs now constrain `datasets>=4.8.5,<5` so Toponymy does not pull an old
+  `datasets` build that fails with current `pyarrow` releases.
+
 ## [0.3.2] - 2026-05-12
 
 ### Changed
