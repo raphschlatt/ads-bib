@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+- Four dependencies that had no upper bound now have one: `bertopic<0.18`, `litellm<2`, `openai<4`, `scikit-learn<2`. A fresh install resolves the same versions as before; the bounds keep out future major releases that the package has not been tested with.
+
+### Docs
+- Corrected the advice on `topic_model.outlier_threshold`: a lower value reassigns more outliers, a higher value fewer, and `0` turns the reassignment off for Toponymy. The docs said the opposite.
+
 ## [0.3.3] - 2026-05-22
 
 ### Fixed
