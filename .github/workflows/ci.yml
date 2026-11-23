@@ -4,10 +4,8 @@ on:
   push:
     branches: ["main", "master"]
   pull_request:
-  schedule:
-    # Mondays 04:17 UTC: catches breaks caused by new releases of dependencies.
-    - cron: "17 4 * * 1"
-  workflow_dispatch:
+  # Called by weekly.yml.
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -41,6 +39,9 @@ jobs:
 
   topic-stack:
     runs-on: ubuntu-latest
+    env:
+      # This job installs without uv.lock; keep `uv run` from syncing back to it.
+      UV_NO_SYNC: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -1,0 +1,14 @@
+name: Weekly dependency check
+
+# Runs the CI jobs without a push, so that a break caused by a new release of
+# a dependency is noticed. It lives in its own file because GitHub pauses
+# scheduled workflows after 60 days without repository activity; the push and
+# pull-request runs of ci.yml stay untouched by that.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
