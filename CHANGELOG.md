@@ -12,6 +12,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Fixed
 - `translate.enabled: false` now works: titles and abstracts are passed on unchanged as `Title_en` and `Abstract_en`. Before, such a run stopped at the tokenize stage in a new project folder, and in a used project folder it could continue with the publications of an earlier run from the shared cache. If you ran with this setting in a project folder that already held another run, repeat that run.
 - A run that starts at `tokenize` with untranslated publications already loaded, for example from `source_input`, no longer swaps them for the tokenized snapshot of an earlier run in the shared cache.
+- `--from-run` works again with runs saved by 0.2.0 to 0.3.1. Their `config_used.yaml` still contains the removed key `curation.cluster_targets`, which is now read as `curation.layered_clusters_to_remove`. A subtitle that still uses the default from before 0.1.0, whose placeholders no longer exist, is replaced by the current default.
+- A variant is created in the project folder that contains its base run (`<project>/runs/<run_id>`), or in the current folder if the base run sits elsewhere. It no longer uses the folder recorded in the base run's config, which may be gone after the run was moved. `--dry-run` shows the project folder.
 
 ### Docs
 - Corrected the advice on `topic_model.outlier_threshold`: a lower value reassigns more outliers, a higher value fewer, and `0` turns the reassignment off for Toponymy. The docs said the opposite.
