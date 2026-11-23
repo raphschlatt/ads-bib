@@ -161,7 +161,7 @@ run:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | bool | `true` | Skip translation when `false` |
+| `enabled` | bool | `true` | Skip translation when `false`; titles and abstracts are then used unchanged as `Title_en` and `Abstract_en`, and no `Title_lang` or `Abstract_lang` columns are written |
 | `provider` | string | varies | `openrouter`, `nllb`, `llama_server`, `huggingface_api`, or `transformers` |
 | `model` | string \| null | varies | Model identifier for `openrouter` / `huggingface_api` / `transformers`, or an HF repo id / local path for `nllb` |
 | `model_repo` | string \| null | `null` | HF repo for GGUF model download (`llama_server` provider) |
@@ -226,7 +226,7 @@ CPU is useful for small checks; use local GPU or Modal for larger corpora.
 | `sample_size` | int \| null | `null` | — | Random subset size for exploration; `null` uses all documents |
 | `backend` | string | `"bertopic"` | `openrouter` → `toponymy` | `bertopic` (flat topic set) or `toponymy` (hierarchical layers) |
 | `clustering_method` | string | `"fast_hdbscan"` | — | HDBSCAN implementation; `"hdbscan"` for hierarchy analysis |
-| `outlier_threshold` | float | `0.5` | — | Probability threshold for outlier reassignment (BERTopic) |
+| `outlier_threshold` | float | `0.5` | — | Minimum cosine similarity for reassigning an outlier to its most similar topic; lower values reassign more documents. `0` turns reassignment off for Toponymy |
 | `min_df` | int \| null | `null` | all presets → `3` | Minimum document frequency for topic terms; `null` enables auto-scaling as `max(1, min(5, n_docs // 100))` |
 
 ### Embeddings

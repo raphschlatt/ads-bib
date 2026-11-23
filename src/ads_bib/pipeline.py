@@ -43,6 +43,7 @@ from ads_bib._utils.checkpoints import (
     save_tokenized_snapshot,
     save_translated_snapshot,
 )
+from ads_bib._utils.cleaning import require_columns as _require_columns
 from ads_bib._utils.costs import CostTracker
 from ads_bib._utils.logging import (
     OutputMode,
@@ -635,6 +636,13 @@ def _has_translated_frames(ctx: PipelineContext) -> bool:
     assert ctx.refs is not None
     required = {"Title_en", "Abstract_en"}
     return required.issubset(ctx.publications.columns) and required.issubset(ctx.refs.columns)
+
+
+def _use_source_text_as_english(frame: pd.DataFrame) -> pd.DataFrame:
+    """Add ``Title_en`` and ``Abstract_en`` as copies of the source text."""
+    missing = [column for column in ("Title", "Abstract") if f"{column}_en" not in frame.columns]
+    _require_columns(frame, missing, function_name="translate stage with translate.enabled=false")
+    return frame.assign(**{f"{column}_en": frame[column].fillna("") for column in missing})
 
 
 def _try_load_snapshot(
@@ -1282,6 +1290,8 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
     assert ctx.publications is not None
     assert ctx.refs is not None
     if not cfg.enabled:
+        ctx.publications = _use_source_text_as_english(ctx.publications)
+        ctx.refs = _use_source_text_as_english(ctx.refs)
         save_translated_snapshot(
             ctx.publications,
             ctx.refs,
@@ -1434,12 +1444,14 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     cfg = ctx.config.tokenize
     can_load_unvalidated_snapshot = not (_variant_recomputes(ctx, "tokenize") and not _has_translated_frames(ctx))
     if can_load_unvalidated_snapshot:
-        expected_metadata = _tokenized_snapshot_metadata(ctx) if _has_translated_frames(ctx) else None
+        # Frames in memory are only replaced by a snapshot that can be compared with them.
+        translated = _has_translated_frames(ctx)
+        expected_metadata = _tokenized_snapshot_metadata(ctx) if translated else None
         if _try_load_snapshot(
             ctx,
             "tokenize",
             load_tokenized_snapshot,
-            allow_with_source_frames=cfg.enabled,
+            allow_with_source_frames=cfg.enabled and translated,
             load_kwargs={"expected_metadata": expected_metadata},
         ):
             return ctx
