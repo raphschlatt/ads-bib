@@ -115,10 +115,31 @@ def test_export_bibcodes_raises_when_a_request_fails_for_good(monkeypatch):
     monkeypatch.setattr(ex, "_export_chunk", _fake_export_chunk)
     monkeypatch.setattr(ex, "MAX_BIBCODES_PER_REQUEST", 1)
 
-    with pytest.raises(RuntimeError, match=r"1 of 3 requests \(1 of 3 records\)") as excinfo:
-        ex.export_bibcodes(["b1", "b2", "b3"], "token", max_workers=2)
+    with pytest.raises(RuntimeError, match=r"1 of 3 requests \(1 of 3 references\)") as excinfo:
+        ex.export_bibcodes(["b1", "b2", "b3"], "token", max_workers=2, record_label="references")
 
     assert "Max retries (5) exceeded" in str(excinfo.value)
+
+
+def test_export_chunk_treats_unknown_bibcodes_as_empty_result(monkeypatch):
+    response = requests.Response()
+    response.status_code = 404
+    response._content = b'{"error": "no result from solr"}'
+
+    def _raise_not_found(session, method, url, **kwargs):
+        del session, method, url, kwargs
+        raise requests.exceptions.HTTPError("404 Client Error", response=response)
+
+    monkeypatch.setattr(ex, "retry_request", _raise_not_found)
+
+    idx, data, err = ex._export_chunk(
+        session=object(),
+        bibcodes_chunk=["unknown"],
+        chunk_index=2,
+        custom_format=ex.DEFAULT_CUSTOM_FORMAT,
+    )
+
+    assert (idx, data, err) == (2, "", None)
 
 
 def test_parse_export_handles_embedded_newlines():

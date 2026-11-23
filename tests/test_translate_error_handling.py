@@ -40,6 +40,54 @@ def test_translate_dataframe_openrouter_logs_failure_examples(monkeypatch, caplo
     assert info["failed"] == {"Title": 1}
 
 
+def test_translate_dataframe_counts_empty_answers_as_failed_and_keeps_the_text(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        tr,
+        "_translate_openrouter",
+        lambda text, *args, **kwargs: ("", 1, 0, "gen-1", 0.0),
+    )
+    monkeypatch.setattr(tr, "resolve_openrouter_costs", lambda *args, **kwargs: (0.0, {}))
+
+    remote_df, remote_info = tr.translate_dataframe(
+        pd.DataFrame({"Title": ["hola"], "Title_lang": ["es"]}),
+        columns=["Title"],
+        provider="openrouter",
+        model="openrouter/test-model",
+        api_key="dummy",
+        max_workers=1,
+    )
+
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
+    monkeypatch.setattr(
+        tr,
+        "ensure_llama_server",
+        lambda **kwargs: type("Handle", (), {"base_url": "http://127.0.0.1:8080"})(),
+    )
+    empty_message = types.SimpleNamespace(content="")
+    empty_response = types.SimpleNamespace(choices=[types.SimpleNamespace(message=empty_message)])
+    fake_client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=lambda **kwargs: empty_response)
+        )
+    )
+    monkeypatch.setattr(tr, "build_openai_client", lambda **kwargs: fake_client)
+
+    local_df, local_info = tr.translate_dataframe(
+        pd.DataFrame({"Title": ["bonjour"], "Title_lang": ["fr"]}),
+        columns=["Title"],
+        provider="llama_server",
+        model_path=str(model_file),
+    )
+
+    assert remote_df.loc[0, "Title_en"] == "hola"
+    assert remote_info["failed"] == {"Title": 1}
+    assert local_df.loc[0, "Title_en"] == "bonjour"
+    assert local_info["failed"] == {"Title": 1}
+
+
 def test_translate_dataframe_counts_no_failures_when_all_translations_succeed(monkeypatch):
     df = pd.DataFrame(
         {
@@ -100,7 +148,7 @@ def test_translate_dataframe_llama_server_logs_failure_examples(tmp_path, monkey
         lambda text, *, target_lang, source_lang=None: [{"role": "user", "content": text}],
     )
 
-    out_df, _ = tr.translate_dataframe(
+    out_df, info = tr.translate_dataframe(
         df,
         columns=["Title"],
         provider="llama_server",
@@ -110,6 +158,7 @@ def test_translate_dataframe_llama_server_logs_failure_examples(tmp_path, monkey
     assert "Title: 1 translations failed" in caplog.text
     assert "ValueError: bad local model" in caplog.text
     assert out_df.loc[0, "Title_en"] == "bonjour"
+    assert info["failed"] == {"Title": 1}
 
 
 def test_translate_dataframe_huggingface_api_logs_failure_examples(monkeypatch, caplog):
@@ -122,7 +171,7 @@ def test_translate_dataframe_huggingface_api_logs_failure_examples(monkeypatch, 
 
     monkeypatch.setattr(tr, "_translate_rows_huggingface_api", _fake_translate_rows_huggingface_api)
 
-    out_df, _ = tr.translate_dataframe(
+    out_df, info = tr.translate_dataframe(
         df,
         columns=["Title"],
         provider="huggingface_api",
@@ -134,6 +183,7 @@ def test_translate_dataframe_huggingface_api_logs_failure_examples(monkeypatch, 
     assert "Title: 1 translations failed" in caplog.text
     assert "RuntimeError: hf api down" in caplog.text
     assert out_df.loc[0, "Title_en"] == "hola"
+    assert info["failed"] == {"Title": 1}
 
 
 def test_detect_languages_raises_clear_error_for_missing_columns():

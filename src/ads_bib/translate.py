@@ -58,7 +58,7 @@ TranslationProvider: TypeAlias = Literal[
 
 
 class TranslationCostInfo(TypedDict):
-    """Structured cost summary returned by :func:`translate_dataframe`."""
+    """Cost summary and failure counts returned by :func:`translate_dataframe`."""
 
     prompt_tokens: int
     completion_tokens: int
@@ -206,6 +206,21 @@ def _prepare_translation_targets(
     return target_col, df.loc[mask]
 
 
+def _store_translation(
+    df: pd.DataFrame,
+    idx: object,
+    target_col: str,
+    translated: str | None,
+    failed: list[tuple[object, str]],
+    error_msg: str | None = None,
+) -> None:
+    """Write one translation; an empty one counts as failed and keeps the original text."""
+    if translated and str(translated).strip():
+        df.at[idx, target_col] = translated
+    else:
+        failed.append((idx, error_msg or "empty translation"))
+
+
 def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -> None:
     """Print compact translation failure summary for one column."""
     if not failed:
@@ -333,11 +348,9 @@ def _translate_rows_openrouter(
             idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
             if progress_callback is not None:
                 progress_callback(1)
+            _store_translation(df, idx, target_col, translated, failed, error_msg)
             if translated is not None:
-                df.at[idx, target_col] = translated
                 call_records.append({"generation_id": gen_id, "direct_cost": direct_cost})
-            else:
-                failed.append((idx, error_msg or "unknown error"))
             total_pt += pt
             total_ct += ct
 
@@ -534,10 +547,7 @@ def _translate_rows_huggingface_api(
     for idx, translated, pt, ct, error_msg in results:
         total_pt += pt
         total_ct += ct
-        if translated is not None:
-            df.at[idx, target_col] = translated
-        else:
-            failed.append((idx, error_msg or "unknown error"))
+        _store_translation(df, idx, target_col, translated, failed, error_msg)
 
     return total_pt, total_ct, failed
 
@@ -862,8 +872,8 @@ def _translate_rows_transformers(
                     "Local transformers translation batch size mismatch: "
                     f"expected {len(batch)}, got {len(translated_batch)}."
                 )
-            for (idx, text, _src_lang), translated in zip(batch, translated_batch):
-                df.at[idx, target_col] = translated or text
+            for (idx, _text, _src_lang), translated in zip(batch, translated_batch):
+                _store_translation(df, idx, target_col, translated, failed)
             if progress_callback is not None:
                 progress_callback(current_size)
             else:
@@ -1019,8 +1029,7 @@ def _translate_text_with_llama_server(
                     raise
         if last_exc is not None:
             raise last_exc
-    merged = _merge_translated_chunks(translated_chunks)
-    return (merged if merged else str(text)), len(chunks)
+    return _merge_translated_chunks(translated_chunks), len(chunks)
 
 
 def _translate_rows_llama_server(
@@ -1067,7 +1076,7 @@ def _translate_rows_llama_server(
                 chunk_chars=chunk_chars,
                 chunk_overlap_chars=chunk_overlap_chars,
             )
-            df.at[idx, target_col] = translated
+            _store_translation(df, idx, target_col, translated, failed)
             if chunk_count > 1:
                 chunked_docs += 1
             total_chunks += chunk_count
@@ -1316,7 +1325,7 @@ def _translate_rows_nllb(
                 out_tokens = result.hypotheses[0]
                 if out_tokens and out_tokens[0] == tgt_code:
                     out_tokens = out_tokens[1:]
-                df.at[idx, target_col] = _decode_nllb(out_tokens, tokenizer)
+                _store_translation(df, idx, target_col, _decode_nllb(out_tokens, tokenizer), failed)
         except Exception as exc:
             logger.warning(
                 "  NLLB batch [%d:%d] failed (%s), falling back to one-by-one",
@@ -1334,7 +1343,9 @@ def _translate_rows_nllb(
                     out_tokens = single[0].hypotheses[0]
                     if out_tokens and out_tokens[0] == tgt_code:
                         out_tokens = out_tokens[1:]
-                    df.at[indices[i], target_col] = _decode_nllb(out_tokens, tokenizer)
+                    _store_translation(
+                        df, indices[i], target_col, _decode_nllb(out_tokens, tokenizer), failed
+                    )
                 except Exception as row_exc:
                     logger.debug("  NLLB row %s failed: %s", indices[i], row_exc)
                     failed.append((indices[i], f"{type(row_exc).__name__}: {row_exc}"))

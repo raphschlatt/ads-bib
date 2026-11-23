@@ -1037,7 +1037,7 @@ def test_run_summary_reports_search_hits_missing_records_and_failed_translations
         }
     }
     console = capsys.readouterr().err
-    assert "not exported: 1 publications | 2 references" in console
+    assert "without a record: 1 publications | 2 references" in console
     assert "translation failed for 2 entries" in console
 
 

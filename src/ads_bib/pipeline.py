@@ -581,24 +581,29 @@ def _has_source_frames(ctx: PipelineContext) -> bool:
     return ctx.publications is not None and ctx.refs is not None
 
 
+def _searched_bibcodes(ctx: PipelineContext) -> tuple[set[str], set[str]]:
+    """Return the unique publication and reference bibcodes of the search result."""
+    assert ctx.bibcodes is not None and ctx.references is not None
+    publications = {bibcode for bibcode in ctx.bibcodes if bibcode}
+    references = {ref for refs in ctx.references for ref in refs if ref}
+    return publications, references
+
+
 def _search_hits(ctx: PipelineContext) -> dict[str, int] | None:
     """Count the unique publications and references named by the search result."""
     if ctx.bibcodes is None or ctx.references is None:
         return None
-    return {
-        "publications": len(set(ctx.bibcodes)),
-        "references": len({ref for refs in ctx.references for ref in refs if ref}),
-    }
+    publications, references = _searched_bibcodes(ctx)
+    return {"publications": len(publications), "references": len(references)}
 
 
 def _missing_after_export(ctx: PipelineContext) -> dict[str, int]:
     """Count search hits and cited records that have no row after the export."""
-    assert ctx.bibcodes is not None and ctx.references is not None
     assert ctx.publications is not None and ctx.refs is not None
-    wanted_references = {ref for refs in ctx.references for ref in refs if ref}
+    publications, references = _searched_bibcodes(ctx)
     return {
-        "publications_missing": len(set(ctx.bibcodes) - set(ctx.publications["Bibcode"])),
-        "references_missing": len(wanted_references - set(ctx.refs["Bibcode"])),
+        "publications_missing": len(publications - set(ctx.publications["Bibcode"])),
+        "references_missing": len(references - set(ctx.refs["Bibcode"])),
     }
 
 
@@ -921,7 +926,7 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         missing = ctx.export_missing or {}
         if any(missing.values()):
             lines.append(
-                "not exported: "
+                "without a record: "
                 f"{missing['publications_missing']:,} publications | "
                 f"{missing['references_missing']:,} references"
             )

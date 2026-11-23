@@ -51,16 +51,17 @@ Fix:
 
 Symptom: the export stage ends with `ADS export failed for N of M requests`.
 
-ADS did not answer some export requests even after the retries, for example
-because the daily rate limit was reached or the service was down. The run
-stops there instead of continuing with a partial corpus, and nothing is
-written to the export cache.
+Some export requests failed for good. The message names the cause of each,
+for example a rate limit, a server error, or a rejected token. The run stops
+there instead of continuing with a partial corpus, and nothing is written to
+the export cache.
 
 Fix:
 
-- Try again later with a variant of the stopped run that starts at the
-  export stage. It reuses that run's search result and only repeats the
-  export:
+- For a rejected token, check `ADS_TOKEN` in `.env`.
+- For a rate limit or a server error, try again later with a variant of the
+  stopped run that starts at the export stage. It reuses that run's search
+  result, repeats the export, and then continues with the later stages:
 
 ```bash
 ads-bib run --from-run <run_id> --from export

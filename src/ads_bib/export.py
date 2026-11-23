@@ -67,7 +67,11 @@ def _export_chunk(
         )
     except Exception as exc:
         response = getattr(exc, "response", None)
-        if response is not None and getattr(response, "status_code", None) == 400:
+        status = getattr(response, "status_code", None)
+        if status == 404 and "no result" in str(getattr(response, "text", "")).lower():
+            # ADS knows none of the requested bibcodes: no records, not a failed request.
+            return (chunk_index, "", None)
+        if response is not None and status == 400:
             msg = str(exc)
             if msg.startswith("400 Bad Request: "):
                 msg = msg.replace("400 Bad Request: ", "400: ", 1)
@@ -91,6 +95,7 @@ def export_bibcodes(
     backoff_factor: int = 2,
     show_progress: bool = True,
     progress_callback: Callable[[int], None] | None = None,
+    record_label: str = "records",
 ) -> str:
     """Export bibcodes via ADS custom export API in concurrent chunks.
 
@@ -108,6 +113,8 @@ def export_bibcodes(
         Maximum retries per chunk request.
     backoff_factor : int
         Retry backoff multiplier.
+    record_label : str
+        What the bibcodes stand for, used in the error message.
 
     Returns
     -------
@@ -117,8 +124,8 @@ def export_bibcodes(
     Raises
     ------
     RuntimeError
-        If a chunk request still fails after its retries. A partial export
-        would leave up to 2,000 records per failed chunk out of the corpus.
+        If a chunk request fails for good. A partial export would leave up
+        to 2,000 records per failed chunk out of the corpus.
     """
     if not bibcodes:
         return ""
@@ -159,7 +166,7 @@ def export_bibcodes(
                 else:
                     results[cidx] = data
             except Exception as exc:
-                errors.append((idx, str(exc)))
+                errors.append((idx, f"{type(exc).__name__}: {exc}"))
             if progress_callback is not None:
                 progress_callback(size)
             elif pbar is not None:
@@ -173,9 +180,11 @@ def export_bibcodes(
         errors.sort()
         failed_records = sum(len(chunks[idx]) for idx, _ in errors)
         details = "; ".join(f"request {idx + 1}: {err}" for idx, err in errors[:5])
+        if len(errors) > 5:
+            details += f"; and {len(errors) - 5} more"
         raise RuntimeError(
             f"ADS export failed for {len(errors)} of {n_chunks} requests "
-            f"({failed_records:,} of {len(bibcodes):,} records) after all retries, "
+            f"({failed_records:,} of {len(bibcodes):,} {record_label}), "
             f"so the export is not used. {details}"
         )
 
@@ -290,6 +299,7 @@ def resolve_dataset(
         max_workers=max_workers,
         show_progress=show_progress,
         progress_callback=progress_callback,
+        record_label="publications",
     )
     pubs = parse_export(raw_pubs)
     expected_publications = len(set(bibcodes))
@@ -325,6 +335,7 @@ def resolve_dataset(
         max_workers=max_workers,
         show_progress=show_progress,
         progress_callback=progress_callback,
+        record_label="references",
     )
     refs = parse_export(raw_refs)
     expected_references = len(flat_refs)

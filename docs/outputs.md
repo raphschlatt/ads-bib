@@ -105,10 +105,14 @@ counts:
   export:                    # only when this run ran the export stage
     publications_missing: 1
     references_missing: 9
-  translation:               # only when this run translated
+  translation:               # only when this run translated itself
     failed:
-      publications: {Title: 0, Abstract: 2}
-      references: {Title: 0, Abstract: 0}
+      publications:
+        Title: 0
+        Abstract: 2
+      references:
+        Title: 0
+        Abstract: 0
   total_processing:
     publications: 361
     references: 1301
@@ -159,11 +163,15 @@ Key fields:
 - **`counts.search`** — unique publications found by the ADS search and
   unique references they cite.
 - **`counts.export`** — search hits and cited references that have no record
-  after the export, for example because ADS returned no usable record or the
-  year is not a number. A request that fails completely stops the run instead.
-- **`counts.translation.failed`** — translations that failed, per table and
-  column. Those entries keep their original text in `Title_en` or
-  `Abstract_en`; the run still ends as `completed`.
+  after the export, for example because ADS returned no usable record, the
+  year is not a number, or a cached export belongs to another search. A
+  request that fails completely stops the run instead.
+- **`counts.translation.failed`** — translations that failed or came back
+  empty, per table and column. Those entries keep their original text in
+  `Title_en` or `Abstract_en`; the run still ends as `completed`. The block
+  is missing when translation is off or when the run reused a translation
+  from the cache; entries that failed in the earlier run are then still
+  untranslated.
 - **`counts.topic_model.outliers_rate`** — quality proxy; very high rates
   usually mean clusters are too sharp.
 - **`costs`** — only populated for providers with cost tracking (OpenRouter
