@@ -9,11 +9,17 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Added
 - `run_summary.yaml` now reports the number of search hits (`counts.search`), the publications and references without a record after the export (`counts.export`), the translations that failed (`counts.translation.failed`), and the installed `ads-bib` version (`reproducibility.ads_bib_version`). The export and translate stages also print missing records and failed translations.
 
+### Changed
+- Four dependencies that had no upper bound now have one: `bertopic<0.18`, `litellm<2`, `openai<4`, `scikit-learn<2`. A fresh install resolves the same versions as before; the bounds keep out future major releases that the package has not been tested with.
+
 ### Fixed
 - A run no longer continues with a partial corpus when an ADS export request fails for good. The export stage stops with an error that names the failed requests; before, up to 2,000 records per failed request were missing without notice and the run ended as `completed`.
 - An empty answer from a translation model now counts as a failed translation and the original text is kept. Before, the remote providers and NLLB wrote an empty text into `Title_en` or `Abstract_en`.
 - `translate.enabled: false` now works: titles and abstracts are passed on unchanged as `Title_en` and `Abstract_en`. Before, such a run stopped at the tokenize stage in a new project folder, and in a used project folder it could continue with the publications of an earlier run from the shared cache. If you ran with this setting in a project folder that already held another run, repeat that run.
 - A run that starts at `tokenize` with untranslated publications already loaded, for example from `source_input`, no longer swaps them for the tokenized snapshot of an earlier run in the shared cache.
+
+### Docs
+- Corrected the advice on `topic_model.outlier_threshold`: a lower value reassigns more outliers, a higher value fewer, and `0` turns the reassignment off for Toponymy. The docs said the opposite.
 
 ## [0.3.3] - 2026-05-22
 

@@ -10,8 +10,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+# The repo root makes scripts/ importable, src the package itself.
+for _path in (str(ROOT), str(SRC)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from ads_bib._utils import logging as logging_utils
 

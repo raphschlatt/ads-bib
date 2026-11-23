@@ -197,18 +197,23 @@ which is the preferred way to keep hierarchy labels concise without forking
 the backend prompt logic.
 
 For BERTopic, representation runs a POS filter → KeyBERT → MMR → LLM before
-the final label emerges. Outlier reassignment uses `outlier_threshold`
-(default `0.5`) — documents with assignment probability above that threshold
-get pulled into their nearest cluster, then topic labels are refreshed.
+the final label emerges.
+
+Both backends then try to move outliers (documents without a topic) into
+their most similar topic. `outlier_threshold` (default `0.5`) is the minimum
+cosine similarity an outlier needs for that: a lower value reassigns more
+documents, a higher value fewer. With Toponymy, `0` turns the reassignment
+off; with BERTopic, `0` reassigns every outlier that has any positive
+similarity to a topic. BERTopic refreshes its topic labels afterwards.
 
 !!! warning "Common failure patterns (labeling)"
     - **Generic or empty labels** (e.g. "Topic 1") → check `llm_prompt_name` —
       `physics` is tuned for gravitational physics, `generic` for other domains.
     - **Labeling times out or intermittently fails** → lower
       `toponymy_max_workers`, or switch the LLM provider for that run.
-    - **Outliers swallow most documents** → raise `outlier_threshold` so more
-      documents get reassigned into their nearest cluster before labels are
-      regenerated.
+    - **Outliers swallow most documents** → lower `outlier_threshold` so more
+      documents get reassigned into their most similar topic. Raising it
+      reassigns fewer.
 
 Labeling-only variants also start at `topic_fit` because labels are part of
 the fitted topic model:
