@@ -1,5 +1,8 @@
 # ads-bib
 
+[![Tests](https://github.com/raphschlatt/ads-bib/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/raphschlatt/ads-bib/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/ads-bib)](https://pypi.org/project/ads-bib/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19881191.svg)](https://doi.org/10.5281/zenodo.19881191)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://raphschlatt.github.io/ads-bib/)
@@ -116,3 +119,11 @@ runs/<run_id>/
 
 [![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
 *Author co-citation output from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
+
+## Citation
+
+If you use `ads-bib` in your work, please cite it:
+
+> Schlattmann, R. *ads-bib: Pipeline for Curated Bibliometric Datasets from NASA ADS* [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19881191
+
+This DOI stands for all versions and resolves to the latest one; the Zenodo page also lists a DOI for each release. GitHub's "Cite this repository" button offers the reference as APA and BibTeX, generated from [`CITATION.cff`](https://github.com/raphschlatt/ads-bib/blob/main/CITATION.cff).
