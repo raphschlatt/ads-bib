@@ -4,6 +4,10 @@ on:
   push:
     branches: ["main", "master"]
   pull_request:
+  schedule:
+    # Mondays 04:17 UTC: catches breaks caused by new releases of dependencies.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -67,7 +71,7 @@ jobs:
         run: |
           uv pip install "torch==2.6.0" --index-url https://download.pytorch.org/whl/cpu
           uv pip install -e ".[test,umap,hdbscan]"
-          uv pip install build twine
+          uv pip install build
 
       - name: Pytest (full)
         run: uv run pytest -q
@@ -76,7 +80,7 @@ jobs:
         run: uv run python -m build
 
       - name: Twine check
-        run: uv run python -m twine check dist/*
+        run: uvx twine check dist/*
 
       - name: Wheel smoke (core)
         run: |
