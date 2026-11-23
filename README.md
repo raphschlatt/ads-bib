@@ -114,10 +114,10 @@ runs/<run_id>/
 - **`run_summary.yaml`** — full run metadata, stage status, and optional variant provenance
 - **`data/dataset/dataset_manifest.json`** — artifact hashes plus bundle-cleaning provenance
 
-[![Interactive topic map from the Hawking query](https://raw.githubusercontent.com/raphschlatt/ads-bib/main/docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
+[![Interactive topic map from the Hawking query](docs/assets/topic_map_demo.gif)](https://github.com/TutteInstitute/datamapplot)
 *Topic map output from `author:"Hawking, S*"` in [datamapplot](https://github.com/TutteInstitute/datamapplot).*
 
-[![Author co-citation network from the Hawking query](https://raw.githubusercontent.com/raphschlatt/ads-bib/main/docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
+[![Author co-citation network from the Hawking query](docs/assets/gephi_lite_demo.gif)](https://gephi.org/gephi-lite/)
 *Author co-citation output from `author:"Hawking, S*"` in [Gephi Lite](https://gephi.org/gephi-lite/).*
 
 ## Citation
