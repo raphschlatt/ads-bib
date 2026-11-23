@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ def plan_run_variant(
     base_run_id = _read_base_run_id(base_run_path)
     base_config = load_base_run_config(base_run_path)
     base_data = base_config.to_dict()
-    base_data["run"]["project_root"] = _variant_project_root(base_run_path, project_root)
+    base_data["run"]["project_root"] = _variant_project_root(from_run, project_root)
     config_data = deepcopy(base_data)
 
     normalized_overrides = {str(key): value for key, value in (overrides or {}).items()}
@@ -229,7 +230,7 @@ def format_variant_plan(plan: RunVariantPlan) -> str:
             "Run variant dry run",
             f"Base run: {plan.base_run_id}",
             f"Base path: {plan.base_run_path}",
-            f"Project folder: {plan.config.run.project_root or '(current folder)'}",
+            f"Project folder: {plan.config.run.project_root or Path.cwd()}",
             f"Changed keys: {changed}",
             f"Reused stages: {reused_stages}",
             f"Recomputed stages: {recomputed_stages}",
@@ -252,18 +253,23 @@ def _automatic_start_stage(
     )
 
 
-def _variant_project_root(base_run_path: Path, project_root: Path | str | None) -> str | None:
-    """Return the project folder for a variant.
+def _variant_project_root(from_run: str | Path, project_root: Path | str | None) -> str | None:
+    """Return the project folder for a variant, or ``None`` for the current folder.
 
     The folder recorded in the base run's config is not used: the run may have
     been moved since. Without an explicit choice, the variant stays in the
-    project that contains the base run, where its caches are.
+    project that contains the base run (``<project>/runs/<run>``), where its
+    caches are. The path counts as the user gave it, so a linked ``runs``
+    folder still belongs to the project that links to it.
     """
     if project_root is not None:
         return str(project_root)
-    if base_run_path.parent.name == "runs":
-        return str(base_run_path.parent.parent)
-    return None
+    addressed = Path(os.path.abspath(Path(from_run).expanduser()))
+    if not addressed.is_dir() or addressed.parent.name != "runs":
+        # A run id below ./runs, or a run folder kept outside a project.
+        return None
+    project = addressed.parent.parent
+    return None if project == Path.cwd() else str(project)
 
 
 def _anchor_author_disambiguation_cache(config_data: dict[str, Any], *, base_run_id: str) -> None:

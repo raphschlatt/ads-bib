@@ -7,8 +7,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 ### Fixed
-- `--from-run` works again with runs saved before 0.3.2. Their `config_used.yaml` still contains the removed key `curation.cluster_targets`, which is now read as `curation.layered_clusters_to_remove`.
-- A variant is created in the project folder that contains its base run, not in the folder recorded in the base run's config, which may no longer exist after the run was moved. `--dry-run` shows the project folder.
+- `--from-run` works again with runs saved by 0.2.0 to 0.3.1. Their `config_used.yaml` still contains the removed key `curation.cluster_targets`, which is now read as `curation.layered_clusters_to_remove`. A subtitle that still uses the default from before 0.1.0, whose placeholders no longer exist, is replaced by the current default.
+- A variant is created in the project folder that contains its base run (`<project>/runs/<run_id>`), or in the current folder if the base run sits elsewhere. It no longer uses the folder recorded in the base run's config, which may be gone after the run was moved. `--dry-run` shows the project folder.
 
 ## [0.3.3] - 2026-05-22
 

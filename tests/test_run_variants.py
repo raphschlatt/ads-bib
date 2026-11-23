@@ -489,7 +489,7 @@ def test_run_saved_before_0_3_2_can_be_planned_as_variant_base(tmp_path):
     assert plan.config.curation.layered_clusters_to_remove == []
     assert plan.config.visualization.title == "Legacy Map"
     assert plan.config.visualization.subtitle_template == VisualizationConfig().subtitle_template
-    assert "Project folder: " + str(tmp_path.resolve()) in format_variant_plan(plan)
+    assert f"Project folder: {tmp_path}" in format_variant_plan(plan)
 
 
 def test_legacy_cluster_targets_become_layered_clusters_to_remove(tmp_path):
@@ -509,7 +509,66 @@ def test_variant_runs_in_project_of_base_run_not_in_stored_project_root(tmp_path
 
     plan = plan_run_variant(from_run=run_dir, hydrate=False)
 
-    assert Path(plan.config.run.project_root) == tmp_path.resolve()
+    assert Path(plan.config.run.project_root) == tmp_path
+
+
+def test_variant_by_run_id_stays_in_current_folder_without_recording_it(tmp_path, monkeypatch):
+    run_dir = _write_legacy_run(tmp_path / "runs")
+    monkeypatch.chdir(tmp_path)
+
+    by_id = plan_run_variant(from_run=run_dir.name, hydrate=False)
+    by_path = plan_run_variant(from_run=run_dir, hydrate=False)
+
+    assert by_id.config.run.project_root is None
+    assert by_path.config.run.project_root is None
+    assert f"Project folder: {Path.cwd()}" in format_variant_plan(by_id)
+
+
+def test_variant_of_run_in_linked_runs_folder_stays_in_linking_project(tmp_path):
+    store = tmp_path / "store" / "runs"
+    run_dir = _write_legacy_run(store)
+    project = tmp_path / "project"
+    project.mkdir()
+    try:
+        (project / "runs").symlink_to(store, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory links are not available here")
+
+    plan = plan_run_variant(from_run=project / "runs" / run_dir.name, hydrate=False)
+
+    assert Path(plan.config.run.project_root) == project
+
+
+def test_cli_variant_reaches_preflight_and_pipeline_with_the_base_project(tmp_path, monkeypatch):
+    import ads_bib.cli as cli
+    import ads_bib.doctor as doctor
+    import ads_bib.runner as runner
+
+    run_dir = _write_legacy_run(tmp_path / "runs")
+    _write_dataset_artifacts(run_dir)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    seen: dict[str, object] = {}
+
+    def _fake_fasttext(**kwargs):
+        seen["fasttext"] = kwargs["project_root"]
+
+    def _fake_doctor(config, **kwargs):
+        seen["doctor"] = config.run.project_root
+        return doctor.DoctorReport(checks=(), active_stages=("citations",))
+
+    def _fake_run_pipeline(config, **kwargs):
+        seen["pipeline"] = config.run.project_root
+
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", _fake_fasttext)
+    monkeypatch.setattr(runner, "collect_doctor_report", _fake_doctor)
+    monkeypatch.setattr(runner, "run_pipeline", _fake_run_pipeline)
+
+    rc = cli.main(["run", "--from-run", str(run_dir), "--set", "citations.min_counts.direct=2"])
+
+    assert rc == 0
+    assert seen == {"fasttext": str(tmp_path), "doctor": str(tmp_path), "pipeline": str(tmp_path)}
 
 
 def test_variant_project_root_prefers_explicit_choices(tmp_path):
