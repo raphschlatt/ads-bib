@@ -47,6 +47,27 @@ Fix:
 - Re-run `ads-bib run ...` after editing `.env`.
 - Reload the environment in the notebook session or restart the kernel.
 
+## ADS export stops
+
+Symptom: the export stage ends with `ADS export failed for N of M requests`.
+
+Some export requests failed for good. The message lists up to five of them
+with their error, for example a server error or a rejected token;
+`Max retries (5) exceeded` usually means the ADS rate limit. The run stops
+there instead of continuing with a partial corpus, and nothing is written to
+the export cache.
+
+Fix:
+
+- For a rejected token (401), check `ADS_TOKEN` in `.env`.
+- For a rate limit or a server error, try again later with a variant of the
+  stopped run that starts at the export stage. It reuses that run's search
+  result, repeats the export, and then continues with the later stages:
+
+```bash
+ads-bib run --from-run <run_id> --from export
+```
+
 ## Missing runtime dependency
 
 Symptom: import or provider errors for topic models, translation, or

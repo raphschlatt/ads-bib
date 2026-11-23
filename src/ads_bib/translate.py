@@ -58,7 +58,7 @@ TranslationProvider: TypeAlias = Literal[
 
 
 class TranslationCostInfo(TypedDict):
-    """Structured cost summary returned by :func:`translate_dataframe`."""
+    """Cost summary and failure counts returned by :func:`translate_dataframe`."""
 
     prompt_tokens: int
     completion_tokens: int
@@ -67,6 +67,7 @@ class TranslationCostInfo(TypedDict):
     cost_usd: float | None
     cost_mode: str | None
     cost_summary: dict[str, object] | None
+    failed: dict[str, int]
 
 # ---------------------------------------------------------------------------
 # Language detection  (fasttext – fast & free)
@@ -205,6 +206,21 @@ def _prepare_translation_targets(
     return target_col, df.loc[mask]
 
 
+def _store_translation(
+    df: pd.DataFrame,
+    idx: object,
+    target_col: str,
+    translated: str | None,
+    failed: list[tuple[object, str]],
+    error_msg: str | None = None,
+) -> None:
+    """Write one translation; an empty one counts as failed and keeps the original text."""
+    if isinstance(translated, str) and translated.strip():
+        df.at[idx, target_col] = translated
+    else:
+        failed.append((idx, error_msg or "empty translation"))
+
+
 def _report_failed_translations(column: str, failed: list[tuple[object, str]]) -> None:
     """Print compact translation failure summary for one column."""
     if not failed:
@@ -332,11 +348,9 @@ def _translate_rows_openrouter(
             idx, translated, pt, ct, gen_id, direct_cost, error_msg = future.result()
             if progress_callback is not None:
                 progress_callback(1)
+            _store_translation(df, idx, target_col, translated, failed, error_msg)
             if translated is not None:
-                df.at[idx, target_col] = translated
                 call_records.append({"generation_id": gen_id, "direct_cost": direct_cost})
-            else:
-                failed.append((idx, error_msg or "unknown error"))
             total_pt += pt
             total_ct += ct
 
@@ -533,10 +547,7 @@ def _translate_rows_huggingface_api(
     for idx, translated, pt, ct, error_msg in results:
         total_pt += pt
         total_ct += ct
-        if translated is not None:
-            df.at[idx, target_col] = translated
-        else:
-            failed.append((idx, error_msg or "unknown error"))
+        _store_translation(df, idx, target_col, translated, failed, error_msg)
 
     return total_pt, total_ct, failed
 
@@ -861,8 +872,8 @@ def _translate_rows_transformers(
                     "Local transformers translation batch size mismatch: "
                     f"expected {len(batch)}, got {len(translated_batch)}."
                 )
-            for (idx, text, _src_lang), translated in zip(batch, translated_batch):
-                df.at[idx, target_col] = translated or text
+            for (idx, _text, _src_lang), translated in zip(batch, translated_batch):
+                _store_translation(df, idx, target_col, translated, failed)
             if progress_callback is not None:
                 progress_callback(current_size)
             else:
@@ -1018,8 +1029,10 @@ def _translate_text_with_llama_server(
                     raise
         if last_exc is not None:
             raise last_exc
-    merged = _merge_translated_chunks(translated_chunks)
-    return (merged if merged else str(text)), len(chunks)
+    if any(not chunk.strip() for chunk in translated_chunks):
+        # One empty chunk would leave part of the text out; report the whole text as failed.
+        return "", len(chunks)
+    return _merge_translated_chunks(translated_chunks), len(chunks)
 
 
 def _translate_rows_llama_server(
@@ -1066,7 +1079,7 @@ def _translate_rows_llama_server(
                 chunk_chars=chunk_chars,
                 chunk_overlap_chars=chunk_overlap_chars,
             )
-            df.at[idx, target_col] = translated
+            _store_translation(df, idx, target_col, translated, failed)
             if chunk_count > 1:
                 chunked_docs += 1
             total_chunks += chunk_count
@@ -1311,11 +1324,15 @@ def _translate_rows_nllb(
                 max_batch_size=_NLLB_MAX_BATCH_TOKENS,
                 max_decoding_length=256,
             )
-            for idx, result in zip(indices[start:end], batch_results):
+            decoded: list[str] = []
+            for result in batch_results:
                 out_tokens = result.hypotheses[0]
                 if out_tokens and out_tokens[0] == tgt_code:
                     out_tokens = out_tokens[1:]
-                df.at[idx, target_col] = _decode_nllb(out_tokens, tokenizer)
+                decoded.append(_decode_nllb(out_tokens, tokenizer))
+            # Store only after the whole batch decoded, so the fallback below never recounts a row.
+            for idx, translated in zip(indices[start:end], decoded):
+                _store_translation(df, idx, target_col, translated, failed)
         except Exception as exc:
             logger.warning(
                 "  NLLB batch [%d:%d] failed (%s), falling back to one-by-one",
@@ -1333,7 +1350,9 @@ def _translate_rows_nllb(
                     out_tokens = single[0].hypotheses[0]
                     if out_tokens and out_tokens[0] == tgt_code:
                         out_tokens = out_tokens[1:]
-                    df.at[indices[i], target_col] = _decode_nllb(out_tokens, tokenizer)
+                    _store_translation(
+                        df, indices[i], target_col, _decode_nllb(out_tokens, tokenizer), failed
+                    )
                 except Exception as row_exc:
                     logger.debug("  NLLB row %s failed: %s", indices[i], row_exc)
                     failed.append((indices[i], f"{type(row_exc).__name__}: {row_exc}"))
@@ -1452,7 +1471,9 @@ def translate_dataframe(
     Returns
     -------
     tuple[pd.DataFrame, TranslationCostInfo]
-        ``(translated_df, cost_info)``.
+        ``(translated_df, cost_info)``. ``cost_info["failed"]`` gives, per
+        column, how many translations failed; those rows keep the original
+        text in the ``{col}_en`` column.
     """
     from .config import validate_provider
     model_name = model
@@ -1501,6 +1522,7 @@ def translate_dataframe(
     total_pt = 0
     total_ct = 0
     call_records: list[dict[str, str | float | None]] = []
+    failed_counts: dict[str, int] = {col: 0 for col in columns}
     model_label = (
         llama_server_spec.display_name()
         if llama_server_spec is not None
@@ -1620,6 +1642,7 @@ def translate_dataframe(
             raise ValueError(f"Unknown translation provider: {provider}")
 
         _report_failed_translations(col, failed)
+        failed_counts[col] = len(failed)
 
     total_cost_usd, cost_summary = _summarize_translation_cost(
         provider=provider,
@@ -1638,6 +1661,7 @@ def translate_dataframe(
         "cost_usd": total_cost_usd,
         "cost_mode": openrouter_cost_mode if provider == "openrouter" else None,
         "cost_summary": cost_summary,
+        "failed": failed_counts,
     }
     if cost_tracker is not None and total_pt + total_ct > 0:
         cost_tracker.add(

@@ -59,6 +59,8 @@ class _StageStateContext(Protocol):
     curated_df: pd.DataFrame | None
     citation_results: dict[str, pd.DataFrame] | None
     resume_blocked_from: StageName | None
+    export_missing: dict[str, int] | None
+    translation_failed: dict[str, dict[str, int]] | None
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,8 @@ _INVALIDATION_RULES: dict[StageName, _InvalidationRule] = {
             "fulltext_urls",
             "publications",
             "refs",
+            "export_missing",
+            "translation_failed",
             "topic_input_df",
             "documents",
             "embeddings",
@@ -120,6 +124,7 @@ _INVALIDATION_RULES: dict[StageName, _InvalidationRule] = {
             "author_display_names",
         ),
         clear_fields=(
+            "translation_failed",
             "topic_input_df",
             "documents",
             "embeddings",

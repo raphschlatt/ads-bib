@@ -91,6 +91,7 @@ def export_bibcodes(
     backoff_factor: int = 2,
     show_progress: bool = True,
     progress_callback: Callable[[int], None] | None = None,
+    record_label: str = "records",
 ) -> str:
     """Export bibcodes via ADS custom export API in concurrent chunks.
 
@@ -108,11 +109,19 @@ def export_bibcodes(
         Maximum retries per chunk request.
     backoff_factor : int
         Retry backoff multiplier.
+    record_label : str
+        What the bibcodes stand for, used in the error message.
 
     Returns
     -------
     str
         Concatenated raw export payload in ADS custom format.
+
+    Raises
+    ------
+    RuntimeError
+        If a chunk request fails for good. A partial export would leave up
+        to 2,000 records per failed chunk out of the corpus.
     """
     if not bibcodes:
         return ""
@@ -153,7 +162,7 @@ def export_bibcodes(
                 else:
                     results[cidx] = data
             except Exception as exc:
-                errors.append((idx, str(exc)))
+                errors.append((idx, f"{type(exc).__name__}: {exc}"))
             if progress_callback is not None:
                 progress_callback(size)
             elif pbar is not None:
@@ -164,9 +173,16 @@ def export_bibcodes(
     session.close()
 
     if errors:
-        logger.warning("%s chunk(s) failed:", len(errors))
-        for idx, err in errors[:5]:
-            logger.warning("  Chunk %s: %s", idx, err)
+        errors.sort()
+        failed_records = sum(len(chunks[idx]) for idx, _ in errors)
+        details = "; ".join(f"request {idx + 1}: {err}" for idx, err in errors[:5])
+        if len(errors) > 5:
+            details += f"; and {len(errors) - 5} more"
+        raise RuntimeError(
+            f"ADS export failed for {len(errors)} of {n_chunks} requests "
+            f"({failed_records:,} of {len(bibcodes):,} {record_label}), "
+            f"so the export is not used. {details}"
+        )
 
     return "".join(r for r in results if r is not None)
 
@@ -279,6 +295,7 @@ def resolve_dataset(
         max_workers=max_workers,
         show_progress=show_progress,
         progress_callback=progress_callback,
+        record_label="publications",
     )
     pubs = parse_export(raw_pubs)
     expected_publications = len(set(bibcodes))
@@ -314,6 +331,7 @@ def resolve_dataset(
         max_workers=max_workers,
         show_progress=show_progress,
         progress_callback=progress_callback,
+        record_label="references",
     )
     refs = parse_export(raw_refs)
     expected_references = len(flat_refs)

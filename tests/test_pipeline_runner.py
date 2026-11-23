@@ -14,6 +14,7 @@ import ads_bib.pipeline as pipeline
 from ads_bib.presets import get_preset_names, get_preset_summary, load_preset_config
 from ads_bib.prompts import BERTOPIC_LABELING_PHYSICS, TOPONYMY_LABELING_PHYSICS
 from ads_bib.run_stage_artifacts import save_frame_pair, save_search_artifact
+from ads_bib.run_variants import plan_run_variant
 
 
 class _DummyTopicModel:
@@ -968,6 +969,118 @@ def test_run_pipeline_writes_failed_summary_on_stage_error(tmp_path, monkeypatch
     assert summary["stages"]["requested_stop_stage"] == "tokenize"
     assert summary["stages"]["completed_stages"] == ["search", "export", "translate"]
     assert summary["stages"]["failed_stage"] == "tokenize"
+
+
+def test_run_summary_reports_search_hits_missing_records_and_failed_translations(
+    tmp_path, monkeypatch, capsys
+):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+            "translate": {
+                "enabled": True,
+                "provider": "nllb",
+                "model": "stub",
+                "fasttext_model": str(tmp_path / "lid.176.bin"),
+            },
+        }
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "search_ads",
+        lambda *args, **kwargs: (
+            ["p1", "p2"],
+            [["r1", "r2"], ["r2", "r3"]],
+            [[], []],
+            [None, None],
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "resolve_dataset",
+        lambda *args, **kwargs: (
+            pd.DataFrame([{"Bibcode": "p1", "Title": "Titel", "Abstract": "Text"}]),
+            pd.DataFrame([{"Bibcode": "r1", "Title": "Ref", "Abstract": "Ref text"}]),
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "detect_languages",
+        lambda df, columns, model_path: df.assign(**{f"{col}_lang": "de" for col in columns}),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "translate_dataframe",
+        lambda df, columns, **kwargs: (
+            df.assign(**{f"{col}_en": df[col] for col in columns}),
+            {"failed": {"Title": 0, "Abstract": 1}},
+        ),
+    )
+
+    ctx = pipeline.run_pipeline(
+        config,
+        stop_stage="translate",
+        project_root=tmp_path,
+        run_name="gaps",
+        load_environment=False,
+    )
+
+    summary = yaml.safe_load((ctx.run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["run"]["status"] == "completed"
+    assert summary["counts"]["search"] == {"publications": 2, "references": 3}
+    assert summary["counts"]["export"] == {"publications_missing": 1, "references_missing": 2}
+    assert summary["counts"]["translation"] == {
+        "failed": {
+            "publications": {"Title": 0, "Abstract": 1},
+            "references": {"Title": 0, "Abstract": 1},
+        }
+    }
+    console = capsys.readouterr().err
+    assert "without a record: 1 publications | 2 references" in console
+    assert "translation failed for 2 entries" in console
+
+
+def test_run_pipeline_fails_when_an_export_request_fails_for_good(tmp_path, monkeypatch):
+    import ads_bib.export as export_module
+
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "search": {"query": "q", "ads_token": "token"},
+        }
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "search_ads",
+        lambda *args, **kwargs: (["p1"], [["r1"]], [[]], [None]),
+    )
+    monkeypatch.setattr(export_module, "create_session", lambda token: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(
+        export_module,
+        "_export_chunk",
+        lambda session, chunk, index, *args: (index, None, "HTTPError: 502 Server Error"),
+    )
+
+    with pytest.raises(RuntimeError, match="ADS export failed for 1 of 1 requests"):
+        pipeline.run_pipeline(
+            config,
+            stop_stage="export",
+            project_root=tmp_path,
+            run_name="export_failure",
+            load_environment=False,
+        )
+
+    run_dir = next((tmp_path / "runs").iterdir())
+    summary = yaml.safe_load((run_dir / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["run"]["status"] == "failed"
+    assert summary["stages"]["failed_stage"] == "export"
+    assert "ADS export failed" in summary["run"]["error"]
+    assert not (tmp_path / "data" / "raw" / "publications.json").exists()
+
+    retry = plan_run_variant(from_run=run_dir, start_stage="export")
+    assert retry.initial_state is not None
+    assert retry.initial_state.bibcodes == ["p1"]
 
 
 def test_run_pipeline_citation_variant_uses_initial_state_and_writes_provenance(tmp_path, monkeypatch):
