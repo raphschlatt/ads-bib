@@ -161,7 +161,7 @@ run:
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | bool | `true` | Skip translation when `false` |
+| `enabled` | bool | `true` | Skip translation when `false`; titles and abstracts are then used unchanged as `Title_en` and `Abstract_en`, and no `Title_lang` or `Abstract_lang` columns are written |
 | `provider` | string | varies | `openrouter`, `nllb`, `llama_server`, `huggingface_api`, or `transformers` |
 | `model` | string \| null | varies | Model identifier for `openrouter` / `huggingface_api` / `transformers`, or an HF repo id / local path for `nllb` |
 | `model_repo` | string \| null | `null` | HF repo for GGUF model download (`llama_server` provider) |
