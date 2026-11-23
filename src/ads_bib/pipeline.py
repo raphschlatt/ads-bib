@@ -1444,12 +1444,14 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     cfg = ctx.config.tokenize
     can_load_unvalidated_snapshot = not (_variant_recomputes(ctx, "tokenize") and not _has_translated_frames(ctx))
     if can_load_unvalidated_snapshot:
-        expected_metadata = _tokenized_snapshot_metadata(ctx) if _has_translated_frames(ctx) else None
+        # Frames in memory are only replaced by a snapshot that can be compared with them.
+        translated = _has_translated_frames(ctx)
+        expected_metadata = _tokenized_snapshot_metadata(ctx) if translated else None
         if _try_load_snapshot(
             ctx,
             "tokenize",
             load_tokenized_snapshot,
-            allow_with_source_frames=cfg.enabled,
+            allow_with_source_frames=cfg.enabled and translated,
             load_kwargs={"expected_metadata": expected_metadata},
         ):
             return ctx

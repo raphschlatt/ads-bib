@@ -1305,8 +1305,8 @@ def test_run_translate_stage_requires_export_when_no_inputs(tmp_path, monkeypatc
     assert excinfo.value.required_stage == "export"
 
 
-def _run_untranslated_export_through_tokenize(tmp_path, monkeypatch):
-    """Run translate -> tokenize with translation off, starting from plain export frames."""
+def _run_untranslated_export_through_tokenize(tmp_path, monkeypatch, *, start_stage="translate"):
+    """Run through tokenize with translation off, starting from plain export frames."""
     config = pipeline.PipelineConfig.from_dict(
         {
             "run": {"project_root": str(tmp_path)},
@@ -1330,7 +1330,7 @@ def _run_untranslated_export_through_tokenize(tmp_path, monkeypatch):
     )
     return pipeline.run_pipeline(
         config,
-        start_stage="translate",
+        start_stage=start_stage,
         stop_stage="tokenize",
         project_root=tmp_path,
         run_name="untranslated",
@@ -1354,7 +1354,19 @@ def test_translation_disabled_fills_english_columns_in_fresh_project(tmp_path, m
     assert summary["stages"]["completed_stages"] == ["translate", "tokenize"]
 
 
-def test_translation_disabled_ignores_tokenized_cache_of_an_earlier_run(tmp_path, monkeypatch):
+def test_translation_disabled_reports_missing_text_columns(tmp_path):
+    config = pipeline.PipelineConfig.from_dict(
+        {"run": {"project_root": str(tmp_path)}, "translate": {"enabled": False}}
+    )
+    ctx = pipeline.PipelineContext.create(config, project_root=tmp_path, load_environment=False)
+    ctx.publications = pd.DataFrame([{"Bibcode": "p1", "Title": "T"}])
+    ctx.refs = pd.DataFrame([{"Bibcode": "r1", "Title": "RT", "Abstract": "RA"}])
+
+    with pytest.raises(ValueError, match="Missing: Abstract"):
+        pipeline.run_translate_stage(ctx)
+
+
+def _save_tokenized_snapshot_of_an_earlier_run(tmp_path):
     cache_dir = pipeline.init_paths(project_root=tmp_path)["cache"]
     pipeline.save_tokenized_snapshot(
         pd.DataFrame(
@@ -1373,10 +1385,18 @@ def test_translation_disabled_ignores_tokenized_cache_of_an_earlier_run(tmp_path
         metadata={"schema_version": 2, "stage": "tokenize", "source": "earlier run"},
     )
 
-    ctx = _run_untranslated_export_through_tokenize(tmp_path, monkeypatch)
+
+@pytest.mark.parametrize("start_stage", ["translate", "tokenize"])
+def test_translation_disabled_ignores_tokenized_cache_of_an_earlier_run(
+    tmp_path, monkeypatch, start_stage
+):
+    _save_tokenized_snapshot_of_an_earlier_run(tmp_path)
+
+    ctx = _run_untranslated_export_through_tokenize(tmp_path, monkeypatch, start_stage=start_stage)
 
     assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
     assert ctx.refs["Bibcode"].tolist() == ["fresh-ref"]
+    assert ctx.publications["Title_en"].tolist() == ["Titel"]
 
 
 def test_run_tokenize_stage_uses_current_translated_results_when_snapshot_blocked(tmp_path, monkeypatch):
