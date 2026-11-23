@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Fixed
+- `translate.enabled: false` now works: titles and abstracts are passed on unchanged as `Title_en` and `Abstract_en`. Before, such a run stopped at the tokenize stage in a new project folder, and in a used project folder it could continue with the publications of an earlier run from the shared cache.
+
 ## [0.3.3] - 2026-05-22
 
 ### Fixed

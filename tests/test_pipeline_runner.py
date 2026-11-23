@@ -1305,6 +1305,80 @@ def test_run_translate_stage_requires_export_when_no_inputs(tmp_path, monkeypatc
     assert excinfo.value.required_stage == "export"
 
 
+def _run_untranslated_export_through_tokenize(tmp_path, monkeypatch):
+    """Run translate -> tokenize with translation off, starting from plain export frames."""
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "translate": {"enabled": False},
+        }
+    )
+    publications = pd.DataFrame(
+        [{"Bibcode": "fresh-pub", "Year": 2020, "Title": "Titel", "Abstract": None}]
+    )
+    refs = pd.DataFrame(
+        [{"Bibcode": "fresh-ref", "Year": 2010, "Title": "Ref", "Abstract": "Ref abstract"}]
+    )
+    monkeypatch.setattr(pipeline, "ensure_spacy_model", lambda **kwargs: ("en_core_web_md", object()))
+    monkeypatch.setattr(
+        pipeline,
+        "tokenize_texts",
+        lambda df, **kwargs: df.assign(
+            full_text=[f"{row.Title_en}. {row.Abstract_en}" for row in df.itertuples()],
+            tokens=[["tok"] for _ in range(len(df))],
+        ),
+    )
+    return pipeline.run_pipeline(
+        config,
+        start_stage="translate",
+        stop_stage="tokenize",
+        project_root=tmp_path,
+        run_name="untranslated",
+        load_environment=False,
+        initial_state=pipeline.PipelineInitialState(publications=publications, refs=refs),
+    )
+
+
+def test_translation_disabled_fills_english_columns_in_fresh_project(tmp_path, monkeypatch):
+    ctx = _run_untranslated_export_through_tokenize(tmp_path, monkeypatch)
+
+    assert ctx.publications["Title_en"].tolist() == ["Titel"]
+    assert ctx.publications["Abstract_en"].tolist() == [""]
+    assert ctx.refs["Title_en"].tolist() == ["Ref"]
+    assert ctx.refs["Abstract_en"].tolist() == ["Ref abstract"]
+    assert ctx.publications["tokens"].tolist() == [["tok"]]
+    translated = pd.read_parquet(ctx.run.paths["translated"] / "publications.parquet")
+    assert translated["Title_en"].tolist() == ["Titel"]
+    summary = yaml.safe_load((ctx.run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["run"]["status"] == "completed"
+    assert summary["stages"]["completed_stages"] == ["translate", "tokenize"]
+
+
+def test_translation_disabled_ignores_tokenized_cache_of_an_earlier_run(tmp_path, monkeypatch):
+    cache_dir = pipeline.init_paths(project_root=tmp_path)["cache"]
+    pipeline.save_tokenized_snapshot(
+        pd.DataFrame(
+            [
+                {
+                    "Bibcode": "earlier-pub",
+                    "Title_en": "Earlier",
+                    "Abstract_en": "Run",
+                    "full_text": "Earlier. Run",
+                    "tokens": ["earlier"],
+                }
+            ]
+        ),
+        pd.DataFrame([{"Bibcode": "earlier-ref", "Title_en": "Earlier ref", "Abstract_en": "Run"}]),
+        cache_dir=cache_dir,
+        metadata={"schema_version": 2, "stage": "tokenize", "source": "earlier run"},
+    )
+
+    ctx = _run_untranslated_export_through_tokenize(tmp_path, monkeypatch)
+
+    assert ctx.publications["Bibcode"].tolist() == ["fresh-pub"]
+    assert ctx.refs["Bibcode"].tolist() == ["fresh-ref"]
+
+
 def test_run_tokenize_stage_uses_current_translated_results_when_snapshot_blocked(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
