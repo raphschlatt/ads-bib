@@ -67,11 +67,7 @@ def _export_chunk(
         )
     except Exception as exc:
         response = getattr(exc, "response", None)
-        status = getattr(response, "status_code", None)
-        if status == 404 and "no result" in str(getattr(response, "text", "")).lower():
-            # ADS knows none of the requested bibcodes: no records, not a failed request.
-            return (chunk_index, "", None)
-        if response is not None and status == 400:
+        if response is not None and getattr(response, "status_code", None) == 400:
             msg = str(exc)
             if msg.startswith("400 Bad Request: "):
                 msg = msg.replace("400 Bad Request: ", "400: ", 1)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -118,10 +119,31 @@ def test_export_bibcodes_raises_when_a_request_fails_for_good(monkeypatch):
     with pytest.raises(RuntimeError, match=r"1 of 3 requests \(1 of 3 references\)") as excinfo:
         ex.export_bibcodes(["b1", "b2", "b3"], "token", max_workers=2, record_label="references")
 
-    assert "Max retries (5) exceeded" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "request 2: RuntimeError: Max retries (5) exceeded" in message
+    assert "retries," not in message
+    assert "more" not in message
 
 
-def test_export_chunk_treats_unknown_bibcodes_as_empty_result(monkeypatch):
+def test_export_bibcodes_error_lists_five_requests_and_counts_the_rest(monkeypatch):
+    monkeypatch.setattr(ex, "create_session", lambda token: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(
+        ex,
+        "_export_chunk",
+        lambda session, chunk, index, *args: (index, None, "HTTPError: 503 Server Error"),
+    )
+    monkeypatch.setattr(ex, "MAX_BIBCODES_PER_REQUEST", 1)
+
+    with pytest.raises(RuntimeError, match=r"6 of 6 requests \(6 of 6 records\)") as excinfo:
+        ex.export_bibcodes([f"b{n}" for n in range(6)], "token", max_workers=2)
+
+    message = str(excinfo.value)
+    assert "request 5: HTTPError: 503 Server Error" in message
+    assert "request 6" not in message
+    assert message.endswith("and 1 more")
+
+
+def test_export_chunk_reports_http_404_as_a_failed_request(monkeypatch):
     response = requests.Response()
     response.status_code = 404
     response._content = b'{"error": "no result from solr"}'
@@ -139,7 +161,8 @@ def test_export_chunk_treats_unknown_bibcodes_as_empty_result(monkeypatch):
         custom_format=ex.DEFAULT_CUSTOM_FORMAT,
     )
 
-    assert (idx, data, err) == (2, "", None)
+    assert (idx, data) == (2, None)
+    assert err == "HTTPError: 404 Client Error"
 
 
 def test_parse_export_handles_embedded_newlines():

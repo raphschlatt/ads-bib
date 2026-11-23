@@ -169,9 +169,9 @@ Key fields:
 - **`counts.translation.failed`** — translations that failed or came back
   empty, per table and column. Those entries keep their original text in
   `Title_en` or `Abstract_en`; the run still ends as `completed`. The block
-  is missing when translation is off or when the run reused a translation
-  from the cache; entries that failed in the earlier run are then still
-  untranslated.
+  is missing when translation is off or when the run took its translation
+  from the cache or from a base run; entries that failed in the earlier run
+  are then still untranslated.
 - **`counts.topic_model.outliers_rate`** — quality proxy; very high rates
   usually mean clusters are too sharp.
 - **`costs`** — only populated for providers with cost tracking (OpenRouter

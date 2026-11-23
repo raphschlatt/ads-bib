@@ -215,7 +215,7 @@ def _store_translation(
     error_msg: str | None = None,
 ) -> None:
     """Write one translation; an empty one counts as failed and keeps the original text."""
-    if translated and str(translated).strip():
+    if isinstance(translated, str) and translated.strip():
         df.at[idx, target_col] = translated
     else:
         failed.append((idx, error_msg or "empty translation"))
@@ -1029,6 +1029,9 @@ def _translate_text_with_llama_server(
                     raise
         if last_exc is not None:
             raise last_exc
+    if any(not chunk.strip() for chunk in translated_chunks):
+        # One empty chunk would leave part of the text out; report the whole text as failed.
+        return "", len(chunks)
     return _merge_translated_chunks(translated_chunks), len(chunks)
 
 
@@ -1321,11 +1324,15 @@ def _translate_rows_nllb(
                 max_batch_size=_NLLB_MAX_BATCH_TOKENS,
                 max_decoding_length=256,
             )
-            for idx, result in zip(indices[start:end], batch_results):
+            decoded: list[str] = []
+            for result in batch_results:
                 out_tokens = result.hypotheses[0]
                 if out_tokens and out_tokens[0] == tgt_code:
                     out_tokens = out_tokens[1:]
-                _store_translation(df, idx, target_col, _decode_nllb(out_tokens, tokenizer), failed)
+                decoded.append(_decode_nllb(out_tokens, tokenizer))
+            # Store only after the whole batch decoded, so the fallback below never recounts a row.
+            for idx, translated in zip(indices[start:end], decoded):
+                _store_translation(df, idx, target_col, translated, failed)
         except Exception as exc:
             logger.warning(
                 "  NLLB batch [%d:%d] failed (%s), falling back to one-by-one",

@@ -14,7 +14,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 - A run no longer continues with a partial corpus when an ADS export request fails for good. The export stage stops with an error that names the failed requests; before, up to 2,000 records per failed request were missing without notice and the run ended as `completed`.
-- An empty answer from a translation model now counts as a failed translation and the original text is kept. Before, the remote providers and NLLB wrote an empty text into `Title_en` or `Abstract_en`.
+- An empty answer from a translation model now counts as a failed translation and the original text is kept. Before, the Hugging Face API provider and NLLB wrote an empty text into `Title_en` or `Abstract_en`, and the local providers kept the original without counting it.
 - `translate.enabled: false` now works: titles and abstracts are passed on unchanged as `Title_en` and `Abstract_en`. Before, such a run stopped at the tokenize stage in a new project folder, and in a used project folder it could continue with the publications of an earlier run from the shared cache. If you ran with this setting in a project folder that already held another run, repeat that run.
 - A run that starts at `tokenize` with untranslated publications already loaded, for example from `source_input`, no longer swaps them for the tokenized snapshot of an earlier run in the shared cache.
 

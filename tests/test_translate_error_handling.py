@@ -88,6 +88,112 @@ def test_translate_dataframe_counts_empty_answers_as_failed_and_keeps_the_text(
     assert local_info["failed"] == {"Title": 1}
 
 
+def test_row_translators_count_empty_answers_as_failed_and_keep_the_text(monkeypatch):
+    def _frame():
+        return pd.DataFrame({"Title": ["hola"], "Title_lang": ["es"], "Title_en": ["hola"]})
+
+    empty_response = types.SimpleNamespace(
+        choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=""))],
+        usage=types.SimpleNamespace(prompt_tokens=1, completion_tokens=0),
+    )
+
+    async def _empty_chat(**kwargs):
+        del kwargs
+        return empty_response
+
+    monkeypatch.setattr(
+        tr, "_create_huggingface_async_client", lambda *, model, api_key: (object(), "model")
+    )
+    monkeypatch.setattr(tr, "_chat_huggingface_with_retry", _empty_chat)
+    hf_df = _frame()
+    _pt, _ct, hf_failed = tr._translate_rows_huggingface_api(
+        hf_df,
+        source_col="Title",
+        target_col="Title_en",
+        to_translate=hf_df,
+        target_lang="en",
+        model="org/model",
+        api_key="dummy",
+        max_workers=1,
+        max_tokens=64,
+        show_progress=False,
+    )
+
+    monkeypatch.setattr(tr, "_translate_transformers_batch", lambda texts, **kwargs: [""] * len(texts))
+    local_df = _frame()
+    local_failed, _elapsed = tr._translate_rows_transformers(
+        local_df,
+        source_col="Title",
+        target_col="Title_en",
+        to_translate=local_df,
+        target_lang="en",
+        model="google/translategemma-4b-it",
+        max_workers=1,
+        max_tokens=64,
+        runtime_log_path=None,
+        show_progress=False,
+    )
+
+    class _FakeTranslator:
+        def translate_batch(self, token_batches, **kwargs):
+            del kwargs
+            return [types.SimpleNamespace(hypotheses=[["eng_Latn"]]) for _ in token_batches]
+
+    monkeypatch.setattr(tr, "_ensure_nllb_model", lambda model, cache_dir=None: (_FakeTranslator(), object()))
+    monkeypatch.setattr(tr, "_encode_nllb", lambda text, src_code, tokenizer: [src_code, text])
+    monkeypatch.setattr(tr, "_decode_nllb", lambda tokens, tokenizer: "")
+    nllb_df = _frame()
+    nllb_failed, _elapsed = tr._translate_rows_nllb(
+        nllb_df,
+        source_col="Title",
+        target_col="Title_en",
+        to_translate=nllb_df,
+        target_lang="en",
+        model="fake-nllb",
+        show_progress=False,
+    )
+
+    for frame, failed in ((hf_df, hf_failed), (local_df, local_failed), (nllb_df, nllb_failed)):
+        assert frame.loc[0, "Title_en"] == "hola"
+        assert failed == [(0, "empty translation")]
+
+
+def test_llama_server_translation_with_one_empty_chunk_counts_as_empty(tmp_path, monkeypatch):
+    model_file = tmp_path / "model.gguf"
+    model_file.write_text("fake", encoding="utf-8")
+    answers = iter(["first part", ""])
+    monkeypatch.setattr(
+        tr,
+        "ensure_llama_server",
+        lambda **kwargs: type("Handle", (), {"base_url": "http://127.0.0.1:8080"})(),
+    )
+    fake_client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(
+            completions=types.SimpleNamespace(
+                create=lambda **kwargs: types.SimpleNamespace(
+                    choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=next(answers)))]
+                )
+            )
+        )
+    )
+    monkeypatch.setattr(tr, "build_openai_client", lambda **kwargs: fake_client)
+    monkeypatch.setattr(tr, "_split_text_by_chars", lambda text, **kwargs: ["one", "two"])
+
+    translated, chunk_count = tr._translate_text_with_llama_server(
+        "one two",
+        target_lang="en",
+        source_lang="de",
+        model_spec=tr.ModelSpec(model_path=str(model_file)),
+        max_tokens=64,
+        llama_server_config=tr.LlamaServerConfig(),
+        runtime_log_path=None,
+        chunk_chars=10,
+        chunk_overlap_chars=1,
+    )
+
+    assert (translated, chunk_count) == ("", 2)
+
+
 def test_translate_dataframe_counts_no_failures_when_all_translations_succeed(monkeypatch):
     df = pd.DataFrame(
         {
