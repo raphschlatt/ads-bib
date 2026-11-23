@@ -61,9 +61,17 @@ ads-bib run --from-run run_20260407_120000_ads_bib_openrouter \
 
 The command accepts either a run directory path or a run id below `runs/`.
 Without `--from`, `ads-bib` chooses the first stage affected by your `--set`
-keys. With `--from`, your stage wins. `--dry-run` prints the base run, changed
-keys, reused stages, recomputed stages, effective start stage, and target run
-name without creating a folder.
+keys. With `--from`, your stage wins. `--dry-run` prints the base run, project
+folder, changed keys, reused stages, recomputed stages, effective start stage,
+and target run name without creating a folder.
+
+A variant is created in the project folder that contains its base run
+(`<project>/runs/<run_id>`), so it uses that project's `runs/`, `data/cache/`,
+and `.env`. A base run that does not sit directly in a `runs/` folder gives a
+variant in the current folder. The folder recorded in the base run's
+`config_used.yaml` is not used, because the run may have been moved since. To
+write the variant somewhere else, pass `--set run.project_root=<folder>`. Runs
+saved by 0.2.0 to 0.3.1 can be used as a base as well.
 
 Runs use one project-wide cache under `data/cache/` and one self-contained
 output folder under `runs/<run_id>/`. `--from-run` takes the data basis from

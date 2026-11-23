@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import yaml
 import pandas as pd
 import pytest
 
+from ads_bib.pipeline import VisualizationConfig
 from ads_bib.run_stage_artifacts import save_frame_pair, save_search_artifact
-from ads_bib.run_variants import load_base_run_config, plan_run_variant
+from ads_bib.run_variants import format_variant_plan, load_base_run_config, plan_run_variant
 
 
 def _base_config() -> dict[str, object]:
@@ -321,6 +324,275 @@ def test_redacted_secret_placeholders_are_loaded_as_none(tmp_path):
     assert loaded.translate.api_key is None
     assert loaded.topic_model.embedding_api_key is None
     assert loaded.topic_model.llm_api_key is None
+
+
+# Rebuilt after the config_used.yaml that releases before 0.3.2 wrote: it still
+# has curation.cluster_targets, records the project folder of that time, and
+# uses the subtitle default from before 0.1.0.
+_LEGACY_CONFIG_USED = """\
+author_disambiguation:
+  backend: modal
+  dataset_id: null
+  enabled: true
+  force_refresh: false
+  infer_stage: full
+  modal_gpu: l4
+  model_bundle: null
+  runtime: auto
+citations:
+  authors_filter: null
+  authors_filter_uids: null
+  cited_author_uids_exclude: null
+  cited_authors_exclude: null
+  metrics:
+  - direct
+  - co_citation
+  - bibliographic_coupling
+  - author_co_citation
+  min_counts:
+    author_co_citation: 10
+    bibliographic_coupling: 20
+    co_citation: 20
+    direct: 5
+  output_format: gexf
+curation:
+  cluster_targets: []
+  clusters_to_remove: []
+llama_server:
+  command: llama-server
+  ctx_size: 4096
+  gpu_layers: -1
+  host: 127.0.0.1
+  port: null
+  reasoning: 'off'
+  startup_timeout_s: 120.0
+  threads: null
+run:
+  openrouter_cost_mode: hybrid
+  project_root: /former/workspace/legacy_project
+  random_seed: 42
+  run_name: legacy_run
+  start_stage: search
+  stop_stage: citations
+search:
+  ads_token: <redacted>
+  query: author:"Test, A*"
+  refresh_export: false
+  refresh_search: false
+tokenize:
+  auto_download: true
+  batch_size: 512
+  disable:
+  - ner
+  - parser
+  - textcat
+  enabled: true
+  fallback_model: en_core_web_md
+  n_process: 8
+  spacy_model: en_core_web_md
+topic_model:
+  backend: toponymy
+  bertopic_label_max_tokens: 64
+  cluster_params:
+    cluster_selection_epsilon: 0.05
+    cluster_selection_method: eom
+    min_cluster_size: 15
+    min_samples: 3
+  clustering_method: fast_hdbscan
+  embedding_api_key: <redacted>
+  embedding_batch_size: 32
+  embedding_max_workers: 10
+  embedding_model: qwen/qwen3-embedding-8b
+  embedding_provider: openrouter
+  llm_api_key: <redacted>
+  llm_model: google/gemini-3-flash-preview
+  llm_model_file: null
+  llm_model_path: null
+  llm_model_repo: null
+  llm_prompt: null
+  llm_prompt_name: physics
+  llm_provider: openrouter
+  min_df: 5
+  outlier_threshold: 0.65
+  parallel_models:
+  - MMR
+  - POS
+  - KeyBERT
+  params_2d:
+    metric: angular
+    n_neighbors: 80
+    random_state: 42
+  params_5d:
+    metric: angular
+    n_neighbors: 60
+    random_state: 42
+  pipeline_models:
+  - POS
+  - KeyBERT
+  - MMR
+  reduction_method: pacmap
+  sample_size: null
+  toponymy_cluster_params:
+    min_clusters: 20
+  toponymy_embedding_model: null
+  toponymy_layer_index: auto
+  toponymy_local_label_max_tokens: 128
+  toponymy_max_workers: 10
+translate:
+  api_key: <redacted>
+  enabled: true
+  fasttext_model: data/models/lid.176.bin
+  max_tokens: 4096
+  max_workers: 10
+  model: google/gemini-3-flash-preview
+  model_file: null
+  model_path: null
+  model_repo: null
+  provider: openrouter
+visualization:
+  dark_mode: true
+  enabled: true
+  font_family: Cinzel
+  subtitle_template: Topics labeled with {provider}/{model}
+  title: Legacy Map
+  topic_tree: true
+"""
+
+
+def _write_legacy_run(parent, config_text: str = _LEGACY_CONFIG_USED):
+    run_dir = parent / "run_20260430_080220_legacy_run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "config_used.yaml").write_text(config_text, encoding="utf-8")
+    (run_dir / "run_summary.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "artifact_layout_version": 2,
+                "run": {"run_id": "run_20260430_080220_legacy_run"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def test_run_saved_before_0_3_2_can_be_planned_as_variant_base(tmp_path):
+    run_dir = _write_legacy_run(tmp_path / "runs")
+
+    plan = plan_run_variant(
+        from_run=run_dir,
+        overrides={"citations.min_counts.direct": 2},
+        hydrate=False,
+    )
+
+    assert plan.effective_start_stage == "citations"
+    assert plan.changed_keys == ("citations.min_counts.direct",)
+    assert plan.config.curation.layered_clusters_to_remove == []
+    assert plan.config.visualization.title == "Legacy Map"
+    assert plan.config.visualization.subtitle_template == VisualizationConfig().subtitle_template
+    assert f"Project folder: {tmp_path}\n" in format_variant_plan(plan)
+
+
+def test_legacy_cluster_targets_become_layered_clusters_to_remove(tmp_path):
+    config_text = _LEGACY_CONFIG_USED.replace(
+        "  cluster_targets: []\n",
+        "  cluster_targets:\n  - cluster_id: 12\n    layer: 0\n",
+    )
+    run_dir = _write_legacy_run(tmp_path / "runs", config_text)
+
+    loaded = load_base_run_config(run_dir)
+
+    assert loaded.curation.layered_clusters_to_remove == [{"layer": 0, "cluster_id": 12}]
+
+
+def test_variant_runs_in_project_of_base_run_not_in_stored_project_root(tmp_path):
+    run_dir = _write_legacy_run(tmp_path / "runs")
+
+    plan = plan_run_variant(from_run=run_dir, hydrate=False)
+
+    assert Path(plan.config.run.project_root) == tmp_path
+
+
+def test_variant_by_run_id_stays_in_current_folder_without_recording_it(tmp_path, monkeypatch):
+    run_dir = _write_legacy_run(tmp_path / "runs")
+    monkeypatch.chdir(tmp_path)
+
+    by_id = plan_run_variant(from_run=run_dir.name, hydrate=False)
+    by_path = plan_run_variant(from_run=run_dir, hydrate=False)
+
+    assert by_id.config.run.project_root is None
+    assert by_path.config.run.project_root is None
+    assert f"Project folder: {Path.cwd()}\n" in format_variant_plan(by_id)
+
+
+def test_variant_of_run_in_linked_runs_folder_stays_in_linking_project(tmp_path):
+    store = tmp_path / "store" / "runs"
+    run_dir = _write_legacy_run(store)
+    project = tmp_path / "project"
+    project.mkdir()
+    try:
+        (project / "runs").symlink_to(store, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory links are not available here")
+
+    plan = plan_run_variant(from_run=project / "runs" / run_dir.name, hydrate=False)
+
+    assert Path(plan.config.run.project_root) == project
+
+
+def test_cli_variant_reaches_preflight_and_pipeline_with_the_base_project(tmp_path, monkeypatch):
+    import ads_bib.cli as cli
+    import ads_bib.doctor as doctor
+    import ads_bib.runner as runner
+
+    run_dir = _write_legacy_run(tmp_path / "runs")
+    _write_dataset_artifacts(run_dir)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    seen: dict[str, object] = {}
+
+    def _fake_fasttext(**kwargs):
+        seen["fasttext"] = kwargs["project_root"]
+
+    def _fake_doctor(config, **kwargs):
+        seen["doctor"] = config.run.project_root
+        return doctor.DoctorReport(checks=(), active_stages=("citations",))
+
+    def _fake_run_pipeline(config, **kwargs):
+        assert kwargs["project_root"] is None
+        seen["pipeline"] = config.run.project_root
+
+    monkeypatch.setattr(runner, "ensure_default_fasttext_model", _fake_fasttext)
+    monkeypatch.setattr(runner, "collect_doctor_report", _fake_doctor)
+    monkeypatch.setattr(runner, "run_pipeline", _fake_run_pipeline)
+
+    rc = cli.main(["run", "--from-run", str(run_dir), "--set", "citations.min_counts.direct=2"])
+
+    assert rc == 0
+    assert seen == {"fasttext": str(tmp_path), "doctor": str(tmp_path), "pipeline": str(tmp_path)}
+
+
+def test_variant_project_root_prefers_explicit_choices(tmp_path):
+    run_dir = _write_legacy_run(tmp_path / "runs")
+    chosen = tmp_path / "chosen"
+
+    by_argument = plan_run_variant(from_run=run_dir, project_root=chosen, hydrate=False)
+    by_override = plan_run_variant(
+        from_run=run_dir,
+        overrides={"run.project_root": str(chosen)},
+        hydrate=False,
+    )
+
+    assert Path(by_argument.config.run.project_root) == chosen
+    assert Path(by_override.config.run.project_root) == chosen
+
+
+def test_variant_of_run_outside_runs_folder_falls_back_to_working_directory(tmp_path):
+    run_dir = _write_legacy_run(tmp_path / "archive")
+
+    plan = plan_run_variant(from_run=run_dir, hydrate=False)
+
+    assert plan.config.run.project_root is None
 
 
 def test_non_v02_base_run_layout_is_rejected(tmp_path):
