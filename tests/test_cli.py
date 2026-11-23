@@ -219,7 +219,7 @@ def test_main_run_from_run_dry_run_prints_plan_and_creates_no_run(tmp_path, monk
     output = capsys.readouterr().out
     assert "Run variant dry run" in output
     assert "Changed keys: topic_model.embedding_model" in output
-    assert f"Project folder: {tmp_path}" in output
+    assert f"Project folder: {tmp_path}\n" in output
     assert "Recomputed from: embeddings" in output
     assert sorted(path.name for path in (tmp_path / "runs").iterdir()) == [run_dir.name]
 

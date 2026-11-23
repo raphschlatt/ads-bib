@@ -489,7 +489,7 @@ def test_run_saved_before_0_3_2_can_be_planned_as_variant_base(tmp_path):
     assert plan.config.curation.layered_clusters_to_remove == []
     assert plan.config.visualization.title == "Legacy Map"
     assert plan.config.visualization.subtitle_template == VisualizationConfig().subtitle_template
-    assert f"Project folder: {tmp_path}" in format_variant_plan(plan)
+    assert f"Project folder: {tmp_path}\n" in format_variant_plan(plan)
 
 
 def test_legacy_cluster_targets_become_layered_clusters_to_remove(tmp_path):
@@ -521,7 +521,7 @@ def test_variant_by_run_id_stays_in_current_folder_without_recording_it(tmp_path
 
     assert by_id.config.run.project_root is None
     assert by_path.config.run.project_root is None
-    assert f"Project folder: {Path.cwd()}" in format_variant_plan(by_id)
+    assert f"Project folder: {Path.cwd()}\n" in format_variant_plan(by_id)
 
 
 def test_variant_of_run_in_linked_runs_folder_stays_in_linking_project(tmp_path):
@@ -559,6 +559,7 @@ def test_cli_variant_reaches_preflight_and_pipeline_with_the_base_project(tmp_pa
         return doctor.DoctorReport(checks=(), active_stages=("citations",))
 
     def _fake_run_pipeline(config, **kwargs):
+        assert kwargs["project_root"] is None
         seen["pipeline"] = config.run.project_root
 
     monkeypatch.setattr(runner, "ensure_default_fasttext_model", _fake_fasttext)

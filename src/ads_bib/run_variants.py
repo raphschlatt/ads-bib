@@ -265,11 +265,11 @@ def _variant_project_root(from_run: str | Path, project_root: Path | str | None)
     if project_root is not None:
         return str(project_root)
     addressed = Path(os.path.abspath(Path(from_run).expanduser()))
-    if not addressed.is_dir() or addressed.parent.name != "runs":
+    if not addressed.is_dir() or os.path.normcase(addressed.parent.name) != "runs":
         # A run id below ./runs, or a run folder kept outside a project.
         return None
     project = addressed.parent.parent
-    return None if project == Path.cwd() else str(project)
+    return None if os.path.samefile(project, Path.cwd()) else str(project)
 
 
 def _anchor_author_disambiguation_cache(config_data: dict[str, Any], *, base_run_id: str) -> None:
