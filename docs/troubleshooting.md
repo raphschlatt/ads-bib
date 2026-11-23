@@ -47,6 +47,25 @@ Fix:
 - Re-run `ads-bib run ...` after editing `.env`.
 - Reload the environment in the notebook session or restart the kernel.
 
+## ADS export stops
+
+Symptom: the export stage ends with `ADS export failed for N of M requests`.
+
+ADS did not answer some export requests even after the retries, for example
+because the daily rate limit was reached or the service was down. The run
+stops there instead of continuing with a partial corpus, and nothing is
+written to the export cache.
+
+Fix:
+
+- Try again later with a variant of the stopped run that starts at the
+  export stage. It reuses that run's search result and only repeats the
+  export:
+
+```bash
+ads-bib run --from-run <run_id> --from export
+```
+
 ## Missing runtime dependency
 
 Symptom: import or provider errors for topic models, translation, or

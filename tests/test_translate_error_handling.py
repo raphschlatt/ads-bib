@@ -25,7 +25,7 @@ def test_translate_dataframe_openrouter_logs_failure_examples(monkeypatch, caplo
 
     monkeypatch.setattr(tr, "_translate_openrouter", _boom)
 
-    out_df, _ = tr.translate_dataframe(
+    out_df, info = tr.translate_dataframe(
         df,
         columns=["Title"],
         provider="openrouter",
@@ -37,6 +37,36 @@ def test_translate_dataframe_openrouter_logs_failure_examples(monkeypatch, caplo
     assert "Title: 1 translations failed" in caplog.text
     assert "RuntimeError: api down" in caplog.text
     assert out_df.loc[0, "Title_en"] == "hola"
+    assert info["failed"] == {"Title": 1}
+
+
+def test_translate_dataframe_counts_no_failures_when_all_translations_succeed(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "Title": ["hola", "hello"],
+            "Title_lang": ["es", "en"],
+            "Abstract": ["text", "more text"],
+            "Abstract_lang": ["en", "en"],
+        }
+    )
+    monkeypatch.setattr(
+        tr,
+        "_translate_openrouter",
+        lambda text, *args, **kwargs: ("hello", 1, 1, "gen-1", 0.0),
+    )
+    monkeypatch.setattr(tr, "resolve_openrouter_costs", lambda *args, **kwargs: (0.0, {}))
+
+    out_df, info = tr.translate_dataframe(
+        df,
+        columns=["Title", "Abstract"],
+        provider="openrouter",
+        model="openrouter/test-model",
+        api_key="dummy",
+        max_workers=1,
+    )
+
+    assert out_df["Title_en"].tolist() == ["hello", "hello"]
+    assert info["failed"] == {"Title": 0, "Abstract": 0}
 
 
 def test_translate_dataframe_llama_server_logs_failure_examples(tmp_path, monkeypatch, caplog):

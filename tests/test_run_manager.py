@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from importlib.metadata import version
 from pathlib import Path
 
 import numpy as np
@@ -201,6 +202,36 @@ def test_run_manager_save_summary_serializes_costtracker_entries(tmp_path):
     }
     assert parsed["reproducibility"]["config_file"] == "config_used.yaml"
     assert parsed["reproducibility"]["config_sha256"]
+    assert parsed["reproducibility"]["ads_bib_version"] == version("ads_bib")
+    assert "search" not in parsed["counts"]
+    assert "export" not in parsed["counts"]
+    assert "translation" not in parsed["counts"]
+
+
+def test_run_manager_save_summary_reports_retrieval_and_translation_gaps(tmp_path):
+    run = RunManager(run_name="gaps", project_root=tmp_path)
+
+    run.save_summary(
+        publications=pd.DataFrame({"Bibcode": ["a"]}),
+        refs=pd.DataFrame({"Bibcode": ["x"]}),
+        search_hits={"publications": 2, "references": 3},
+        export_missing={"publications_missing": 1, "references_missing": 2},
+        translation_failed={
+            "publications": {"Title": 0, "Abstract": 1},
+            "references": {"Title": 0, "Abstract": 0},
+        },
+    )
+
+    parsed = yaml.safe_load((run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert parsed["counts"]["search"] == {"publications": 2, "references": 3}
+    assert parsed["counts"]["export"] == {"publications_missing": 1, "references_missing": 2}
+    assert parsed["counts"]["translation"] == {
+        "failed": {
+            "publications": {"Title": 0, "Abstract": 1},
+            "references": {"Title": 0, "Abstract": 0},
+        }
+    }
+    assert parsed["run"]["status"] == "completed"
 
 
 def test_run_manager_save_summary_uses_topics_for_partial_topic_runs(tmp_path):

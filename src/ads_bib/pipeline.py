@@ -525,6 +525,8 @@ class PipelineContext:
     author_entities: pd.DataFrame | None = None
     resume_blocked_from: StageName | None = None
     variant: dict[str, Any] | None = None
+    export_missing: dict[str, int] | None = None
+    translation_failed: dict[str, dict[str, int]] | None = None
 
     def __repr__(self) -> str:
         """Keep notebook display compact and avoid leaking config secrets."""
@@ -577,6 +579,27 @@ class PipelineContext:
 
 def _has_source_frames(ctx: PipelineContext) -> bool:
     return ctx.publications is not None and ctx.refs is not None
+
+
+def _search_hits(ctx: PipelineContext) -> dict[str, int] | None:
+    """Count the unique publications and references named by the search result."""
+    if ctx.bibcodes is None or ctx.references is None:
+        return None
+    return {
+        "publications": len(set(ctx.bibcodes)),
+        "references": len({ref for refs in ctx.references for ref in refs if ref}),
+    }
+
+
+def _missing_after_export(ctx: PipelineContext) -> dict[str, int]:
+    """Count search hits and cited records that have no row after the export."""
+    assert ctx.bibcodes is not None and ctx.references is not None
+    assert ctx.publications is not None and ctx.refs is not None
+    wanted_references = {ref for refs in ctx.references for ref in refs if ref}
+    return {
+        "publications_missing": len(set(ctx.bibcodes) - set(ctx.publications["Bibcode"])),
+        "references_missing": len(wanted_references - set(ctx.refs["Bibcode"])),
+    }
 
 
 def _apply_initial_state(ctx: PipelineContext, initial_state: PipelineInitialState | None) -> None:
@@ -894,19 +917,35 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         ]
 
     if stage == "export" and ctx.publications is not None and ctx.refs is not None:
-        return [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
+        lines = [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
+        missing = ctx.export_missing or {}
+        if any(missing.values()):
+            lines.append(
+                "not exported: "
+                f"{missing['publications_missing']:,} publications | "
+                f"{missing['references_missing']:,} references"
+            )
+        return lines
 
     if stage == "translate" and ctx.publications is not None and ctx.refs is not None:
+        lines = [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
         if "Title_lang" in ctx.publications.columns:
             pub_title = int((ctx.publications["Title_lang"] != "en").sum())
             pub_abs = int((ctx.publications["Abstract_lang"] != "en").sum())
             ref_title = int((ctx.refs["Title_lang"] != "en").sum())
             ref_abs = int((ctx.refs["Abstract_lang"] != "en").sum())
-            return [
+            lines = [
                 f"publications: {len(ctx.publications):,} (Title={pub_title:,} Abstract={pub_abs:,} translated) | "
                 f"references: {len(ctx.refs):,} (Title={ref_title:,} Abstract={ref_abs:,} translated)"
             ]
-        return [f"publications: {len(ctx.publications):,} | references: {len(ctx.refs):,}"]
+        failed = sum(
+            count
+            for columns in (ctx.translation_failed or {}).values()
+            for count in columns.values()
+        )
+        if failed:
+            lines.append(f"translation failed for {failed:,} entries; their original text is kept")
+        return lines
 
     if stage == "tokenize" and ctx.publications is not None:
         return [f"documents: {len(ctx.publications):,} | model: {ctx.config.tokenize.spacy_model}"]
@@ -1078,6 +1117,9 @@ def _finalize_run_summary(
         failed_stage=failed_stage,
         error=error,
         variant=ctx.variant,
+        search_hits=_search_hits(ctx),
+        export_missing=ctx.export_missing,
+        translation_failed=ctx.translation_failed,
     )
     try:
         display_path = summary_path.relative_to(ctx.project_root)
@@ -1254,6 +1296,7 @@ def run_export_stage(ctx: PipelineContext) -> PipelineContext:
                 show_progress=False,
                 progress_callback=progress_callback,
             )
+    ctx.export_missing = _missing_after_export(ctx)
     save_frame_pair(
         ctx.run.paths["export"],
         publications=ctx.publications,
@@ -1323,7 +1366,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
 
     reporter = ctx.reporter
     if reporter is None:
-        ctx.publications, _ = translate_dataframe(
+        ctx.publications, pub_cost_info = translate_dataframe(
             ctx.publications,
             ["Title", "Abstract"],
             provider=cfg.provider,
@@ -1339,7 +1382,7 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
             openrouter_cost_mode=ctx.config.run.openrouter_cost_mode,
             cost_tracker=ctx.tracker,
         )
-        ctx.refs, _ = translate_dataframe(
+        ctx.refs, ref_cost_info = translate_dataframe(
             ctx.refs,
             ["Title", "Abstract"],
             provider=cfg.provider,
@@ -1420,6 +1463,10 @@ def run_translate_stage(ctx: PipelineContext) -> PipelineContext:
         )
         if total_cost > 0:
             reporter.detail("cost: $%.4f", total_cost)
+    ctx.translation_failed = {
+        "publications": dict(pub_cost_info.get("failed") or {}),
+        "references": dict(ref_cost_info.get("failed") or {}),
+    }
     save_translated_snapshot(
         ctx.publications,
         ctx.refs,

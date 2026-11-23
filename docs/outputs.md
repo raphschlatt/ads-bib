@@ -93,11 +93,22 @@ stages:
   completed_stages: [search, export, translate, ...]
   failed_stage: null
 reproducibility:
+  ads_bib_version: "0.3.3"
   config_path: runs/.../config_used.yaml
   config_sha256: "abc123..."
   git_commit: "def456..."
   git_dirty: false
 counts:
+  search:                    # only when this run had the ADS search result
+    publications: 362
+    references: 1310
+  export:                    # only when this run ran the export stage
+    publications_missing: 1
+    references_missing: 9
+  translation:               # only when this run translated
+    failed:
+      publications: {Title: 0, Abstract: 2}
+      references: {Title: 0, Abstract: 0}
   total_processing:
     publications: 361
     references: 1301
@@ -143,6 +154,16 @@ Key fields:
   `--from <next_stage>`.
 - **`reproducibility.config_sha256`** — same value for two runs means they
   used byte-identical configs.
+- **`reproducibility.ads_bib_version`** — the installed `ads-bib` version
+  that produced the run.
+- **`counts.search`** — unique publications found by the ADS search and
+  unique references they cite.
+- **`counts.export`** — search hits and cited references that have no record
+  after the export, for example because ADS returned no usable record or the
+  year is not a number. A request that fails completely stops the run instead.
+- **`counts.translation.failed`** — translations that failed, per table and
+  column. Those entries keep their original text in `Title_en` or
+  `Abstract_en`; the run still ends as `completed`.
 - **`counts.topic_model.outliers_rate`** — quality proxy; very high rates
   usually mean clusters are too sharp.
 - **`costs`** — only populated for providers with cost tracking (OpenRouter

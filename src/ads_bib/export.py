@@ -113,6 +113,12 @@ def export_bibcodes(
     -------
     str
         Concatenated raw export payload in ADS custom format.
+
+    Raises
+    ------
+    RuntimeError
+        If a chunk request still fails after its retries. A partial export
+        would leave up to 2,000 records per failed chunk out of the corpus.
     """
     if not bibcodes:
         return ""
@@ -164,9 +170,14 @@ def export_bibcodes(
     session.close()
 
     if errors:
-        logger.warning("%s chunk(s) failed:", len(errors))
-        for idx, err in errors[:5]:
-            logger.warning("  Chunk %s: %s", idx, err)
+        errors.sort()
+        failed_records = sum(len(chunks[idx]) for idx, _ in errors)
+        details = "; ".join(f"request {idx + 1}: {err}" for idx, err in errors[:5])
+        raise RuntimeError(
+            f"ADS export failed for {len(errors)} of {n_chunks} requests "
+            f"({failed_records:,} of {len(bibcodes):,} records) after all retries, "
+            f"so the export is not used. {details}"
+        )
 
     return "".join(r for r in results if r is not None)
 

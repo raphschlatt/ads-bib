@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 import requests
 
 import ads_bib.export as ex
@@ -95,6 +96,29 @@ def test_export_bibcodes_concatenates_chunk_payloads(monkeypatch):
     out = ex.export_bibcodes(["b1", "b2"], "token", max_workers=2)
     assert out == "chunk0chunk1\n"
     assert session.closed is True
+
+
+def test_export_bibcodes_raises_when_a_request_fails_for_good(monkeypatch):
+    class _Session:
+        def close(self):
+            pass
+
+    def _fake_export_chunk(
+        session_obj, bibcodes_chunk, chunk_index, custom_format, max_retries, backoff_factor
+    ):
+        del session_obj, bibcodes_chunk, custom_format, max_retries, backoff_factor
+        if chunk_index == 1:
+            return chunk_index, None, "RuntimeError: Max retries (5) exceeded"
+        return chunk_index, f"chunk{chunk_index}", None
+
+    monkeypatch.setattr(ex, "create_session", lambda token: _Session())
+    monkeypatch.setattr(ex, "_export_chunk", _fake_export_chunk)
+    monkeypatch.setattr(ex, "MAX_BIBCODES_PER_REQUEST", 1)
+
+    with pytest.raises(RuntimeError, match=r"1 of 3 requests \(1 of 3 records\)") as excinfo:
+        ex.export_bibcodes(["b1", "b2", "b3"], "token", max_workers=2)
+
+    assert "Max retries (5) exceeded" in str(excinfo.value)
 
 
 def test_parse_export_handles_embedded_newlines():

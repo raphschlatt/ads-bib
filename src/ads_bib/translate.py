@@ -67,6 +67,7 @@ class TranslationCostInfo(TypedDict):
     cost_usd: float | None
     cost_mode: str | None
     cost_summary: dict[str, object] | None
+    failed: dict[str, int]
 
 # ---------------------------------------------------------------------------
 # Language detection  (fasttext – fast & free)
@@ -1452,7 +1453,9 @@ def translate_dataframe(
     Returns
     -------
     tuple[pd.DataFrame, TranslationCostInfo]
-        ``(translated_df, cost_info)``.
+        ``(translated_df, cost_info)``. ``cost_info["failed"]`` gives, per
+        column, how many translations failed; those rows keep the original
+        text in the ``{col}_en`` column.
     """
     from .config import validate_provider
     model_name = model
@@ -1501,6 +1504,7 @@ def translate_dataframe(
     total_pt = 0
     total_ct = 0
     call_records: list[dict[str, str | float | None]] = []
+    failed_counts: dict[str, int] = {col: 0 for col in columns}
     model_label = (
         llama_server_spec.display_name()
         if llama_server_spec is not None
@@ -1620,6 +1624,7 @@ def translate_dataframe(
             raise ValueError(f"Unknown translation provider: {provider}")
 
         _report_failed_translations(col, failed)
+        failed_counts[col] = len(failed)
 
     total_cost_usd, cost_summary = _summarize_translation_cost(
         provider=provider,
@@ -1638,6 +1643,7 @@ def translate_dataframe(
         "cost_usd": total_cost_usd,
         "cost_mode": openrouter_cost_mode if provider == "openrouter" else None,
         "cost_summary": cost_summary,
+        "failed": failed_counts,
     }
     if cost_tracker is not None and total_pt + total_ct > 0:
         cost_tracker.add(

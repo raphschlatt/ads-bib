@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import asdict, dataclass, is_dataclass
+from importlib.metadata import PackageNotFoundError, version
 import logging
 import re
 import subprocess
@@ -74,6 +75,14 @@ def _redact_config_value(value: Any) -> Any:
     if isinstance(value, str) and _is_secret_value(value):
         return "<redacted>"
     return value
+
+
+def _package_version() -> str | None:
+    """Return the installed ads-bib version, or ``None`` outside an installation."""
+    try:
+        return version("ads_bib")
+    except PackageNotFoundError:
+        return None
 
 
 def _git_info(project_root: Path) -> tuple[str | None, bool | None]:
@@ -270,6 +279,9 @@ class RunManager:
         failed_stage: str | None = None,
         error: str | None = None,
         variant: dict[str, Any] | None = None,
+        search_hits: dict[str, int] | None = None,
+        export_missing: dict[str, int] | None = None,
+        translation_failed: dict[str, dict[str, int]] | None = None,
     ) -> Path:
         """Write a comprehensive summary of the pipeline run to run_summary.yaml.
 
@@ -292,6 +304,13 @@ class RunManager:
         config_path : Path, optional
             Path to the saved config (e.g., config_used.yaml). If None, defaults
             to self.paths["root"] / "config_used.yaml".
+        search_hits : dict, optional
+            Unique publications and references named by the ADS search result.
+        export_missing : dict, optional
+            Search hits and cited records without a row after the export.
+        translation_failed : dict, optional
+            Failed translations per table and column; those rows keep the
+            original text.
         Returns
         -------
         Path
@@ -336,6 +355,34 @@ class RunManager:
             if documents_modeled > 0:
                 outliers_rate = outliers_count / documents_modeled
 
+        # Stage reports first; each is present only when this run had the numbers.
+        counts: dict[str, Any] = {}
+        if search_hits is not None:
+            counts["search"] = dict(search_hits)
+        if export_missing is not None:
+            counts["export"] = dict(export_missing)
+        if translation_failed is not None:
+            counts["translation"] = {
+                "failed": {table: dict(columns) for table, columns in translation_failed.items()}
+            }
+        counts.update(
+            {
+                "total_processing": {
+                    "publications": pub_count,
+                    "references": ref_count,
+                },
+                "topic_model": {
+                    "documents_modeled": documents_modeled,
+                    "topics_nunique": topics_nunique,
+                    "outliers_count": outliers_count,
+                    "outliers_rate": round(outliers_rate, 4),
+                },
+                "curated": {
+                    "publications": curated_count,
+                },
+            }
+        )
+
         # Build schema dict
         summary = {
             "schema_version": 2,
@@ -357,27 +404,14 @@ class RunManager:
                 "failed_stage": failed_stage,
             },
             "reproducibility": {
+                "ads_bib_version": _package_version(),
                 "config_file": config_path.name,
                 "config_path": str(config_path),
                 "config_sha256": sha256_file(config_path) if config_path.exists() else None,
                 "git_commit": git_commit,
                 "git_dirty": git_dirty,
             },
-            "counts": {
-                "total_processing": {
-                    "publications": pub_count,
-                    "references": ref_count,
-                },
-                "topic_model": {
-                    "documents_modeled": documents_modeled,
-                    "topics_nunique": topics_nunique,
-                    "outliers_count": outliers_count,
-                    "outliers_rate": round(outliers_rate, 4),
-                },
-                "curated": {
-                    "publications": curated_count,
-                }
-            }
+            "counts": counts,
         }
 
         if topic_hierarchy:
