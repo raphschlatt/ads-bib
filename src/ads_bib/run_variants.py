@@ -27,6 +27,7 @@ _SUMMARY = "run_summary.yaml"
 _LAYOUT_MIGRATION_HINT = (
     "Base run is not in the v0.2 artifact layout. Use a v0.2 run as the variant base."
 )
+_LEGACY_SUBTITLE_TEMPLATE = "Topics labeled with {provider}/{model}"
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ def plan_run_variant(
     base_run_id = _read_base_run_id(base_run_path)
     base_config = load_base_run_config(base_run_path)
     base_data = base_config.to_dict()
+    base_data["run"]["project_root"] = _variant_project_root(base_run_path, project_root)
     config_data = deepcopy(base_data)
 
     normalized_overrides = {str(key): value for key, value in (overrides or {}).items()}
@@ -146,7 +148,7 @@ def load_base_run_config(base_run_path: Path | str) -> PipelineConfig:
     if not config_path.exists():
         raise FileNotFoundError(f"Base run config not found at {config_path}")
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    return PipelineConfig.from_dict(_normalize_redacted_secrets(payload))
+    return PipelineConfig.from_dict(_migrate_legacy_settings(_normalize_redacted_secrets(payload)))
 
 
 def hydrate_initial_state(
@@ -227,6 +229,7 @@ def format_variant_plan(plan: RunVariantPlan) -> str:
             "Run variant dry run",
             f"Base run: {plan.base_run_id}",
             f"Base path: {plan.base_run_path}",
+            f"Project folder: {plan.config.run.project_root or '(current folder)'}",
             f"Changed keys: {changed}",
             f"Reused stages: {reused_stages}",
             f"Recomputed stages: {recomputed_stages}",
@@ -249,6 +252,20 @@ def _automatic_start_stage(
     )
 
 
+def _variant_project_root(base_run_path: Path, project_root: Path | str | None) -> str | None:
+    """Return the project folder for a variant.
+
+    The folder recorded in the base run's config is not used: the run may have
+    been moved since. Without an explicit choice, the variant stays in the
+    project that contains the base run, where its caches are.
+    """
+    if project_root is not None:
+        return str(project_root)
+    if base_run_path.parent.name == "runs":
+        return str(base_run_path.parent.parent)
+    return None
+
+
 def _anchor_author_disambiguation_cache(config_data: dict[str, Any], *, base_run_id: str) -> None:
     and_config = config_data.setdefault("author_disambiguation", {})
     if not isinstance(and_config, dict):
@@ -268,6 +285,26 @@ def _normalize_redacted_secrets(value: Any, *, key_name: str | None = None) -> A
     if value == "<redacted>" and key_name is not None and _is_secret_key(key_name):
         return None
     return value
+
+
+def _migrate_legacy_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite settings that older releases saved into the current schema."""
+    curation = payload.get("curation")
+    if isinstance(curation, dict) and "cluster_targets" in curation:
+        # Renamed to layered_clusters_to_remove in 0.3.2; same list of {layer, cluster_id}.
+        legacy_targets = curation.pop("cluster_targets") or []
+        curation["layered_clusters_to_remove"] = [
+            *(curation.get("layered_clusters_to_remove") or []),
+            *legacy_targets,
+        ]
+    visualization = payload.get("visualization")
+    if (
+        isinstance(visualization, dict)
+        and visualization.get("subtitle_template") == _LEGACY_SUBTITLE_TEMPLATE
+    ):
+        # Default before 0.1.0; its placeholders are gone, so the current default applies.
+        del visualization["subtitle_template"]
+    return payload
 
 
 def _changed_leaf_paths(
