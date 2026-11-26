@@ -12,12 +12,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Citation exports are written the same whether a list column was built in memory or read from Parquet. Parquet returns list columns as numpy arrays, and the exports expected Python lists. Affected were all runs that read a table back from Parquet before the citations stage:
   - run variants (`--from-run`), which load all their tables from Parquet;
   - runs with author disambiguation, where the publication, reference and author tables come back from that step as Parquet files;
-  - runs started at `translate` or a later stage with `--from <stage>`, which take their tables from the cache.
+  - runs without `--from-run` started at `author_disambiguation` or a later stage (`--from <stage>` or `run.start_stage`), which take their tables from the cache.
 
   A run in one go, from `search` or from external source input, without author disambiguation was not affected. In the affected runs:
-  - With `citations.output_format` set to `graphology` or `all`, the run stopped at the Graphology export with `can only convert an array of size 1 to a Python scalar`.
-  - With external source input, the run stopped at the Web of Science export when `Affiliation` or `Keywords` held a list; the error starts with `The truth value of an`.
-  - GEXF files and `nodes.csv` held lists in numpy's notation (`['A' 'B']` instead of `['A', 'B']`), and a list with more than 1,000 entries was cut down to a few entries and `...`. In a variant this affected every list column; in the other runs it affected `Author`, in `nodes.csv` also `tokens`, with author disambiguation the `aliases` of the author nodes, and with external source input also `Affiliation`, `Keywords` and `Category`.
+  - With `citations.output_format` set to `graphology` or `all`, the run stopped at the Graphology export. The command line showed `Config error: can only convert an array of size 1 to a Python scalar`.
+  - With external source input, the run stopped at the Web of Science export when `Affiliation` or `Keywords` held a list. The command line showed `Config error: The truth value of an ...`.
+  - GEXF files and `nodes.csv` held lists in numpy's notation (`['A' 'B']` instead of `['A', 'B']`), and a list with more than 1,000 entries was cut down to a few entries and `...`. A variant started at `citations` wrote every list column this way. The other affected runs wrote `Author` this way and, depending on the run, `tokens` in `nodes.csv`, the `aliases` of the author nodes, `Affiliation`, `Keywords` and `Category` from external source input, and in 0.1.0 and 0.1.1 `References`.
 
   This corrects the 0.3.4 notes, which said that `--from-run` works again with runs saved by 0.2.0 to 0.3.1. Since 0.3.4 the configs of these runs load again, but a variant could still stop at the citations stage or write its lists as described above.
 
