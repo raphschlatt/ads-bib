@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 title: "ads-bib: Pipeline for Curated Bibliometric Datasets from NASA ADS"
 type: software
-version: "0.3.4"
+version: "0.3.5"
 date-released: "2026-11-26"
 doi: "10.5281/zenodo.19881191"
 license: MIT
