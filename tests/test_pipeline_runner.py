@@ -1512,6 +1512,57 @@ def test_translation_disabled_ignores_tokenized_cache_of_an_earlier_run(
     assert ctx.publications["Title_en"].tolist() == ["Titel"]
 
 
+def test_tokenization_disabled_still_provides_text_for_the_later_stages(tmp_path, monkeypatch):
+    config = pipeline.PipelineConfig.from_dict(
+        {
+            "run": {"project_root": str(tmp_path)},
+            "translate": {"enabled": False},
+            "tokenize": {"enabled": False},
+        }
+    )
+    publications = pd.DataFrame(
+        [{"Bibcode": "p1", "Year": 2020, "Title": "Black holes", "Abstract": "A short abstract."}]
+    )
+    refs = pd.DataFrame([{"Bibcode": "r1", "Year": 2010, "Title": "Ref", "Abstract": None}])
+    embedded: dict[str, object] = {}
+
+    def _fake_compute_embeddings(documents, **kwargs):
+        del kwargs
+        embedded["documents"] = list(documents)
+        return np.ones((len(documents), 3))
+
+    monkeypatch.setattr(pipeline, "compute_embeddings", _fake_compute_embeddings)
+    monkeypatch.setattr(
+        pipeline,
+        "ensure_spacy_model",
+        lambda **kwargs: pytest.fail("tokenize.enabled=false must not load spaCy"),
+    )
+
+    ctx = pipeline.run_pipeline(
+        config,
+        start_stage="translate",
+        stop_stage="embeddings",
+        project_root=tmp_path,
+        run_name="untokenized",
+        load_environment=False,
+        initial_state=pipeline.PipelineInitialState(publications=publications, refs=refs),
+    )
+
+    assert ctx.publications["full_text"].tolist() == ["Black holes. A short abstract."]
+    assert ctx.publications["tokens"].tolist() == [[]]
+    assert embedded["documents"] == ["Black holes. A short abstract."]
+    tokenized = pd.read_parquet(ctx.run.paths["tokenized"] / "publications.parquet")
+    assert tokenized["full_text"].tolist() == ["Black holes. A short abstract."]
+    summary = yaml.safe_load((ctx.run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["run"]["status"] == "completed"
+    assert summary["stages"]["completed_stages"] == [
+        "translate",
+        "tokenize",
+        "author_disambiguation",
+        "embeddings",
+    ]
+
+
 def test_run_tokenize_stage_uses_current_translated_results_when_snapshot_blocked(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {

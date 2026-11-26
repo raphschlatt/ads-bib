@@ -78,7 +78,7 @@ from ads_bib.run_stage_artifacts import (
     save_search_artifact,
 )
 from ads_bib.search import search_ads
-from ads_bib.tokenize import ensure_spacy_model, tokenize_texts
+from ads_bib.tokenize import build_full_text, ensure_spacy_model, tokenize_texts
 from ads_bib.topic_model import (
     build_topic_dataframe,
     compute_embeddings,
@@ -1519,6 +1519,11 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     assert ctx.publications is not None
     assert ctx.refs is not None
     if not cfg.enabled:
+        # Later stages embed full_text and expect a tokens column; without spaCy it stays empty.
+        ctx.publications = ctx.publications.assign(
+            full_text=build_full_text(ctx.publications),
+            tokens=[[] for _ in range(len(ctx.publications))],
+        )
         save_tokenized_snapshot(
             ctx.publications,
             ctx.refs,

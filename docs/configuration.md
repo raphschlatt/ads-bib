@@ -193,7 +193,7 @@ labeling path for `local_gpu`.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | bool | `true` | Skip tokenization when `false` |
+| `enabled` | bool | `true` | Skip the spaCy step when `false`; `full_text` is still built from title and abstract, `tokens` stays empty, and the word cloud on the topic map shows no words |
 | `spacy_model` | string | `"en_core_web_md"` | spaCy model for lemmatization |
 | `batch_size` | int | `512` | Documents per spaCy batch |
 | `n_process` | int | `1` | Parallel spaCy processes |
