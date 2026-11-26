@@ -93,7 +93,7 @@ stages:
   completed_stages: [search, export, translate, ...]
   failed_stage: null
 reproducibility:
-  ads_bib_version: "0.3.3"
+  ads_bib_version: "0.3.4"
   config_path: runs/.../config_used.yaml
   config_sha256: "abc123..."
   git_commit: "def456..."

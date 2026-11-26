@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-26
+
 ### Added
 - `run_summary.yaml` now reports the number of search hits (`counts.search`), the publications and references without a record after the export (`counts.export`), the translations that failed (`counts.translation.failed`), and the installed `ads-bib` version (`reproducibility.ads_bib_version`). The export and translate stages also print missing records and failed translations.
 
