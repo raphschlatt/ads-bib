@@ -78,6 +78,16 @@ def ensure_spacy_model(
     return fallback_model, _load_spacy_model(fallback_model, disable)
 
 
+def build_full_text(
+    df: pd.DataFrame,
+    *,
+    title_col: str = "Title_en",
+    abstract_col: str = "Abstract_en",
+) -> pd.Series:
+    """Join title and abstract into the text that later stages embed."""
+    return df[title_col].fillna("").astype(str) + ". " + df[abstract_col].fillna("").astype(str)
+
+
 def tokenize_texts(
     df: pd.DataFrame,
     *,
@@ -140,12 +150,7 @@ def tokenize_texts(
     requested_n_process = default_n_process() if n_process is None else max(int(n_process), 1)
     df = df.copy()
 
-    # Build full_text
-    df[text_col] = (
-        df[title_col].fillna("").astype(str)
-        + ". "
-        + df[abstract_col].fillna("").astype(str)
-    )
+    df[text_col] = build_full_text(df, title_col=title_col, abstract_col=abstract_col)
 
     texts = df[text_col].tolist()
 

@@ -78,7 +78,7 @@ from ads_bib.run_stage_artifacts import (
     save_search_artifact,
 )
 from ads_bib.search import search_ads
-from ads_bib.tokenize import ensure_spacy_model, tokenize_texts
+from ads_bib.tokenize import build_full_text, ensure_spacy_model, tokenize_texts
 from ads_bib.topic_model import (
     build_topic_dataframe,
     compute_embeddings,
@@ -781,6 +781,23 @@ def _tokenized_snapshot_metadata(ctx: PipelineContext) -> dict[str, Any]:
     }
 
 
+def _tokenized_snapshot_fits(ctx: PipelineContext) -> bool:
+    """Whether the loaded tokenized snapshot holds what this run's tokenize setting needs.
+
+    A snapshot loaded without frames to compare it with can come from a run with another
+    setting: up to 0.3.3 a run with ``tokenize.enabled=false`` saved it without ``tokens``,
+    later runs save it with empty ones. Such a snapshot is rebuilt instead of used.
+    """
+    assert ctx.publications is not None
+    if "tokens" not in ctx.publications.columns:
+        return False
+    if not ctx.config.tokenize.enabled:
+        return True
+    metadata = load_tokenized_snapshot_metadata(cache_dir=ctx.paths["cache"])
+    stored = metadata.get("config") if isinstance(metadata, dict) else None
+    return not (isinstance(stored, dict) and stored.get("enabled") is False)
+
+
 def _and_source_fingerprints(ctx: PipelineContext) -> dict[str, str] | None:
     if ctx.publications is None or ctx.refs is None:
         return None
@@ -953,6 +970,8 @@ def _summary_lines_for_stage(ctx: PipelineContext, stage: StageName) -> list[str
         return lines
 
     if stage == "tokenize" and ctx.publications is not None:
+        if not ctx.config.tokenize.enabled:
+            return [f"documents: {len(ctx.publications):,} | disabled — full_text only"]
         return [f"documents: {len(ctx.publications):,} | model: {ctx.config.tokenize.spacy_model}"]
 
     if stage == "author_disambiguation" and ctx.publications is not None and ctx.refs is not None:
@@ -1505,7 +1524,7 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
             load_tokenized_snapshot,
             allow_with_source_frames=cfg.enabled and translated,
             load_kwargs={"expected_metadata": expected_metadata},
-        ):
+        ) and _tokenized_snapshot_fits(ctx):
             return ctx
 
     if not _has_translated_frames(ctx):
@@ -1519,6 +1538,11 @@ def run_tokenize_stage(ctx: PipelineContext) -> PipelineContext:
     assert ctx.publications is not None
     assert ctx.refs is not None
     if not cfg.enabled:
+        # Later stages embed full_text and expect a tokens column; without spaCy it stays empty.
+        ctx.publications = ctx.publications.assign(
+            full_text=build_full_text(ctx.publications),
+            tokens=[[] for _ in range(len(ctx.publications))],
+        )
         save_tokenized_snapshot(
             ctx.publications,
             ctx.refs,
