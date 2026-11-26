@@ -1563,6 +1563,73 @@ def test_tokenization_disabled_still_provides_text_for_the_later_stages(tmp_path
     ]
 
 
+def _save_snapshot_of_a_run_without_tokenization(tmp_path, *, with_tokens: bool):
+    """Up to 0.3.3 such a run saved the snapshot without ``full_text`` and ``tokens``."""
+    publication = {"Bibcode": "p1", "Year": 2020, "Title_en": "Black holes", "Abstract_en": "A short abstract."}
+    if with_tokens:
+        publication |= {"full_text": "Black holes. A short abstract.", "tokens": []}
+    pipeline.save_tokenized_snapshot(
+        pd.DataFrame([publication]),
+        pd.DataFrame([{"Bibcode": "r1", "Year": 2010, "Title_en": "Ref", "Abstract_en": ""}]),
+        cache_dir=pipeline.init_paths(project_root=tmp_path)["cache"],
+        metadata={"schema_version": 2, "stage": "tokenize", "config": {"enabled": False}},
+    )
+
+
+@pytest.mark.parametrize("start_stage", ["tokenize", "author_disambiguation", "embeddings"])
+def test_tokenization_disabled_rebuilds_a_snapshot_saved_without_tokens(tmp_path, monkeypatch, start_stage):
+    _save_snapshot_of_a_run_without_tokenization(tmp_path, with_tokens=False)
+    config = pipeline.PipelineConfig.from_dict(
+        {"run": {"project_root": str(tmp_path)}, "tokenize": {"enabled": False}}
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "compute_embeddings",
+        lambda documents, **kwargs: np.ones((len(documents), 3)),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "ensure_spacy_model",
+        lambda **kwargs: pytest.fail("tokenize.enabled=false must not load spaCy"),
+    )
+
+    ctx = pipeline.run_pipeline(
+        config,
+        start_stage=start_stage,
+        stop_stage="embeddings",
+        project_root=tmp_path,
+        run_name="resumed",
+        load_environment=False,
+    )
+
+    assert ctx.publications["full_text"].tolist() == ["Black holes. A short abstract."]
+    assert ctx.publications["tokens"].tolist() == [[]]
+    summary = yaml.safe_load((ctx.run.paths["root"] / "run_summary.yaml").read_text(encoding="utf-8"))
+    assert summary["run"]["status"] == "completed"
+
+
+def test_tokenization_enabled_does_not_reuse_a_snapshot_saved_with_tokenization_off(tmp_path, monkeypatch):
+    _save_snapshot_of_a_run_without_tokenization(tmp_path, with_tokens=True)
+    config = pipeline.PipelineConfig.from_dict({"run": {"project_root": str(tmp_path)}})
+    monkeypatch.setattr(pipeline, "ensure_spacy_model", lambda **kwargs: ("en_core_web_md", object()))
+    monkeypatch.setattr(
+        pipeline,
+        "tokenize_texts",
+        lambda df, **kwargs: df.assign(tokens=[["black", "hole"] for _ in range(len(df))]),
+    )
+
+    ctx = pipeline.run_pipeline(
+        config,
+        start_stage="tokenize",
+        stop_stage="tokenize",
+        project_root=tmp_path,
+        run_name="tokens-on",
+        load_environment=False,
+    )
+
+    assert ctx.publications["tokens"].tolist() == [["black", "hole"]]
+
+
 def test_run_tokenize_stage_uses_current_translated_results_when_snapshot_blocked(tmp_path, monkeypatch):
     config = pipeline.PipelineConfig.from_dict(
         {
