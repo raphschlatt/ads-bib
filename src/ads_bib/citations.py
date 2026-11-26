@@ -559,7 +559,6 @@ def export_wos_format(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     publications = lists_from_arrays(publications)
-    references = lists_from_arrays(references)
 
     ref_lookup = references.drop_duplicates(subset="Bibcode").set_index("Bibcode").to_dict(orient="index")
 

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import warnings
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -112,6 +113,20 @@ def _write_disambiguated_outputs(
         path.write_text('{"ok": true}', encoding="utf-8")
         payload[key] = path
     return payload
+
+
+def test_source_frame_fingerprint_is_the_same_for_a_frame_read_back_from_parquet(tmp_path):
+    authors = [f"Author {i}" for i in range(1200)]
+    frame = pd.DataFrame({"Bibcode": ["p1", "p2"], "Author": [authors, []], "Year": [2020, 2021]})
+    frame.to_parquet(tmp_path / "frame.parquet")
+    read_back = pd.read_parquet(tmp_path / "frame.parquet")
+    assert isinstance(read_back["Author"].iloc[0], np.ndarray)
+
+    assert and_mod._source_frame_fingerprint(read_back) == and_mod._source_frame_fingerprint(frame)
+
+    # An entry in the middle of a long list counts, also when the list arrives as an array.
+    read_back.at[0, "Author"] = np.array(authors[:600] + ["Someone Else"] + authors[601:], dtype=object)
+    assert and_mod._source_frame_fingerprint(read_back) != and_mod._source_frame_fingerprint(frame)
 
 
 def test_source_frame_fingerprint_chunking_matches_legacy_payload(monkeypatch):

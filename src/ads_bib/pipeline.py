@@ -45,6 +45,7 @@ from ads_bib._utils.checkpoints import (
 )
 from ads_bib._utils.cleaning import require_columns as _require_columns
 from ads_bib._utils.costs import CostTracker
+from ads_bib._utils.io import load_parquet
 from ads_bib._utils.logging import (
     OutputMode,
     StageReporter,
@@ -1728,7 +1729,7 @@ def run_author_disambiguation_stage(ctx: PipelineContext) -> PipelineContext:
     )
     author_entities_path = ctx.run.paths["and"] / "author_entities.parquet"
     ctx.author_entities = (
-        pd.read_parquet(author_entities_path)
+        load_parquet(author_entities_path)
         if cfg.enabled and author_entities_path.exists()
         else None
     )

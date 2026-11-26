@@ -7,11 +7,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [Unreleased]
 
 ### Fixed
-- The citation exports no longer depend on whether a table was read from Parquet. Parquet returns list columns as numpy arrays, and the exports expected Python lists. Two kinds of runs were affected: run variants (`--from-run`), which load all their tables from Parquet, and full runs with author disambiguation, where the `Author` column and the author `aliases` come back from Parquet.
+- Citation exports are written the same whether a list column was built in memory or read from Parquet. Parquet returns list columns as numpy arrays, and the exports expected Python lists. This showed in run variants (`--from-run`), which load all their tables from Parquet, and in full runs with author disambiguation, where the `Author` column and the author `aliases` come back from Parquet.
   - GEXF and CSV wrote such lists in numpy's notation (`['A' 'B']` instead of `['A', 'B']`) and cut lists with more than 1,000 entries down to a few entries and `...`.
   - In a variant, the Graphology export stopped with an error, and so did the Web of Science export when `Affiliation` or `Keywords` held a list, as in runs from external source input.
 
-  Tables read from Parquet now hold Python lists, and the exports convert arrays themselves. Nodes, edges and weights of the networks were correct throughout. Variants are affected since 0.2.0. To repair the files of an existing run, create a variant of it that starts at `citations`.
+  List columns of text now come back from Parquet as Python lists. Nodes, edges and weights of the networks were correct throughout. Variants are affected since 0.2.0. To get corrected files for an existing run, run `ads-bib run --from-run <run> --from citations`; the files are written to the run folder of the new variant, the old files stay as they are.
+- The fingerprint that the author disambiguation cache is compared with is now the same for a list and for the array Parquet returns. Before, the two differed, and a change in the middle of a list with more than 1,000 entries did not change the fingerprint when the list was an array.
 
 ## [0.3.4] - 2026-11-26
 

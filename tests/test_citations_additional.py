@@ -231,8 +231,8 @@ def test_network_exports_are_the_same_for_frames_read_back_from_parquet(tmp_path
 
 def test_export_wos_format_is_the_same_for_frames_read_back_from_parquet(tmp_path):
     publications = _publications_for_networks()
-    publications["Author"] = [["A, A.", "B, B."], ["C, C."], []]
-    publications["Affiliation"] = [["Inst 1", "Inst 2"], [], []]
+    publications["Author"] = [[f"Author {i}" for i in range(1200)], ["C, C."], []]
+    publications["Affiliation"] = [[], [], []]
     publications["Keywords"] = [["black holes", "entropy"], [], ["cosmology"]]
     references = pd.DataFrame(
         {
@@ -254,8 +254,9 @@ def test_export_wos_format_is_the_same_for_frames_read_back_from_parquet(tmp_pat
 
     from_memory = (tmp_path / "memory.txt").read_text(encoding="utf-8")
     assert (tmp_path / "parquet.txt").read_text(encoding="utf-8") == from_memory
-    assert "C1 ['Inst 1', 'Inst 2']" in from_memory
-    assert from_memory.count("C1 ") == 1
+    assert "\n   Author 1199\n" in from_memory
+    assert "\nC1 " not in from_memory
+    assert from_memory.count("\nDE ") == 2
 
 
 def test_process_all_citations_runs_selected_metrics_and_exports_csv(tmp_path):

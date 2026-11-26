@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
@@ -56,7 +57,15 @@ def test_parquet_roundtrip_or_skip(tmp_path):
 def test_load_parquet_returns_list_columns_as_python_lists(tmp_path):
     """Parquet hands list columns back as numpy arrays; frames in memory hold lists."""
     authors = [["A, A.", "B, B."], [], [f"Author {i}" for i in range(1200)]]
-    df = pd.DataFrame({"Bibcode": ["p1", "p2", "p3"], "Author": authors, "Citation Count": [3, 2, 1]})
+    df = pd.DataFrame(
+        {
+            "Bibcode": ["p1", "p2", "p3"],
+            "Author": authors,
+            "Affiliation": [[], [], []],
+            "Citation Count": [3, 2, 1],
+            "vector": [np.array([0.5, 1.5]), np.array([2.5, 3.5]), np.array([4.5, 5.5])],
+        }
+    )
     path = tmp_path / "frames.parquet"
     io_utils.save_parquet(df, path)
 
@@ -64,5 +73,19 @@ def test_load_parquet_returns_list_columns_as_python_lists(tmp_path):
 
     assert [type(value) for value in loaded["Author"]] == [list, list, list]
     assert loaded["Author"].tolist() == authors
+    assert loaded["Affiliation"].tolist() == [[], [], []]
     assert loaded["Bibcode"].tolist() == ["p1", "p2", "p3"]
     assert loaded["Citation Count"].tolist() == [3, 2, 1]
+    # Vectors of numbers stay arrays: as lists of Python floats they take several times the memory.
+    assert all(isinstance(value, np.ndarray) for value in loaded["vector"])
+
+
+def test_lists_from_arrays_leaves_the_given_frame_untouched():
+    df = pd.DataFrame({0: [np.array(["a", "b"], dtype=object)], "numbers": [np.array([1, 2])]})
+
+    converted = io_utils.lists_from_arrays(df)
+
+    assert converted[0].tolist() == [["a", "b"]]
+    assert converted["numbers"].tolist() == [[1, 2]]
+    assert isinstance(df[0].iloc[0], np.ndarray)
+    assert io_utils.lists_from_arrays(converted) is converted
