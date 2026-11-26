@@ -12,7 +12,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
   - In a variant, the Graphology export stopped with an error, and so did the Web of Science export when `Affiliation` or `Keywords` held a list, as in runs from external source input.
 
   List columns of text now come back from Parquet as Python lists. Nodes, edges and weights of the networks were correct throughout. Variants are affected since 0.2.0. To get corrected files for an existing run, run `ads-bib run --from-run <run> --from citations`; the files are written to the run folder of the new variant, the old files stay as they are.
-- The fingerprint that the author disambiguation cache is compared with is now the same for a list and for the array Parquet returns. Before, the two differed, and a change in the middle of a list with more than 1,000 entries did not change the fingerprint when the list was an array.
+- The fingerprint that the author disambiguation cache is compared with is now the same for a list and for the array Parquet returns. Before, the two differed, and a change in the middle of a list with more than 1,000 entries did not change the fingerprint when the list was an array. An author disambiguation cache that an older version wrote from tables read from Parquet may be computed once more.
 
 ## [0.3.4] - 2026-11-26
 

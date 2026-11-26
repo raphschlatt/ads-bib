@@ -73,3 +73,14 @@ def test_package_pins_toponymy_dataset_stack_above_pyarrow_breakage() -> None:
 
     assert ">=4.8.5" in str(datasets_requirement.specifier)
     assert "<5" in str(datasets_requirement.specifier)
+
+
+def test_package_reads_parquet_only_through_load_parquet() -> None:
+    """Parquet returns list columns as numpy arrays; ``load_parquet`` turns them into lists."""
+    direct_reads = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "src" / "ads_bib").rglob("*.py"))
+        if "read_parquet(" in path.read_text(encoding="utf-8")
+    ]
+
+    assert direct_reads == ["src/ads_bib/_utils/io.py"]

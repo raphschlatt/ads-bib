@@ -50,8 +50,10 @@ def lists_from_arrays(df: pd.DataFrame, *, numeric: bool = True) -> pd.DataFrame
     from the text of a list (``['a' 'b']``, cut short with ``...`` above 1,000 entries),
     and ``if cell:`` raises. Frames built in memory or read from JSON lines hold lists.
 
-    With ``numeric=False`` arrays of numbers stay as they are; only arrays of text and
-    other objects become lists.
+    With ``numeric=False`` only arrays of dtype object become lists, which is what Parquet
+    returns for lists of text; arrays of numbers stay as they are.
+
+    The result shares its other columns with *df* and is *df* itself when nothing changes.
     """
 
     def is_wanted(value: object) -> bool:
