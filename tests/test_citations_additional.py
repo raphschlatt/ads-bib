@@ -155,6 +155,109 @@ def test_export_wos_format_treats_nan_translated_fields_as_empty(tmp_path):
     assert "AB nan" not in text
 
 
+def _read_back_from_parquet(df: pd.DataFrame, path) -> pd.DataFrame:
+    """Return *df* as plain pandas reads it from Parquet: list columns arrive as numpy arrays."""
+    df.to_parquet(path)
+    loaded = pd.read_parquet(path)
+    list_columns = [column for column in df.columns if isinstance(df[column].iloc[0], list)]
+    assert list_columns
+    assert all(isinstance(value, np.ndarray) for column in list_columns for value in loaded[column])
+    return loaded
+
+
+def _nodes_with_list_columns() -> pd.DataFrame:
+    many = [f"Author {i}" for i in range(1200)]
+    return pd.DataFrame(
+        {
+            "id": ["p1", "p2", "p3"],
+            "label": ["P1", "P2", "P3"],
+            "Year": [2020, 2021, 2022],
+            "Author": [["A, A.", "B, B."], [], many],
+            "author_uids": [["u1", "u2"], [], [f"u{i}" for i in range(1200)]],
+            "Keywords": [["black holes", "entropy"], [], ["cosmology"]],
+        }
+    )
+
+
+def _edges_for_export() -> pd.DataFrame:
+    return pd.DataFrame({"source": ["p1", "p2"], "target": ["p2", "p3"], "weight": [2, 1]})
+
+
+def _gexf_content(path) -> tuple[dict, list]:
+    import networkx as nx
+
+    graph = nx.read_gexf(path)
+    return dict(graph.nodes(data=True)), sorted(graph.edges(data=True))
+
+
+def _json_content(path) -> dict:
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _nodes_csv_content(directory) -> str:
+    return (directory / "nodes.csv").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("export", "target", "content"),
+    [
+        (lambda edges, nodes, path: cit.export_to_gexf(edges, nodes, path, show_progress=False), "net.gexf", _gexf_content),
+        (
+            lambda edges, nodes, path: cit.export_to_graphology_json(edges, nodes, path, show_progress=False),
+            "net.json",
+            _json_content,
+        ),
+        (lambda edges, nodes, path: cit.export_to_csv(edges, nodes, path), "net_csv", _nodes_csv_content),
+    ],
+    ids=["gexf", "graphology", "csv"],
+)
+def test_network_exports_are_the_same_for_frames_read_back_from_parquet(tmp_path, export, target, content):
+    """A run variant loads its frames from Parquet; its exports must match those of the full run."""
+    nodes = _nodes_with_list_columns()
+    edges = _edges_for_export()
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "parquet").mkdir()
+
+    export(edges, nodes, tmp_path / "memory" / target)
+    export(edges, _read_back_from_parquet(nodes, tmp_path / "nodes.parquet"), tmp_path / "parquet" / target)
+
+    from_memory = content(tmp_path / "memory" / target)
+    assert content(tmp_path / "parquet" / target) == from_memory
+    # 1,200 entries: numpy would shorten the list with "..." when it is turned into text.
+    assert "Author 600" in str(from_memory)
+
+
+def test_export_wos_format_is_the_same_for_frames_read_back_from_parquet(tmp_path):
+    publications = _publications_for_networks()
+    publications["Author"] = [["A, A.", "B, B."], ["C, C."], []]
+    publications["Affiliation"] = [["Inst 1", "Inst 2"], [], []]
+    publications["Keywords"] = [["black holes", "entropy"], [], ["cosmology"]]
+    references = pd.DataFrame(
+        {
+            "Bibcode": ["r1", "r2", "r3"],
+            "Author": [["Smith, A.", "Jones, B."], [], ["Miller, C."]],
+            "Year": [1999, 2001, 2005],
+            "Journal": ["ApJ", "MNRAS", "PhRvD"],
+            "Volume": ["10", "11", "12"],
+            "First Page": ["100", "200", "300"],
+        }
+    )
+
+    cit.export_wos_format(publications, references, tmp_path / "memory.txt")
+    cit.export_wos_format(
+        _read_back_from_parquet(publications, tmp_path / "publications.parquet"),
+        _read_back_from_parquet(references, tmp_path / "references.parquet"),
+        tmp_path / "parquet.txt",
+    )
+
+    from_memory = (tmp_path / "memory.txt").read_text(encoding="utf-8")
+    assert (tmp_path / "parquet.txt").read_text(encoding="utf-8") == from_memory
+    assert "C1 ['Inst 1', 'Inst 2']" in from_memory
+    assert from_memory.count("C1 ") == 1
+
+
 def test_process_all_citations_runs_selected_metrics_and_exports_csv(tmp_path):
     publications = _publications_for_networks()
     bibcodes = ["p1", "p2"]

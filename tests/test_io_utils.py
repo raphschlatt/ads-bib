@@ -51,3 +51,18 @@ def test_parquet_roundtrip_or_skip(tmp_path):
 
     assert path.exists()
     assert_frame_equal(loaded.reset_index(drop=True), df.reset_index(drop=True), check_like=False)
+
+
+def test_load_parquet_returns_list_columns_as_python_lists(tmp_path):
+    """Parquet hands list columns back as numpy arrays; frames in memory hold lists."""
+    authors = [["A, A.", "B, B."], [], [f"Author {i}" for i in range(1200)]]
+    df = pd.DataFrame({"Bibcode": ["p1", "p2", "p3"], "Author": authors, "Citation Count": [3, 2, 1]})
+    path = tmp_path / "frames.parquet"
+    io_utils.save_parquet(df, path)
+
+    loaded = io_utils.load_parquet(path)
+
+    assert [type(value) for value in loaded["Author"]] == [list, list, list]
+    assert loaded["Author"].tolist() == authors
+    assert loaded["Bibcode"].tolist() == ["p1", "p2", "p3"]
+    assert loaded["Citation Count"].tolist() == [3, 2, 1]
