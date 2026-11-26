@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-26
+
 ### Added
 - `run_summary.yaml` now reports the number of search hits (`counts.search`), the publications and references without a record after the export (`counts.export`), the translations that failed (`counts.translation.failed`), and the installed `ads-bib` version (`reproducibility.ads_bib_version`). The export and translate stages also print missing records and failed translations.
 
@@ -13,17 +15,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Four dependencies that had no upper bound now have one: `bertopic<0.18`, `litellm<2`, `openai<4`, `scikit-learn<2`. A fresh install resolves the same versions as before; the bounds keep out future major releases that the package has not been tested with.
 
 ### Fixed
-- A run no longer continues with a partial corpus when an ADS export request fails for good. The export stage stops with an error that names the failed requests; before, up to 2,000 records per failed request were missing without notice and the run ended as `completed`.
+- A run no longer continues with a partial corpus when an ADS export request fails for good. The export stage stops with an error that names the failed requests; before, the run only logged a warning, went on without up to 2,000 records per failed request and ended as `completed`.
 - An empty answer from a translation model now counts as a failed translation and the original text is kept. Before, the Hugging Face API provider and NLLB wrote an empty text into `Title_en` or `Abstract_en`, and the local providers kept the original without counting it.
 - `translate.enabled: false` now works: titles and abstracts are passed on unchanged as `Title_en` and `Abstract_en`. Before, such a run stopped at the tokenize stage in a new project folder, and in a used project folder it could continue with the publications of an earlier run from the shared cache. If you ran with this setting in a project folder that already held another run, repeat that run.
 - A run that starts at `tokenize` with untranslated publications already loaded, for example from `source_input`, no longer swaps them for the tokenized snapshot of an earlier run in the shared cache.
-- `tokenize.enabled: false` now works: the run builds `full_text` without spaCy and leaves `tokens` empty. Before, it stopped at the author disambiguation stage. A run that stopped there can be continued: the snapshot it left in the cache is rebuilt.
+- `tokenize.enabled: false` now works: the run builds `full_text` without spaCy and leaves `tokens` empty. Before, it stopped at the author disambiguation stage. A run that stopped there can be continued: the snapshot it left in the cache is rebuilt. The BERTopic backend still needs the spaCy model installed for its `POS` keywords.
 - `--from-run` works again with runs saved by 0.2.0 to 0.3.1. Their `config_used.yaml` still contains the removed key `curation.cluster_targets`, which is now read as `curation.layered_clusters_to_remove`. A subtitle that still uses the default from before 0.1.0, whose placeholders no longer exist, is replaced by the current default.
 - A variant is created in the project folder that contains its base run (`<project>/runs/<run_id>`), or in the current folder if the base run sits elsewhere. It no longer uses the folder recorded in the base run's config, which may be gone after the run was moved. `--dry-run` shows the project folder.
 
 ### Docs
 - Corrected the advice on `topic_model.outlier_threshold`: a lower value reassigns more outliers, a higher value fewer, and `0` turns the reassignment off for Toponymy. The docs said the opposite.
 - The two demo images in the README now also load on the PyPI page. The README points to them with full addresses, and the co-citation demo GIF was saved again without changing a pixel so that it fits under PyPI's 10 MB limit for images (12.6 MB before, 8.5 MB now).
+- The README has a Citation section with the Zenodo DOI, and badges for the tests, the PyPI version and the DOI.
 
 ## [0.3.3] - 2026-05-22
 
