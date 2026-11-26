@@ -11,6 +11,7 @@ import shutil
 from typing import Any
 import warnings
 
+import numpy as np
 import pandas as pd
 
 from ads_bib._utils.authors import author_list as _author_list
@@ -245,6 +246,9 @@ _CACHED_AND_ARTIFACT_PATTERNS = (
 
 
 def _jsonable_value(value: Any) -> str:
+    if isinstance(value, np.ndarray):
+        # As text an array differs from the same list and is cut short above 1,000 entries.
+        value = value.tolist()
     try:
         return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
     except TypeError:

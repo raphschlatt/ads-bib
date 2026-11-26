@@ -27,6 +27,7 @@ from ads_bib._utils.authors import (
     author_text as _author_text,
     first_author_lastname as _first_author_lastname,
 )
+from ads_bib._utils.io import lists_from_arrays
 
 logger = logging.getLogger(__name__)
 
@@ -436,7 +437,7 @@ def export_to_gexf(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
+    nodes_out = lists_from_arrays(nodes.drop(columns=["References", "tokens"], errors="ignore"))
 
     G = nx.DiGraph() if directed else nx.Graph()
 
@@ -471,7 +472,7 @@ def export_to_graphology_json(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    nodes_out = nodes.drop(columns=["References", "tokens"], errors="ignore")
+    nodes_out = lists_from_arrays(nodes.drop(columns=["References", "tokens"], errors="ignore"))
 
     node_records = nodes_out.to_dict(orient="records")
     graph_nodes = [
@@ -519,7 +520,7 @@ def export_to_csv(
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     edges.to_csv(directory / "edges.csv", index=False)
-    nodes.to_csv(directory / "nodes.csv", index=False)
+    lists_from_arrays(nodes).to_csv(directory / "nodes.csv", index=False)
     if evidence is not None and not evidence.empty:
         evidence.to_csv(directory / "evidence.csv", index=False)
     return directory
@@ -557,6 +558,7 @@ def export_wos_format(
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    publications = lists_from_arrays(publications)
 
     ref_lookup = references.drop_duplicates(subset="Bibcode").set_index("Bibcode").to_dict(orient="index")
 

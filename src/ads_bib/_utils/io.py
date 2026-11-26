@@ -6,6 +6,7 @@ import pickle
 from pathlib import Path
 import hashlib
 
+import numpy as np
 import pandas as pd
 
 
@@ -42,9 +43,39 @@ def save_parquet(df: pd.DataFrame, path: Path | str) -> None:
     df.to_parquet(path, compression="snappy")
 
 
+def lists_from_arrays(df: pd.DataFrame, *, numeric: bool = True) -> pd.DataFrame:
+    """Return *df* with numpy-array cells turned into Python lists.
+
+    Parquet hands list columns back as numpy arrays. Text made from such a cell differs
+    from the text of a list (``['a' 'b']``, cut short with ``...`` above 1,000 entries),
+    and ``if cell:`` raises. Frames built in memory or read from JSON lines hold lists.
+
+    With ``numeric=False`` only arrays of dtype object become lists, which is what Parquet
+    returns for lists of text; arrays of numbers stay as they are.
+
+    The result shares its other columns with *df* and is *df* itself when nothing changes.
+    """
+
+    def is_wanted(value: object) -> bool:
+        return isinstance(value, np.ndarray) and (numeric or value.dtype == object)
+
+    result = df
+    for column in df.columns[df.dtypes == object]:
+        values = df[column]
+        if not isinstance(values, pd.Series) or not any(is_wanted(value) for value in values):
+            continue
+        if result is df:
+            result = df.copy(deep=False)
+        result[column] = values.map(lambda value: value.tolist() if is_wanted(value) else value)
+    return result
+
+
 def load_parquet(path: Path | str) -> pd.DataFrame:
-    """Load a Parquet file into a DataFrame."""
-    return pd.read_parquet(path)
+    """Load a Parquet file into a DataFrame; list columns of text hold Python lists.
+
+    Arrays of numbers, such as stored embedding vectors, stay numpy arrays.
+    """
+    return lists_from_arrays(pd.read_parquet(path), numeric=False)
 
 
 def save_pickle(data, path: Path | str) -> None:
