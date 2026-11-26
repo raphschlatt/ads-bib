@@ -22,7 +22,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Docs
 - Corrected the advice on `topic_model.outlier_threshold`: a lower value reassigns more outliers, a higher value fewer, and `0` turns the reassignment off for Toponymy. The docs said the opposite.
-- The two demo images in the README now also load on the PyPI page. The README points to them with full addresses, and the co-citation demo GIF was saved again without changing a pixel so that it stays below PyPI's 10 MB limit for images (12.6 MB before, 8.4 MB now).
+- The two demo images in the README now also load on the PyPI page. The README points to them with full addresses, and the co-citation demo GIF was saved again without changing a pixel so that it fits under PyPI's 10 MB limit for images (12.6 MB before, 8.5 MB now).
 
 ## [0.3.3] - 2026-05-22
 
