@@ -10,7 +10,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 - Citation exports are written the same whether a list column was built in memory or read from Parquet. Parquet returns list columns as numpy arrays, and the exports expected Python lists. Run variants (`--from-run`) load all their tables from Parquet; in a full run with author disambiguation, the `Author` column and the author `aliases` come back from Parquet. What went wrong:
-  - A variant of a run from external source input stopped at the citations stage: the Web of Science export failed when `Affiliation` or `Keywords` held a list. In a variant of any run, the Graphology export stopped with an error.
+  - A variant of a run from external source input stopped at the citations stage: the Web of Science export failed when `Affiliation` or `Keywords` held a list. With `citations.output_format` set to `graphology` or `all`, a variant stopped at the Graphology export, also for runs from ADS.
   - GEXF and CSV files held lists in numpy's notation (`['A' 'B']` instead of `['A', 'B']`), and a list with more than 1,000 entries was cut down to a few entries and `...`. In a variant this affected all list columns, in a full run with author disambiguation `Author` and `aliases`.
 
   This corrects the 0.3.4 notes, which said that `--from-run` works again with runs saved by 0.2.0 to 0.3.1. Since 0.3.4 the configs of these runs load again, but a variant could still stop at the citations stage or write its lists as described above.
