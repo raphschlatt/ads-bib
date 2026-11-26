@@ -9,14 +9,20 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ## [0.3.5] - 2026-11-26
 
 ### Fixed
-- Citation exports are written the same whether a list column was built in memory or read from Parquet. Parquet returns list columns as numpy arrays, and the exports expected Python lists. Run variants (`--from-run`) load all their tables from Parquet; in a full run with author disambiguation, the `Author` column and the author `aliases` come back from Parquet. What went wrong:
-  - A variant of a run from external source input stopped at the citations stage: the Web of Science export failed when `Affiliation` or `Keywords` held a list. With `citations.output_format` set to `graphology` or `all`, a variant stopped at the Graphology export, also for runs from ADS.
-  - GEXF and CSV files held lists in numpy's notation (`['A' 'B']` instead of `['A', 'B']`), and a list with more than 1,000 entries was cut down to a few entries and `...`. In a variant this affected all list columns, in a full run with author disambiguation `Author` and `aliases`.
+- Citation exports are written the same whether a list column was built in memory or read from Parquet. Parquet returns list columns as numpy arrays, and the exports expected Python lists. Affected were all runs that read a table back from Parquet before the citations stage:
+  - run variants (`--from-run`), which load all their tables from Parquet;
+  - runs with author disambiguation, where the publication, reference and author tables come back from that step as Parquet files;
+  - runs started at `translate` or a later stage with `--from <stage>`, which take their tables from the cache.
+
+  A run in one go, from `search` or from external source input, without author disambiguation was not affected. In the affected runs:
+  - With `citations.output_format` set to `graphology` or `all`, the run stopped at the Graphology export with `can only convert an array of size 1 to a Python scalar`.
+  - With external source input, the run stopped at the Web of Science export when `Affiliation` or `Keywords` held a list; the error starts with `The truth value of an`.
+  - GEXF files and `nodes.csv` held lists in numpy's notation (`['A' 'B']` instead of `['A', 'B']`), and a list with more than 1,000 entries was cut down to a few entries and `...`. In a variant this affected every list column; in the other runs it affected `Author`, in `nodes.csv` also `tokens`, with author disambiguation the `aliases` of the author nodes, and with external source input also `Affiliation`, `Keywords` and `Category`.
 
   This corrects the 0.3.4 notes, which said that `--from-run` works again with runs saved by 0.2.0 to 0.3.1. Since 0.3.4 the configs of these runs load again, but a variant could still stop at the citations stage or write its lists as described above.
 
-  List columns of text now come back from Parquet as Python lists. Nodes, edges and weights of the networks were correct throughout. Variants are affected since 0.2.0. To get corrected files for an existing run, run `ads-bib run --from-run <run> --from citations`; the files are written to the run folder of the new variant, the old files stay as they are.
-- The fingerprint that the author disambiguation cache is compared with is now the same for a list and for the array Parquet returns. Before, the two differed, and a change in the middle of a list with more than 1,000 entries did not change the fingerprint when the list was an array. An author disambiguation cache that an older version wrote from tables read from Parquet may be computed once more.
+  List columns of text now come back from Parquet as Python lists. Which nodes and edges a network has, and the edge weights, were correct throughout; only list-valued node attributes were affected. Variants are affected since 0.2.0, the other runs since 0.1.0. To get corrected files for a run saved by 0.2.0 or later, run `ads-bib run --from-run <run> --from citations` with 0.3.5; the files are written to the run folder of the new variant, the old files stay as they are.
+- The fingerprint that the author disambiguation cache is compared with is now the same for a list and for the array Parquet returns. Before, the two differed, so author disambiguation could run again although a saved result fitted; and a change in the middle of a list with more than 1,000 entries went unnoticed when the list was an array, so an outdated result could be reused. After the update, author disambiguation may run once more where an older version saved its result from tables read from Parquet.
 
 ## [0.3.4] - 2026-11-26
 
